@@ -657,6 +657,26 @@ int goto_instrument_parse_optionst::doit()
       return CPROVER_EXIT_SUCCESS;
     }
 
+     if(cmdline.isset("print-detailed-ir"))
+    {
+      for(auto const &pair : goto_model.goto_functions.function_map)
+        for(auto const &ins : pair.second.body.instructions)
+        {
+          if(ins.code.is_not_nil())
+            log.status() << ins.code.pretty() << messaget::eom;
+            log.status() << ins.type << messaget::eom;
+          if(ins.has_condition())
+          {
+            exprt guard = ins.get_condition();
+            log.status() << "[guard] " << guard.pretty()
+                         << messaget::eom;
+            log.status() << "[guard] " << guard.get_type_string(0)
+                         << messaget::eom;
+          }
+        }
+      return CPROVER_EXIT_SUCCESS;
+    }
+
     if(
       cmdline.isset("show-goto-functions") ||
       cmdline.isset("list-goto-functions"))
@@ -1771,6 +1791,8 @@ void goto_instrument_parse_optionst::help()
     " --drop-unused-functions      drop functions trivially unreachable from main function\n" // NOLINT(*)
     " --print-internal-representation\n" // NOLINTNEXTLINE(*)
     "                              show verbose internal representation of the program\n"
+    " --print-detailed-ir\n" // NOLINTNEXTLINE(*)
+    "                              show internal representation of the program with type information\n"
     " --list-undefined-functions   list functions without body\n"
     " --show-struct-alignment      show struct members that might be concurrently accessed\n" // NOLINT(*)
     " --show-natural-loops         show natural loop heads\n"

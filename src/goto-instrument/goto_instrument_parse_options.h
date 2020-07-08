@@ -85,6 +85,7 @@ Author: Daniel Kroening, kroening@kroening.com
   "(inline)(partial-inline)(function-inline):(log):(no-caching)" \
   OPT_REMOVE_CONST_FUNCTION_POINTERS \
   "(print-internal-representation)" \
+  "(print-detailed-ir)" \
   "(remove-function-pointers)" \
   "(show-claims)(property):" \
   "(show-symbol-table)(show-points-to)(show-rw-set)" \
