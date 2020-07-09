@@ -663,8 +663,10 @@ int goto_instrument_parse_optionst::doit()
         for(auto const &ins : pair.second.body.instructions)
         {
           if(ins.code.is_not_nil())
+          {
             log.status() << ins.code.pretty() << messaget::eom;
             log.status() << ins.type << messaget::eom;
+          }
           if(ins.has_condition())
           {
             exprt guard = ins.get_condition();
