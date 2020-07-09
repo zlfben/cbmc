@@ -360,6 +360,14 @@ int goto_instrument_parse_optionst::doit()
       return CPROVER_EXIT_SUCCESS;
     }
 
+    if(cmdline.isset("show-index-exprs"))
+    {
+      std::string target_variable = cmdline.get_value("show-index-exprs");
+      std::cout << "show-index-exprs" << " " << target_variable << std::endl;
+      
+      return CPROVER_EXIT_SUCCESS;
+    }
+
     if(cmdline.isset("show-sese-regions"))
     {
       // Ensure location numbering is unique:
@@ -1809,6 +1817,8 @@ void goto_instrument_parse_optionst::help()
     " --show-local-safe-pointers   show pointer expressions that are trivially dominated by a not-null check\n" // NOLINT(*)
     " --show-safe-dereferences     show pointer expressions that are trivially dominated by a not-null check\n" // NOLINT(*)
     "                              *and* used as a dereference operand\n" // NOLINT(*)
+    " --show-index-exprs array_name\n"
+    "                              show expressions that index into the target array\n"
     HELP_VALIDATE
     // NOLINTNEXTLINE(whitespace/line_length)
     " --validate-goto-binary       check the well-formedness of the passed in goto\n"
