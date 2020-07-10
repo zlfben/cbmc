@@ -362,8 +362,95 @@ int goto_instrument_parse_optionst::doit()
 
     if(cmdline.isset("show-index-exprs"))
     {
+      class show_index_exprt : public expr_visitort
+      {
+      private:
+        // const irep_idt old_name;
+        // const irep_idt new_name;
+        const irep_idt array_name;
+
+      public:
+        explicit show_index_exprt(const irep_idt &_array_name): array_name(_array_name)
+        {
+        }
+
+        void operator()(exprt &expr) override
+        {
+          // if there is an operand of this expr that is "array_name", this is a ref
+          if(expr.has_operands())
+          {
+            exprt::operandst operands = expr.operands();
+            if(operands.front().id() == ID_symbol && operands.front().type().id() == ID_pointer)
+            {
+              symbol_exprt &symb = to_symbol_expr(operands.front());
+              if(symb.get_identifier() == array_name)
+              {
+                std::cout << expr.pretty() << std::endl;
+              }
+            } 
+            // bool flag = false;
+            // for(auto &op: operands)
+            // {
+            //   if(op.id() == ID_symbol && op.type().id() == ID_pointer)
+            //   {
+            //     symbol_exprt &symb = to_symbol_expr(op);
+            //     if(symb.get_identifier() == array_name)
+            //     {
+            //       flag = true;
+            //       break;
+            //     }
+            //   }
+            // }
+            // if(flag)
+            // {
+            //   std::cout << expr.pretty() << std::endl;
+            // }
+          }
+        }
+      };
+
       std::string target_variable = cmdline.get_value("show-index-exprs");
+      show_index_exprt se(target_variable);
+
+      // for each function, rename all references to that variable
+      Forall_goto_functions(it, goto_model.goto_functions)
+      {
+        // it->second is the goto_functiont
+        goto_functiont &goto_function = it->second;
+
+        // for each instruction, we change the referenced name of the target variable
+        Forall_goto_program_instructions(it, goto_function.body)
+        {
+          // go through conditions
+          if(it->has_condition()) {
+            exprt new_guard = it->get_condition();
+            new_guard.visit(se);
+            it->set_condition(new_guard);
+          }
+
+          // go through all expressions
+          if(it->is_function_call()) {
+            const code_function_callt fc = it->get_function_call();
+            code_function_callt::argumentst new_arguments = fc.arguments();
+            exprt new_lhs = fc.lhs();
+            exprt new_function = fc.function();
+            new_lhs.visit(se);
+            new_function.visit(se);
+            for (auto &arg: new_arguments) 
+              arg.visit(se);
+          } else if(it->is_assign()) {
+            const code_assignt as = it->get_assign();
+            exprt new_lhs = as.lhs();
+            exprt new_rhs = as.rhs();
+            new_lhs.visit(se);
+            new_rhs.visit(se);
+          }
+        }
+      }
+      
+      
       std::cout << "show-index-exprs" << " " << target_variable << std::endl;
+      
       
       return CPROVER_EXIT_SUCCESS;
     }
