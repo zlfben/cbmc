@@ -24,6 +24,8 @@ Author: Daniel Kroening, kroening@kroening.com
 #include <util/unicode.h>
 #include <util/version.h>
 
+#include <json/json_parser.h>
+
 #include <goto-programs/class_hierarchy.h>
 #include <goto-programs/ensure_one_backedge_per_target.h>
 #include <goto-programs/goto_convert_functions.h>
@@ -752,7 +754,7 @@ int goto_instrument_parse_optionst::doit()
       return CPROVER_EXIT_SUCCESS;
     }
 
-     if(cmdline.isset("print-detailed-ir"))
+    if(cmdline.isset("print-detailed-ir"))
     {
       for(auto const &pair : goto_model.goto_functions.function_map)
         for(auto const &ins : pair.second.body.instructions)
@@ -771,6 +773,17 @@ int goto_instrument_parse_optionst::doit()
                          << messaget::eom;
           }
         }
+      return CPROVER_EXIT_SUCCESS;
+    }
+
+    if(cmdline.isset("use-abst"))
+    {
+      std::string filename = cmdline.get_value("use-abst");
+      jsont json;
+      parse_json(filename, ui_message_handler, json);
+      irep_idt abst_array_id = json["array_name"].value;
+      std::cout << abst_array_id << std::endl;
+
       return CPROVER_EXIT_SUCCESS;
     }
 
@@ -1988,6 +2001,7 @@ void goto_instrument_parse_optionst::help()
     " --no-caching                 disable caching of intermediate results during transitive function inlining\n" // NOLINT(*)
     " --log <file>                 log in json format which code segments were inlined, use with --function-inline\n" // NOLINT(*)
     " --remove-function-pointers   replace function pointers by case statement over function calls\n" // NOLINT(*)
+    " --use-abst <file>            abstract given arrays specified in the json file\n"
     HELP_RESTRICT_FUNCTION_POINTER
     HELP_REMOVE_CALLS_NO_BODY
     HELP_REMOVE_CONST_FUNCTION_POINTERS
