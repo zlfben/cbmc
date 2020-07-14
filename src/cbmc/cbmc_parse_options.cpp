@@ -76,6 +76,8 @@ Author: Daniel Kroening, kroening@kroening.com
 #include <goto-instrument/nondet_static.h>
 #include <goto-instrument/reachability_slicer.h>
 
+#include <goto-instrument/abstraction_spect.h>
+
 #include <goto-symex/path_storage.h>
 
 #include <pointer-analysis/add_failed_symbols.h>
@@ -804,10 +806,11 @@ int cbmc_parse_optionst::get_goto_program(
   if(cmdline.isset("use-abstraction"))
   {
     
-    std::string abst_funcs_file = "/Users/talupur/workspaces/abstract-cbmc/cbmc/regression/abstraction/abst-funcs.c";
+    std::string abst_file = options.get_option("use-abstraction");
 
-    std::vector<std::string> abstfiles(1, abst_funcs_file);
-    log.status() << "File with abstraction funcs is "  << abst_funcs_file << messaget::eom; 
+    abstraction_spect abst_info(abst_file);
+
+    std::vector<std::string> abstfiles = abst_info.get_abstraction_function_files();
 
     log.status() << "Reading in abst funcs goto-model"  << messaget::eom;
     goto_modelt goto_model_for_abst_fns = initialize_goto_model(abstfiles, ui_message_handler, options);
