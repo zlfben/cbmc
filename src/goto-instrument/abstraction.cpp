@@ -51,10 +51,22 @@ size_t expr_type_relation::add_expr(const exprt &expr)
       link(operands_index[0], operands_index[1]);
     }
     else if(
-      expr.id() == ID_const_cast || expr.id() == ID_static_cast ||
+      expr.id() == ID_const_cast || expr.id() == ID_static_cast || expr.id() == ID_typecast || 
       expr.id() == ID_dynamic_cast || expr.id() == ID_reinterpret_cast)
     {
       link(index, operands_index[0]);
+    }
+    else if(expr.id() == ID_plus || expr.id() == ID_minus)
+    {
+      if(expr.operands()[0].id() == ID_symbol)
+      {
+        if(
+          (expr.operands()[1].id() == ID_typecast && expr.operands()[1].operands()[0].id() == ID_constant) ||
+          expr.operands()[1].id() == ID_constant)
+        {
+          link(index, operands_index[0]);
+        }
+      }
     }
 
     // If this is an access to the array, put it into the set of exprs covered
@@ -64,7 +76,9 @@ size_t expr_type_relation::add_expr(const exprt &expr)
     {
       const symbol_exprt &symb = to_symbol_expr(expr.operands().front());
       if(symb.get_identifier() == target_array)
+      {
         todo.insert(operands_index[1]);
+      }
     }
   }
 
@@ -73,6 +87,33 @@ size_t expr_type_relation::add_expr(const exprt &expr)
 
 void expr_type_relation::solve()
 {
+  while(!todo.empty())
+  {
+    std::unordered_set<size_t>::iterator current_it = todo.begin();
+    size_t current_index = *current_it;
+    todo.erase(current_it);
+    finished.insert(current_index);
+
+    for(size_t neighbor: edges[current_index])
+    {
+      if(todo.find(neighbor) == todo.end() && finished.find(neighbor) == finished.end())
+      {
+        // this neighbor doesn't exist previously, should be put into todo
+        todo.insert(neighbor);
+      }
+    }
+    if(expr_list[current_index].id() == ID_symbol)
+    {
+      const symbol_exprt &symb = to_symbol_expr(expr_list[current_index]);
+      const irep_idt symb_id = symb.get_identifier();
+      for(size_t neighbor: symbols[symb_id])
+      {
+        if(todo.find(neighbor) == todo.end() && finished.find(neighbor) == finished.end())
+          todo.insert(neighbor);
+      }
+      abst_variables.insert(symb_id);
+    }
+  }
 }
 
 void abstract_goto_program(goto_modelt &goto_model, jsont json)
@@ -138,7 +179,7 @@ void abstract_goto_program(goto_modelt &goto_model, jsont json)
 
   irep_idt abst_array_id = json["array_name"].value;
 
-  show_index_exprt se(abst_array_id);
+  expr_type_relation etr(abst_array_id);
 
   // for each function, rename all references to that variable
   Forall_goto_functions(it, goto_model.goto_functions)
@@ -152,9 +193,7 @@ void abstract_goto_program(goto_modelt &goto_model, jsont json)
       // go through conditions
       if(it->has_condition())
       {
-        exprt new_guard = it->get_condition();
-        new_guard.visit(se);
-        it->set_condition(new_guard);
+        etr.add_expr(it->get_condition());
       }
 
       // go through all expressions
@@ -163,20 +202,22 @@ void abstract_goto_program(goto_modelt &goto_model, jsont json)
         const code_function_callt fc = it->get_function_call();
         code_function_callt::argumentst new_arguments = fc.arguments();
         exprt new_lhs = fc.lhs();
-        exprt new_function = fc.function();
-        new_lhs.visit(se);
-        new_function.visit(se);
-        for(auto &arg : new_arguments)
-          arg.visit(se);
+        etr.add_expr(fc.lhs());
+        
+        for(auto &arg : fc.arguments())
+          etr.add_expr(arg);
       }
       else if(it->is_assign())
       {
         const code_assignt as = it->get_assign();
-        exprt new_lhs = as.lhs();
-        exprt new_rhs = as.rhs();
-        new_lhs.visit(se);
-        new_rhs.visit(se);
+        size_t l_id = etr.add_expr(as.lhs());
+        size_t r_id = etr.add_expr(as.rhs());
+        etr.link(l_id, r_id);
       }
     }
   }
+
+  etr.solve();
+  for(auto v: etr.get_abst_variables())
+    std::cout << v << std::endl;
 }

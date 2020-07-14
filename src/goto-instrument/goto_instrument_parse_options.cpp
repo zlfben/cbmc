@@ -767,7 +767,8 @@ int goto_instrument_parse_optionst::doit()
       parse_json(filename, ui_message_handler, json);
 
       abstract_goto_program(goto_model, json);
-      
+      std::cout << "abstract finished" << std::endl;
+
       return CPROVER_EXIT_SUCCESS;
     }
 

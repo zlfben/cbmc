@@ -31,6 +31,7 @@ protected:
   std::unordered_set<size_t> finished;
   std::unordered_set<size_t> todo;
   std::map<irep_idt, std::vector<size_t>> symbols;
+  std::unordered_set<irep_idt> abst_variables;
 
 public:
   expr_type_relation(irep_idt _target_array) : target_array(_target_array)
@@ -39,6 +40,10 @@ public:
   void link(size_t i1, size_t i2);
   size_t add_expr(const exprt &expr);
   void solve();
+  const std::unordered_set<irep_idt> & get_abst_variables()
+  {
+    return abst_variables;
+  }
 };
 
 // abstract goto programs
