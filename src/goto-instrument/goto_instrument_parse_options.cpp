@@ -81,6 +81,7 @@ Author: Daniel Kroening, kroening@kroening.com
 
 #include <cpp/cprover_library.h>
 
+#include "abstraction.h"
 #include "accelerate/accelerate.h"
 #include "alignment_checks.h"
 #include "branch.h"
@@ -390,23 +391,6 @@ int goto_instrument_parse_optionst::doit()
                 std::cout << expr.pretty() << std::endl;
               }
             } 
-            // bool flag = false;
-            // for(auto &op: operands)
-            // {
-            //   if(op.id() == ID_symbol && op.type().id() == ID_pointer)
-            //   {
-            //     symbol_exprt &symb = to_symbol_expr(op);
-            //     if(symb.get_identifier() == array_name)
-            //     {
-            //       flag = true;
-            //       break;
-            //     }
-            //   }
-            // }
-            // if(flag)
-            // {
-            //   std::cout << expr.pretty() << std::endl;
-            // }
           }
         }
       };
@@ -781,9 +765,9 @@ int goto_instrument_parse_optionst::doit()
       std::string filename = cmdline.get_value("use-abst");
       jsont json;
       parse_json(filename, ui_message_handler, json);
-      irep_idt abst_array_id = json["array_name"].value;
-      std::cout << abst_array_id << std::endl;
 
+      abstract_goto_program(goto_model, json);
+      
       return CPROVER_EXIT_SUCCESS;
     }
 
