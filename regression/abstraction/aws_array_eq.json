@@ -1,0 +1,43 @@
+{
+    "entries": [
+        {
+            "entity": "array",
+            "path": "aws_array_eq_harness.c/aws_array_eq_harness",
+            "name": "rhs",
+            "shape": {
+                "indices": ["lhs_cncrt", "rhs_cncrt"],
+                "assumptions": [
+                    "lhs_cncrt < rhs_cncrt"
+                ],
+                "shape-type": "*c+c*"
+            },
+            "abst-functions":{
+                "add-abs-conc": "./abst-funcs.c/add_abs_to_conc",
+                "sub-abs-conc": "../abst-funcs.c/sub_conc_from_abs",
+                "precise-check": "../abst-funcs.c/is_precise",
+                "abstract-index": "../abst-funcs.c/four_abs",
+                "concretize-index": "../abst-funcs.c/concretize",
+                "multiply-indices": "none",
+                "mod-indices": "none"
+            },
+            "related-entities": [
+                {
+                    "entity": "array",
+                    "path": "aws_array_eq_harness.c/aws_array_eq_harness",
+                    "name": "lhs"
+                },
+                {
+                    "entity": "scalar",
+                    "path": "aws_array_eq_harness.c/aws_array_eq_harness",
+                    "name": "rhs_len"
+                },
+                {
+                    "entity": "scalar",
+                    "path": "aws_array_eq_harness.c/aws_array_eq_harness",
+                    "name": "lhs_len"
+                }
+            ]
+
+        }
+    ]
+}

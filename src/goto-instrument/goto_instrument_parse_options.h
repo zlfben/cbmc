@@ -89,6 +89,7 @@ Author: Daniel Kroening, kroening@kroening.com
   "(remove-function-pointers)" \
   "(show-claims)(property):" \
   "(show-symbol-table)(show-points-to)(show-rw-set)" \
+  "(use-abstraction):" \
   "(cav11)" \
   OPT_TIMESTAMP \
   "(show-natural-loops)(show-lexical-loops)(accelerate)(havoc-loops)" \
@@ -115,6 +116,7 @@ Author: Daniel Kroening, kroening@kroening.com
   OPT_REPLACE_FUNCTION_BODY \
   OPT_GOTO_PROGRAM_STATS \
   "(show-local-safe-pointers)(show-safe-dereferences)" \
+  "(show-index-exprs):" \
   "(show-sese-regions)" \
   OPT_REPLACE_CALLS \
   "(validate-goto-binary)" \

@@ -24,6 +24,8 @@ Author: Daniel Kroening, kroening@kroening.com
 #include <util/unicode.h>
 #include <util/version.h>
 
+#include <json/json_parser.h>
+
 #include <goto-programs/class_hierarchy.h>
 #include <goto-programs/ensure_one_backedge_per_target.h>
 #include <goto-programs/goto_convert_functions.h>
@@ -79,6 +81,7 @@ Author: Daniel Kroening, kroening@kroening.com
 
 #include <cpp/cprover_library.h>
 
+#include "abstraction.h"
 #include "accelerate/accelerate.h"
 #include "alignment_checks.h"
 #include "branch.h"
@@ -357,6 +360,84 @@ int goto_instrument_parse_optionst::doit()
         std::cout << '\n';
       }
 
+      return CPROVER_EXIT_SUCCESS;
+    }
+
+    if(cmdline.isset("show-index-exprs"))
+    {
+      class show_index_exprt : public expr_visitort
+      {
+      private:
+        // const irep_idt old_name;
+        // const irep_idt new_name;
+        const irep_idt array_name;
+
+      public:
+        explicit show_index_exprt(const irep_idt &_array_name): array_name(_array_name)
+        {
+        }
+
+        void operator()(exprt &expr) override
+        {
+          // if there is an operand of this expr that is "array_name", this is a ref
+          if(expr.has_operands())
+          {
+            exprt::operandst operands = expr.operands();
+            if(operands.front().id() == ID_symbol && operands.front().type().id() == ID_pointer)
+            {
+              symbol_exprt &symb = to_symbol_expr(operands.front());
+              if(symb.get_identifier() == array_name)
+              {
+                std::cout << expr.pretty() << std::endl;
+              }
+            } 
+          }
+        }
+      };
+
+      std::string target_variable = cmdline.get_value("show-index-exprs");
+      show_index_exprt se(target_variable);
+
+      // for each function, rename all references to that variable
+      Forall_goto_functions(it, goto_model.goto_functions)
+      {
+        // it->second is the goto_functiont
+        goto_functiont &goto_function = it->second;
+
+        // for each instruction, we change the referenced name of the target variable
+        Forall_goto_program_instructions(it, goto_function.body)
+        {
+          // go through conditions
+          if(it->has_condition()) {
+            exprt new_guard = it->get_condition();
+            new_guard.visit(se);
+            it->set_condition(new_guard);
+          }
+
+          // go through all expressions
+          if(it->is_function_call()) {
+            const code_function_callt fc = it->get_function_call();
+            code_function_callt::argumentst new_arguments = fc.arguments();
+            exprt new_lhs = fc.lhs();
+            exprt new_function = fc.function();
+            new_lhs.visit(se);
+            new_function.visit(se);
+            for (auto &arg: new_arguments) 
+              arg.visit(se);
+          } else if(it->is_assign()) {
+            const code_assignt as = it->get_assign();
+            exprt new_lhs = as.lhs();
+            exprt new_rhs = as.rhs();
+            new_lhs.visit(se);
+            new_rhs.visit(se);
+          }
+        }
+      }
+      
+      
+      std::cout << "show-index-exprs" << " " << target_variable << std::endl;
+      
+      
       return CPROVER_EXIT_SUCCESS;
     }
 
@@ -657,7 +738,7 @@ int goto_instrument_parse_optionst::doit()
       return CPROVER_EXIT_SUCCESS;
     }
 
-     if(cmdline.isset("print-detailed-ir"))
+    if(cmdline.isset("print-detailed-ir"))
     {
       for(auto const &pair : goto_model.goto_functions.function_map)
         for(auto const &ins : pair.second.body.instructions)
@@ -676,6 +757,18 @@ int goto_instrument_parse_optionst::doit()
                          << messaget::eom;
           }
         }
+      return CPROVER_EXIT_SUCCESS;
+    }
+
+    if(cmdline.isset("use-abstraction"))
+    {
+      std::string filename = cmdline.get_value("use-abstraction");
+      jsont json;
+      parse_json(filename, ui_message_handler, json);
+
+      abstract_goto_program(goto_model, json);
+      std::cout << "abstract finished" << std::endl;
+
       return CPROVER_EXIT_SUCCESS;
     }
 
@@ -1809,6 +1902,8 @@ void goto_instrument_parse_optionst::help()
     " --show-local-safe-pointers   show pointer expressions that are trivially dominated by a not-null check\n" // NOLINT(*)
     " --show-safe-dereferences     show pointer expressions that are trivially dominated by a not-null check\n" // NOLINT(*)
     "                              *and* used as a dereference operand\n" // NOLINT(*)
+    " --show-index-exprs array_name\n"
+    "                              show expressions that index into the target array\n"
     HELP_VALIDATE
     // NOLINTNEXTLINE(whitespace/line_length)
     " --validate-goto-binary       check the well-formedness of the passed in goto\n"
@@ -1891,6 +1986,7 @@ void goto_instrument_parse_optionst::help()
     " --no-caching                 disable caching of intermediate results during transitive function inlining\n" // NOLINT(*)
     " --log <file>                 log in json format which code segments were inlined, use with --function-inline\n" // NOLINT(*)
     " --remove-function-pointers   replace function pointers by case statement over function calls\n" // NOLINT(*)
+    " --use-abstraction <file>     abstract given arrays specified in the json file\n"
     HELP_RESTRICT_FUNCTION_POINTER
     HELP_REMOVE_CALLS_NO_BODY
     HELP_REMOVE_CONST_FUNCTION_POINTERS

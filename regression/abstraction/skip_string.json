@@ -1,0 +1,31 @@
+{
+  
+    "entries": [
+        {
+            "entity": "array",
+            "path": "string_harness",
+            "name": "json",
+            "shape": {
+                "indices": ["c0", "c1", "c2", "c3"],
+                "assumptions": [
+                    "c0 = c1-1",
+                    "c1 < c2-1",
+                    "c2 = c3-1"
+                ],
+                "shape-type": "*cc+cc*"
+            },
+            "abst-functions":{
+                "add-abs-conc": "./abst-funcs.c/add_abs_to_conc",
+                "sub-abs-conc": "../abst-funcs.c/sub_conc_from_abs",
+                "precise-check": "../abst-funcs.c/is_precise",
+                "abstract-index": "../abst-funcs.c/four_abs",
+                "concretize-index": "../abst-funcs.c/concretize",
+                "multiply-indices": "none",
+                "mod-indices": "none"
+            },
+            "related-entities": []
+        }
+    ]
+
+
+}
