@@ -13,6 +13,7 @@ SRC = abstraction.cpp \
       accelerate/scratch_program.cpp \
       accelerate/trace_automaton.cpp \
       accelerate/util.cpp \
+      abstraction_spect.cpp \
       aggressive_slicer.cpp \
       alignment_checks.cpp \
       branch.cpp \
