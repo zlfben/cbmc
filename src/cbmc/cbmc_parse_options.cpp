@@ -808,7 +808,7 @@ int cbmc_parse_optionst::get_goto_program(
     
     std::string abst_file = options.get_option("use-abstraction");
 
-    abstraction_spect abst_info(abst_file);
+    abstraction_spect abst_info(abst_file, ui_message_handler);
 
     std::vector<std::string> abstfiles = abst_info.get_abstraction_function_files();
 

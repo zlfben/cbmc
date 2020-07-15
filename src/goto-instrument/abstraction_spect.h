@@ -14,13 +14,14 @@ Authors: Murali Talupur, talupur@amazon.com
 #include <list>
 #include <string>
 #include <vector>
+#include <tuple>
 
 class abstraction_spect
 {
 public:
 
   //This constructor parses the json abstraction specification and populates the class.
-  abstraction_spect(std::string);
+  abstraction_spect(std::string, message_handlert &);
 
   //gathers file names from all the individual specs and returns a list.  
   std::vector<std::string> get_abstraction_function_files();
@@ -60,7 +61,7 @@ public:
     std::tuple<std::string, std::string> follow_array;
 
   public:
-    spect();
+    spect() {}
 
     //We will have functions for accessing and modifying the above data.
     //In particular we will have functions for updating indices list as we cross fucntion boundary.
