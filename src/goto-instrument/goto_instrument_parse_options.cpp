@@ -1986,7 +1986,7 @@ void goto_instrument_parse_optionst::help()
     " --no-caching                 disable caching of intermediate results during transitive function inlining\n" // NOLINT(*)
     " --log <file>                 log in json format which code segments were inlined, use with --function-inline\n" // NOLINT(*)
     " --remove-function-pointers   replace function pointers by case statement over function calls\n" // NOLINT(*)
-    " --use-abstraction <file>            abstract given arrays specified in the json file\n"
+    " --use-abstraction <file>     abstract given arrays specified in the json file\n"
     HELP_RESTRICT_FUNCTION_POINTER
     HELP_REMOVE_CALLS_NO_BODY
     HELP_REMOVE_CONST_FUNCTION_POINTERS
