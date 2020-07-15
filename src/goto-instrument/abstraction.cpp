@@ -184,35 +184,40 @@ void abstract_goto_program(goto_modelt &goto_model, jsont json)
   // for each function, rename all references to that variable
   Forall_goto_functions(it, goto_model.goto_functions)
   {
-    // it->second is the goto_functiont
-    goto_functiont &goto_function = it->second;
-
-    // for each instruction, we change the referenced name of the target variable
-    Forall_goto_program_instructions(it, goto_function.body)
+    std::cout << "**" << it->first << std::endl;
+    if(std::string(abst_array_id.c_str()).rfind((it->first).c_str(), 0) == 0)
     {
-      // go through conditions
-      if(it->has_condition())
-      {
-        etr.add_expr(it->get_condition());
-      }
+      // this function is the one that contains the target variable
+      // it->second is the goto_functiont
+      goto_functiont &goto_function = it->second;
 
-      // go through all expressions
-      if(it->is_function_call())
+      // for each instruction, we change the referenced name of the target variable
+      Forall_goto_program_instructions(it, goto_function.body)
       {
-        const code_function_callt fc = it->get_function_call();
-        code_function_callt::argumentst new_arguments = fc.arguments();
-        exprt new_lhs = fc.lhs();
-        etr.add_expr(fc.lhs());
-        
-        for(auto &arg : fc.arguments())
-          etr.add_expr(arg);
-      }
-      else if(it->is_assign())
-      {
-        const code_assignt as = it->get_assign();
-        size_t l_id = etr.add_expr(as.lhs());
-        size_t r_id = etr.add_expr(as.rhs());
-        etr.link(l_id, r_id);
+        // go through conditions
+        if(it->has_condition())
+        {
+          etr.add_expr(it->get_condition());
+        }
+
+        // go through all expressions
+        if(it->is_function_call())
+        {
+          const code_function_callt fc = it->get_function_call();
+          code_function_callt::argumentst new_arguments = fc.arguments();
+          exprt new_lhs = fc.lhs();
+          etr.add_expr(fc.lhs());
+          
+          for(auto &arg : fc.arguments())
+            etr.add_expr(arg);
+        }
+        else if(it->is_assign())
+        {
+          const code_assignt as = it->get_assign();
+          size_t l_id = etr.add_expr(as.lhs());
+          size_t r_id = etr.add_expr(as.rhs());
+          etr.link(l_id, r_id);
+        }
       }
     }
   }
