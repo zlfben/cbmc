@@ -1,0 +1,34 @@
+{
+    "entries": [
+        {
+            "entity": "array",
+            "path": "aws_array_list_front_harness.c/aws_array_list_front_harness",
+            "name": "list->data",
+            "shape": {
+                "indices": ["front", "cncrt"],
+                "assumptions": [
+                    "front < cncrt",
+                    "front = 0"
+                ],
+                "shape-type": "c*c*"
+            },
+            "abst-functions":{
+                "add-abs-conc": "./abst-funcs.c/add_abs_to_conc",
+                "sub-abs-conc": "../abst-funcs.c/sub_conc_from_abs",
+                "precise-check": "../abst-funcs.c/is_precise",
+                "abstract-index": "../abst-funcs.c/two_abs",
+                "concretize-index": "../abst-funcs.c/concretize",
+                "multiply-indices": "none",
+                "mod-indices": "none"
+            },
+            "related-entities": [
+                {
+                    "entity": "scalar",
+                    "path": "aws_array_list_front_harness.c/aws_array_list_front_harness",
+                    "name": "list->length"
+                }
+            ]
+
+        }
+    ]
+}

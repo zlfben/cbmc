@@ -1,0 +1,42 @@
+{
+    "entries": [
+        {
+            "entity": "array",
+            "path": "aws_array_eq_ignore_case_harness.c/aws_array_eq_ignore_case_harness",
+            "name": "rhs",
+            "shape": {
+                "indices": ["cncrt"],
+                "assumptions": [
+                ],
+                "shape-type": "*c*"
+            },
+            "abst-functions":{
+                "add-abs-conc": "./abst-funcs.c/add_abs_to_conc",
+                "sub-abs-conc": "../abst-funcs.c/sub_conc_from_abs",
+                "precise-check": "../abst-funcs.c/is_precise",
+                "abstract-index": "../abst-funcs.c/one_abs",
+                "concretize-index": "../abst-funcs.c/concretize",
+                "multiply-indices": "none",
+                "mod-indices": "none"
+            },
+            "related-entities": [
+                {
+                    "entity": "array",
+                    "path": "aws_array_eq_ignore_case_harness.c/aws_array_eq_ignore_case_harness",
+                    "name": "lhs"
+                },
+                {
+                    "entity": "scalar",
+                    "path": "aws_array_eq_ignore_case_harness.c/aws_array_eq_ignore_case_harness",
+                    "name": "rhs_len"
+                },
+                {
+                    "entity": "scalar",
+                    "path": "aws_array_eq_ignore_case_harness.c/aws_array_eq_ignore_case_harness",
+                    "name": "lhs_len"
+                }
+            ]
+
+        }
+    ]
+}
