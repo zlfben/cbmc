@@ -10,6 +10,7 @@ Authors: Murali Talupur talupur@amazon.com
 #include <iostream>
 
 #include <json/json_parser.h>
+#include <util/file_util.h>
 
 #include "abstraction_spect.h"
 
@@ -24,14 +25,17 @@ abstraction_spect::abstraction_spect(
     spect spec;
     spec.path = entry["path"].value;
     spec.name = entry["name"].value;
+    spec.abst_func_file = get_absolute_path(entry["abst-function-file"].value);
     specs.push_back(spec);
   }
 }
 
-std::vector<std::string> abstraction_spect::get_abstraction_function_files()
+std::vector<std::string> abstraction_spect::get_abstraction_function_files() const
 {
-  std::string file =
-    "/Users/talupur/workspaces/abstract-cbmc/cbmc/regression/abstraction";
-  std::vector<std::string> files(1, file);
+  std::vector<std::string> files;
+  for (const spect &s: specs)
+  {
+    files.push_back(s.abst_func_file);
+  }
   return (files);
 }

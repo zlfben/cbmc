@@ -24,7 +24,7 @@ public:
   abstraction_spect(std::string, message_handlert &);
 
   //gathers file names from all the individual specs and returns a list.  
-  std::vector<std::string> get_abstraction_function_files();
+  std::vector<std::string> get_abstraction_function_files() const;
 
 
   protected:

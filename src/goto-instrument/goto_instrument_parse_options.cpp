@@ -31,7 +31,9 @@ Author: Daniel Kroening, kroening@kroening.com
 #include <goto-programs/goto_convert_functions.h>
 #include <goto-programs/goto_inline.h>
 #include <goto-programs/interpreter.h>
+#include <goto-programs/initialize_goto_model.h>
 #include <goto-programs/label_function_pointer_call_sites.h>
+#include <goto-programs/link_goto_model.h>
 #include <goto-programs/link_to_library.h>
 #include <goto-programs/loop_ids.h>
 #include <goto-programs/parameter_assignments.h>
@@ -82,6 +84,7 @@ Author: Daniel Kroening, kroening@kroening.com
 #include <cpp/cprover_library.h>
 
 #include "abstraction.h"
+#include "abstraction_spect.h"
 #include "accelerate/accelerate.h"
 #include "alignment_checks.h"
 #include "branch.h"
@@ -762,14 +765,14 @@ int goto_instrument_parse_optionst::doit()
 
     if(cmdline.isset("use-abstraction"))
     {
-      std::string filename = cmdline.get_value("use-abstraction");
-      jsont json;
-      parse_json(filename, ui_message_handler, json);
+      // std::string filename = cmdline.get_value("use-abstraction");
+      // jsont json;
+      // parse_json(filename, ui_message_handler, json);
 
-      abstract_goto_program(goto_model, json);
-      std::cout << "abstract finished" << std::endl;
+      // abstract_goto_program(goto_model, json);
+      std::cout << "abstract" << std::endl;
 
-      return CPROVER_EXIT_SUCCESS;
+      // return CPROVER_EXIT_SUCCESS;
     }
 
     if(
@@ -1124,6 +1127,19 @@ void goto_instrument_parse_optionst::instrument_goto_program()
     options.set_option("assert-to-assume", true);
   else
     options.set_option("assert-to-assume", false);
+
+  if(cmdline.isset("use-abstraction"))
+  {
+    std::string abs_file = cmdline.get_value("use-abstraction");
+
+    abstraction_spect abst_spec(abs_file, ui_message_handler);
+
+    std::vector<std::string> abstfiles = abst_spec.get_abstraction_function_files();
+
+    log.status() << "Reading in abst funcs goto-model"  << messaget::eom;
+    link_abst_functions(goto_model, abst_spec, ui_message_handler, options);
+    log.status() << "Abst functions linked to goto-program"  << messaget::eom;
+  }
 
   // all checks supported by goto_check
   PARSE_OPTIONS_GOTO_CHECK(cmdline, options);

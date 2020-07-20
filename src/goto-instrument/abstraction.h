@@ -18,6 +18,10 @@ Author: Lefan Zhang, lefanz@amazon.com
 #include <util/json.h>
 
 #include <goto-programs/goto_model.h>
+#include <util/ui_message.h>
+#include <util/options.h>
+
+#include "abstraction_spect.h"
 
 // class to find out type relations between exprs
 // this is used to identify symbols we need to abstract given a target array
@@ -46,6 +50,9 @@ public:
     return abst_variables;
   }
 };
+
+// link abst functions to goto programs
+void link_abst_functions(goto_modelt &goto_model, const abstraction_spect &abst_spec, ui_message_handlert &msg_handler, const optionst &options);
 
 // abstract goto programs
 void abstract_goto_program(goto_modelt &goto_model, jsont json);

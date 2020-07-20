@@ -14,6 +14,8 @@ Author: Lefan Zhang, lefanz@amazon.com
 #include <iostream>
 
 #include <util/std_expr.h>
+#include <goto-programs/initialize_goto_model.h>
+#include <goto-programs/link_goto_model.h>
 
 #include "abstraction.h"
 
@@ -115,6 +117,13 @@ void expr_type_relation::solve()
       abst_variables.insert(symb_id);
     }
   }
+}
+
+void link_abst_functions(goto_modelt &goto_model, const abstraction_spect &abst_spec, ui_message_handlert &msg_handler, const optionst &options)
+{
+  std::vector<std::string> abstfiles = abst_spec.get_abstraction_function_files();  // get abst function file names
+  goto_modelt goto_model_for_abst_fns = initialize_goto_model(abstfiles, msg_handler, options);  // read files
+  link_goto_model(goto_model, goto_model_for_abst_fns, msg_handler);  // link goto model
 }
 
 void abstract_goto_program(goto_modelt &goto_model, jsont json)
