@@ -11,14 +11,15 @@
                 ],
                 "shape-type": "*c*c*"
             },
+            "abst-function-file": "./abst-funcs.c",
             "abst-functions":{
-                "add-abs-conc": "./abst-funcs.c/add_abs_to_conc",
-                "sub-abs-conc": "../abst-funcs.c/sub_conc_from_abs",
-                "precise-check": "../abst-funcs.c/is_precise",
-                "abstract-index": "../abst-funcs.c/two_abs",
-                "concretize-index": "../abst-funcs.c/concretize",
-                "multiply-indices": "none",
-                "mod-indices": "none"
+                "add-abs-conc": "add_abs_to_conc",
+                "sub-abs-conc": "sub_conc_from_abs",
+                "precise-check": "is_precise",
+                "abstract-index": "two_abs",
+                "concretize-index": "concretize",
+                "multiply-indices": null,
+                "mod-indices": null
             },
             "related-entities": [
                 {
