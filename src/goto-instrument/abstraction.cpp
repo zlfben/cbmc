@@ -126,7 +126,7 @@ void link_abst_functions(goto_modelt &goto_model, const abstraction_spect &abst_
   link_goto_model(goto_model, goto_model_for_abst_fns, msg_handler);  // link goto model
 }
 
-void abstract_goto_program(goto_modelt &goto_model, jsont json)
+const std::unordered_set<irep_idt> find_index_symbols(goto_modelt &goto_model, const irep_idt &array_name)
 {
   class show_index_exprt : public expr_visitort
   {
@@ -187,22 +187,21 @@ void abstract_goto_program(goto_modelt &goto_model, jsont json)
     }
   };
 
-  irep_idt abst_array_id = json["array_name"].value;
+  irep_idt abst_array_id = array_name;
 
   expr_type_relation etr(abst_array_id);
 
   // for each function, rename all references to that variable
-  Forall_goto_functions(it, goto_model.goto_functions)
+  forall_goto_functions(it, goto_model.goto_functions)
   {
-    std::cout << "**" << it->first << std::endl;
     if(std::string(abst_array_id.c_str()).rfind((it->first).c_str(), 0) == 0)
     {
       // this function is the one that contains the target variable
       // it->second is the goto_functiont
-      goto_functiont &goto_function = it->second;
+      const goto_functiont &goto_function = it->second;
 
       // for each instruction, we change the referenced name of the target variable
-      Forall_goto_program_instructions(it, goto_function.body)
+      forall_goto_program_instructions(it, goto_function.body)
       {
         // go through conditions
         if(it->has_condition())
@@ -233,6 +232,18 @@ void abstract_goto_program(goto_modelt &goto_model, jsont json)
   }
 
   etr.solve();
-  for(auto v: etr.get_abst_variables())
-    std::cout << v << std::endl;
+  return etr.get_abst_variables();
+}
+
+void abstract_goto_program(goto_modelt &goto_model, abstraction_spect &abst_spec)
+{
+  for(const abstraction_spect::spect &s: abst_spec.get_specs())
+  {
+    std::cout << "=== Analyzing " << s.name << " ===" << std::endl;
+    const std::unordered_set<irep_idt> &index_symbols = find_index_symbols(goto_model, s.name);
+    for(const auto &v: index_symbols)
+    {
+      std::cout << v << std::endl;
+    }
+  }
 }

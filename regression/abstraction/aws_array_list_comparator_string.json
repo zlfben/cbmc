@@ -2,8 +2,8 @@
     "entries": [
         {
             "entity": "array",
-            "path": "aws_array_list_comparator_string_harness.c/aws_array_list_comparator_string_harness",
-            "name": "str_a->bytes",
+            "function": "aws_array_list_comparator_string_harness",
+            "name": "aws_array_list_comparator_string::1::str_a->bytes",
             "shape": {
                 "indices": ["cncrt"],
                 "assumptions": [
@@ -23,18 +23,18 @@
             "related-entities": [
                 {
                     "entity": "array",
-                    "path": "aws_array_list_comparator_string_harness.c/aws_array_list_comparator_string_harness",
-                    "name": "str_b->bytes"
+                    "function": "aws_array_list_comparator_string_harness",
+                    "name": "aws_array_list_comparator_string::1::str_b->bytes"
                 },
                 {
                     "entity": "scalar",
-                    "path": "aws_array_list_comparator_string_harness.c/aws_array_list_comparator_string_harness",
-                    "name": "str_a->len"
+                    "function": "aws_array_list_comparator_string_harness",
+                    "name": "aws_array_list_comparator_string::1::str_a->len"
                 },
                 {
                     "entity": "scalar",
-                    "path": "aws_array_list_comparator_string_harness.c/aws_array_list_comparator_string_harness",
-                    "name": "str_b->len"
+                    "function": "aws_array_list_comparator_string_harness",
+                    "name": "aws_array_list_comparator_string::1::str_b->len"
                 }
             ]
 

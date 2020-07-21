@@ -2,8 +2,8 @@
     "entries": [
         {
             "entity": "array",
-            "path": "aws_array_list_get_at_harness.c/aws_array_list_get_at_harness",
-            "name": "list->data",
+            "function": "aws_array_list_get_at_harness",
+            "name": "aws_array_list_get_at_harness::1::list->data",
             "shape": {
                 "indices": ["c0", "c1"],
                 "assumptions": [
@@ -24,8 +24,8 @@
             "related-entities": [
                 {
                     "entity": "scalar",
-                    "path": "aws_array_list_get_at_harness.c/aws_array_list_get_at_harness",
-                    "name": "list->length"
+                    "function": "aws_array_list_get_at_harness",
+                    "name": "aws_array_list_get_at_harness::1::list->length"
                 }
             ]
 

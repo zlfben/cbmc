@@ -2,8 +2,8 @@
     "entries": [
         {
             "entity": "array",
-            "path": "aws_array_eq_harness.c/aws_array_eq_harness",
-            "name": "rhs",
+            "function": "aws_array_eq_harness",
+            "name": "aws_array_eq_harness::1::rhs",
             "shape": {
                 "indices": ["lhs_cncrt", "rhs_cncrt"],
                 "assumptions": [
@@ -24,18 +24,18 @@
             "related-entities": [
                 {
                     "entity": "array",
-                    "path": "aws_array_eq_harness.c/aws_array_eq_harness",
-                    "name": "lhs"
+                    "function": "aws_array_eq_harness",
+                    "name": "aws_array_eq_harness::1::lhs"
                 },
                 {
                     "entity": "scalar",
-                    "path": "aws_array_eq_harness.c/aws_array_eq_harness",
-                    "name": "rhs_len"
+                    "function": "aws_array_eq_harness",
+                    "name": "aws_array_eq_harness::1::rhs_len"
                 },
                 {
                     "entity": "scalar",
-                    "path": "aws_array_eq_harness.c/aws_array_eq_harness",
-                    "name": "lhs_len"
+                    "function": "aws_array_eq_harness",
+                    "name": "aws_array_eq_harness::1::lhs_len"
                 }
             ]
 
