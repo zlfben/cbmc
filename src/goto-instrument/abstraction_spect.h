@@ -27,13 +27,13 @@ public:
   std::vector<std::string> get_abstraction_function_files() const;
 
 
-  protected:
+public:
   struct spect
   {
     //Hierarchical path to the array/list being abstracted
-    std::string path;
+    std::string function;  // function name, no need to have path
     //Name of the array/list being abstracted
-    std::string name;
+    std::string name;  // should be in the id format: function::x::name
     //Abstraction func file
     std::string abst_func_file;
     //Names of references in increasing order
@@ -70,6 +70,10 @@ public:
 
   };
 
+  // gather specs
+  std::vector<spect> &get_specs();
+
+protected:
   std::vector<spect> specs;
 
 

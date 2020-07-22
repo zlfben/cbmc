@@ -3,8 +3,8 @@
     "entries": [
         {
             "entity": "array",
-            "path": "string_harness",
-            "name": "json",
+            "function": "main",
+            "name": "main::1::json",
             "shape": {
                 "indices": ["c0", "c1", "c2", "c3"],
                 "assumptions": [

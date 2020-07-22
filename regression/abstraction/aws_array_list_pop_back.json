@@ -2,8 +2,8 @@
     "entries": [
         {
             "entity": "array",
-            "path": "aws_array_list_pop_back_harness.c/aws_array_list_pop_back_harness",
-            "name": "list->data",
+            "function": "aws_array_list_pop_back_harness",
+            "name": "aws_array_list_pop_back_harness::1::list->data",
             "shape": {
                 "indices": ["c0", "c1"],
                 "assumptions": [
@@ -24,18 +24,18 @@
             "related-entities": [
                 {
                     "entity": "array",
-                    "path": "aws_array_list_pop_back_harness.c/aws_array_list_pop_back_harness",
-                    "name": "old->data"
+                    "function": "aws_array_list_pop_back_harness",
+                    "name": "aws_array_list_pop_back_harness::1::old->data"
                 },
                 {
                     "entity": "scalar",
-                    "path": "aws_array_list_pop_back_harness.c/aws_array_list_pop_back_harness",
-                    "name": "old->length"
+                    "function": "aws_array_list_pop_back_harness",
+                    "name": "aws_array_list_pop_back_harness::1::old->length"
                 },
                 {
                     "entity": "scalar",
-                    "path": "aws_array_list_pop_back_harness.c/aws_array_list_pop_back_harness",
-                    "name": "list->length"
+                    "function": "aws_array_list_pop_back_harness",
+                    "name": "aws_array_list_pop_back_harness::1::list->length"
                 }
             ]
 

@@ -45,7 +45,7 @@ public:
   void link(size_t i1, size_t i2);
   size_t add_expr(const exprt &expr);
   void solve();
-  const std::unordered_set<irep_idt> & get_abst_variables()
+  const std::unordered_set<irep_idt> get_abst_variables()
   {
     return abst_variables;
   }
@@ -54,7 +54,10 @@ public:
 // link abst functions to goto programs
 void link_abst_functions(goto_modelt &goto_model, const abstraction_spect &abst_spec, ui_message_handlert &msg_handler, const optionst &options);
 
+// find related variables within function
+const std::unordered_set<irep_idt> find_index_symbols(goto_modelt &goto_model, const irep_idt &array_name);
+
 // abstract goto programs
-void abstract_goto_program(goto_modelt &goto_model, jsont json);
+void abstract_goto_program(goto_modelt &goto_model, abstraction_spect &abst_spec);
 
 #endif // CPROVER_GOTO_INSTRUMENT_ABSTRACTION_H

@@ -2,8 +2,8 @@
     "entries": [
         {
             "entity": "array",
-            "path": "aws_array_list_front_harness.c/aws_array_list_front_harness",
-            "name": "list->data",
+            "function": "aws_array_list_front_harness",
+            "name": "aws_array_list_front_harness::1::list->data",
             "shape": {
                 "indices": ["front", "cncrt"],
                 "assumptions": [
@@ -25,8 +25,8 @@
             "related-entities": [
                 {
                     "entity": "scalar",
-                    "path": "aws_array_list_front_harness.c/aws_array_list_front_harness",
-                    "name": "list->length"
+                    "function": "aws_array_list_front_harness",
+                    "name": "aws_array_list_front_harness::1::list->length"
                 }
             ]
 

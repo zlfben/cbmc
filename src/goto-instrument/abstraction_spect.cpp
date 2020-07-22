@@ -23,7 +23,7 @@ abstraction_spect::abstraction_spect(
   for(const jsont &entry : to_json_array(json["entries"]))
   {
     spect spec;
-    spec.path = entry["path"].value;
+    spec.function = entry["function"].value;
     spec.name = entry["name"].value;
     spec.abst_func_file = get_absolute_path(entry["abst-function-file"].value);
     specs.push_back(spec);
@@ -38,4 +38,9 @@ std::vector<std::string> abstraction_spect::get_abstraction_function_files() con
     files.push_back(s.abst_func_file);
   }
   return (files);
+}
+
+std::vector<abstraction_spect::spect> &abstraction_spect::get_specs()
+{
+  return specs;
 }
