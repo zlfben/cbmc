@@ -1,0 +1,80 @@
+#!/bin/bash
+
+# whether verify the program or not
+CHECK=false
+
+# paths to the benchmark repos
+AWS_C_COMMON_PATH="/home/ubuntu/aws-c-common"
+AWS_IOT_SDK_PATH="/home/ubuntu/aws-iot-device-sdk-embedded-C-tuttle"
+
+# executables
+MAKE="make"
+GOTO_INSTRUMENT="goto-instrument"
+CBMC="cbmc"
+CBMC_FLAGS="--unwind 10  
+            --bounds-check 
+            --pointer-check 
+            --unwinding-assertions 
+            --nondet-static 
+            --div-by-zero-check 
+            --float-overflow-check 
+            --nan-check 
+            --pointer-overflow-check 
+            --undefined-shift-check 
+            --signed-overflow-check 
+            --unsigned-overflow-check 
+            --trace"
+
+AWS_C_COMMON_TESTS=(
+    "aws_array_eq" 
+    "aws_array_eq_c_str_ignore_case" 
+    "aws_array_eq_ignore_case" 
+    "aws_array_list_comparator_string" 
+    "aws_array_list_front" 
+    "aws_array_list_get_at" 
+    "aws_array_list_pop_back" 
+)
+
+AWS_IOT_SDK_TEST="skip_string"
+
+cwd=$(pwd)
+for test in ${AWS_C_COMMON_TESTS[@]}; do
+    echo "===== $test ====="
+    cd $AWS_C_COMMON_PATH/.cbmc-batch/jobs/$test/
+    # compile program into goto-programs
+    $MAKE goto 2&>1
+    echo "Goto programs built"
+    cd $cwd
+    # run goto-instrument to make abstracted goto-programs
+    $GOTO_INSTRUMENT --use-abstraction $cwd/$test.json \
+        $AWS_C_COMMON_PATH/.cbmc-batch/jobs/$test/${test}_harness.goto \
+        $AWS_C_COMMON_PATH/.cbmc-batch/jobs/$test/${test}_harness_abst.goto
+    # print the goto-programs into txts
+    rm $AWS_C_COMMON_PATH/.cbmc-batch/jobs/$test/${test}_harness_abst.txt
+    $GOTO_INSTRUMENT --print-internal-representation \
+        $AWS_C_COMMON_PATH/.cbmc-batch/jobs/$test/${test}_harness_abst.goto \
+        >> $AWS_C_COMMON_PATH/.cbmc-batch/jobs/$test/${test}_harness_abst.txt
+    # check the program
+    if [ $CHECK = true ]; then
+        $CBMC $CBMC_FLAGS $AWS_C_COMMON_PATH/.cbmc-batch/jobs/$test/${test}_harness_abst.goto
+    fi
+done
+
+echo "===== $AWS_IOT_SDK_TEST ====="
+cd $AWS_IOT_SDK_PATH/cbmc/proofs/JsonParser/proofs
+# compile program into goto-programs
+$MAKE goto ENTRY=String 2&>1
+cd $cwd
+# run goto-instrument to make abstracted goto-programs
+$GOTO_INSTRUMENT --use-abstraction $cwd/$AWS_IOT_SDK_TEST.json \
+    $AWS_IOT_SDK_PATH/cbmc/proofs/JsonParser/proofs/String.goto \
+    $AWS_IOT_SDK_PATH/cbmc/proofs/JsonParser/proofs/String_abst.goto
+# print the goto-programs into txts
+rm $AWS_IOT_SDK_PATH/cbmc/proofs/JsonParser/proofs/String_abst.txt
+$GOTO_INSTRUMENT --print-internal-representation \
+    $AWS_IOT_SDK_PATH/cbmc/proofs/JsonParser/proofs/String_abst.goto \
+    >> $AWS_IOT_SDK_PATH/cbmc/proofs/JsonParser/proofs/String_abst.txt
+# check the program
+if [ $CHECK = true ]; then
+    $CBMC $CBMC_FLAGS $AWS_IOT_SDK_PATH/cbmc/proofs/JsonParser/proofs/String_abst.goto
+fi
