@@ -1,5 +1,8 @@
 #!/bin/bash
 
+# whether verify the program or not
+CHECK=false
+
 # paths to the benchmark repos
 AWS_C_COMMON_PATH="/home/ubuntu/aws-c-common"
 AWS_IOT_SDK_PATH="/home/ubuntu/aws-iot-device-sdk-embedded-C-tuttle"
@@ -7,6 +10,20 @@ AWS_IOT_SDK_PATH="/home/ubuntu/aws-iot-device-sdk-embedded-C-tuttle"
 # executables
 MAKE="make"
 GOTO_INSTRUMENT="goto-instrument"
+CBMC="cbmc"
+CBMC_FLAGS="--unwind 10  
+            --bounds-check 
+            --pointer-check 
+            --unwinding-assertions 
+            --nondet-static 
+            --div-by-zero-check 
+            --float-overflow-check 
+            --nan-check 
+            --pointer-overflow-check 
+            --undefined-shift-check 
+            --signed-overflow-check 
+            --unsigned-overflow-check 
+            --trace"
 
 AWS_C_COMMON_TESTS=(
     "aws_array_eq" 
@@ -32,6 +49,15 @@ for test in ${AWS_C_COMMON_TESTS[@]}; do
     $GOTO_INSTRUMENT --use-abstraction $cwd/$test.json \
         $AWS_C_COMMON_PATH/.cbmc-batch/jobs/$test/${test}_harness.goto \
         $AWS_C_COMMON_PATH/.cbmc-batch/jobs/$test/${test}_harness_abst.goto
+    # print the goto-programs into txts
+    rm $AWS_C_COMMON_PATH/.cbmc-batch/jobs/$test/${test}_harness_abst.txt
+    $GOTO_INSTRUMENT --print-internal-representation \
+        $AWS_C_COMMON_PATH/.cbmc-batch/jobs/$test/${test}_harness_abst.goto \
+        >> $AWS_C_COMMON_PATH/.cbmc-batch/jobs/$test/${test}_harness_abst.txt
+    # check the program
+    if [ $CHECK = true ]; then
+        $CBMC $CBMC_FLAGS $AWS_C_COMMON_PATH/.cbmc-batch/jobs/$test/${test}_harness_abst.goto
+    fi
 done
 
 echo "===== $AWS_IOT_SDK_TEST ====="
@@ -43,3 +69,12 @@ cd $cwd
 $GOTO_INSTRUMENT --use-abstraction $cwd/$AWS_IOT_SDK_TEST.json \
     $AWS_IOT_SDK_PATH/cbmc/proofs/JsonParser/proofs/String.goto \
     $AWS_IOT_SDK_PATH/cbmc/proofs/JsonParser/proofs/String_abst.goto
+# print the goto-programs into txts
+rm $AWS_IOT_SDK_PATH/cbmc/proofs/JsonParser/proofs/String_abst.txt
+$GOTO_INSTRUMENT --print-internal-representation \
+    $AWS_IOT_SDK_PATH/cbmc/proofs/JsonParser/proofs/String_abst.goto \
+    >> $AWS_IOT_SDK_PATH/cbmc/proofs/JsonParser/proofs/String_abst.txt
+# check the program
+if [ $CHECK = true ]; then
+    $CBMC $CBMC_FLAGS $AWS_IOT_SDK_PATH/cbmc/proofs/JsonParser/proofs/String_abst.goto
+fi
