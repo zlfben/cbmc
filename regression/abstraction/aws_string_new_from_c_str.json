@@ -1,0 +1,40 @@
+{
+    "entries": [
+        {
+            "entity": "string",
+            "function": "aws_string_new_from_c_str_harness",
+            "name": "aws_string_new_from_c_str_harness::1::c_str",
+            "shape": {
+                "indices": ["c1", "c2"],
+                "assumptions": [ ],
+                "shape-type": "*c*c"
+            },
+            "abst-function-file": "./abst-funcs.c",
+            "abst-functions":{
+                "add-abs-conc": "add_abs_to_conc",
+                "sub-abs-conc": "sub_conc_from_abs",
+                "precise-check": "is_precise",
+                "abstract-index": "two_abs",
+                "concretize-index": "concretize",
+                "multiply-indices": null,
+                "mod-indices": null
+            },
+            "related-entities": [
+                {
+                    "entity": "array",
+                    "function": "aws_string_new_from_array",
+                    "name": "aws_string_new_from_array::1::str->bytes",
+                    "comment": "This is redundant, str->bytes is created from c_str which would be abstract at this point."
+                },
+                {
+                    "entity": "scalar",
+                    "function": "aws_string_new_from_array",
+                    "name": "aws_string_new_from_array::1::len",
+                     "comment1": "This is redundant, len is created as strlen(c_str) which would be abstract at this point.",
+                     "comment2": "len is actually an argument to this function." 
+                }
+            ]
+
+        }
+    ]
+}
