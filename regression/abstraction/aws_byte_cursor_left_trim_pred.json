@@ -1,0 +1,32 @@
+{
+    "entries": [
+        {
+            "entity": "array",
+            "function": "aws_byte_cursor_left_trim_pred",
+            "name": "aws_byte_cursor_left_trim_pred::1::cur.ptr",
+            "shape": {
+                "indices": ["c"],
+                "assumptions": [],
+                "shape-type": "*c*"
+            },
+            "abst-function-file": "./abst-funcs.c",
+            "abst-functions":{
+                "add-abs-conc": "add_abs_to_conc",
+                "sub-abs-conc": "sub_conc_from_abs",
+                "precise-check": "is_precise",
+                "abstract-index": "two_abs",
+                "concretize-index": "concretize",
+                "multiply-indices": null,
+                "mod-indices": null
+            },
+            "related-entities": [
+                {
+                    "entity": "scalar",
+                    "function": "aws_byte_cursor_left_trim_pred",
+                    "name": "aws_byte_cursor_left_trim_pred::1::cur.len"
+                }
+            ]
+
+        }
+    ]
+}

@@ -1,0 +1,44 @@
+{
+    "entries": [
+        {
+            "entity": "string",
+            "function": "aws_array_eq_c_str_harness",
+            "name": "aws_array_eq_c_str_harness::1::c_str",
+            "shape": {
+                "indices": ["cncrt", "clast"],
+                "assumptions": [
+                    "cncrt < clast"
+                ],
+                "shape-type": "*c*c"
+            },
+            "abst-function-file": "./abst-funcs.c",
+            "abst-functions":{
+                "add-abs-conc": "add_abs_to_conc",
+                "sub-abs-conc": "sub_conc_from_abs",
+                "precise-check": "is_precise",
+                "abstract-index": "two_abs",
+                "concretize-index": "concretize",
+                "multiply-indices": null,
+                "mod-indices": null
+            },
+            "related-entities": [
+                {
+                    "entity": "array",
+                    "function": "aws_array_eq_c_str_harness",
+                    "name": "aws_array_eq_c_str_harness::1::array"
+                },
+                {
+                    "entity": "scalar",
+                    "function": "aws_array_eq_c_str_harness",
+                    "name": "aws_array_eq_c_str_harness::1::array_len"
+                },
+                {
+                    "entity": "scalar",
+                    "function": "aws_array_eq_c_str_harness",
+                    "name": "aws_array_eq_c_str_harness::1::str_len"
+                }
+            ]
+
+        }
+    ]
+}
