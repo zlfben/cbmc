@@ -239,16 +239,15 @@ void abstract_goto_program(goto_modelt &goto_model, abstraction_spect &abst_spec
 {
   for(const abstraction_spect::spect &s: abst_spec.get_specs())
   {
-    const std::vector<abstraction_spect::spect::entityt> &abst_arrays = s.get_abst_arrays();
-    if(abst_arrays.size())
+    const std::unordered_map<std::string, abstraction_spect::spect::entityt> &abst_arrays = s.get_abst_arrays();
+    for(const auto &pair: abst_arrays)
     {
-      std::cout << "=== Analyzing " << abst_arrays.front().name << " ===" << std::endl;
-      const std::unordered_set<irep_idt> &index_symbols = find_index_symbols(goto_model, abst_arrays.front().name);
+      std::cout << "=== Analyzing " << pair.first << " ===" << std::endl;
+      const std::unordered_set<irep_idt> &index_symbols = find_index_symbols(goto_model, pair.second.name);
       for(const auto &v: index_symbols)
       {
         std::cout << v << std::endl;
       }
     }
-    
   }
 }
