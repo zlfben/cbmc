@@ -12,6 +12,7 @@ Author: Lefan Zhang, lefanz@amazon.com
 /// Abstract certain data types to make proofs unbounded
 
 #include <iostream>
+#include <queue>
 
 #include <util/std_expr.h>
 #include <goto-programs/initialize_goto_model.h>
@@ -126,7 +127,7 @@ void link_abst_functions(goto_modelt &goto_model, const abstraction_spect &abst_
   link_goto_model(goto_model, goto_model_for_abst_fns, msg_handler);  // link goto model
 }
 
-const std::unordered_set<irep_idt> find_index_symbols(goto_modelt &goto_model, const irep_idt &array_name)
+const std::unordered_set<irep_idt> find_index_symbols(const goto_functiont &goto_function, const irep_idt &array_name)
 {
   class show_index_exprt : public expr_visitort
   {
@@ -191,43 +192,33 @@ const std::unordered_set<irep_idt> find_index_symbols(goto_modelt &goto_model, c
 
   expr_type_relation etr(abst_array_id);
 
-  // for each function, rename all references to that variable
-  forall_goto_functions(it, goto_model.goto_functions)
+  // within the function, rename all references to that variable
+  // for each instruction, we change the referenced name of the target variable
+  forall_goto_program_instructions(it, goto_function.body)
   {
-    if(std::string(abst_array_id.c_str()).rfind((it->first).c_str(), 0) == 0)
+    // go through conditions
+    if(it->has_condition())
     {
-      // this function is the one that contains the target variable
-      // it->second is the goto_functiont
-      const goto_functiont &goto_function = it->second;
+      etr.add_expr(it->get_condition());
+    }
 
-      // for each instruction, we change the referenced name of the target variable
-      forall_goto_program_instructions(it, goto_function.body)
-      {
-        // go through conditions
-        if(it->has_condition())
-        {
-          etr.add_expr(it->get_condition());
-        }
-
-        // go through all expressions
-        if(it->is_function_call())
-        {
-          const code_function_callt fc = it->get_function_call();
-          code_function_callt::argumentst new_arguments = fc.arguments();
-          exprt new_lhs = fc.lhs();
-          etr.add_expr(fc.lhs());
-          
-          for(auto &arg : fc.arguments())
-            etr.add_expr(arg);
-        }
-        else if(it->is_assign())
-        {
-          const code_assignt as = it->get_assign();
-          size_t l_id = etr.add_expr(as.lhs());
-          size_t r_id = etr.add_expr(as.rhs());
-          etr.link(l_id, r_id);
-        }
-      }
+    // go through all expressions
+    if(it->is_function_call())
+    {
+      const code_function_callt fc = it->get_function_call();
+      code_function_callt::argumentst new_arguments = fc.arguments();
+      exprt new_lhs = fc.lhs();
+      etr.add_expr(fc.lhs());
+      
+      for(auto &arg : fc.arguments())
+        etr.add_expr(arg);
+    }
+    else if(it->is_assign())
+    {
+      const code_assignt as = it->get_assign();
+      size_t l_id = etr.add_expr(as.lhs());
+      size_t r_id = etr.add_expr(as.rhs());
+      etr.link(l_id, r_id);
     }
   }
 
@@ -235,19 +226,125 @@ const std::unordered_set<irep_idt> find_index_symbols(goto_modelt &goto_model, c
   return etr.get_abst_variables();
 }
 
-void abstract_goto_program(goto_modelt &goto_model, abstraction_spect &abst_spec)
+void complete_abst_spec(const goto_functiont& goto_function, abstraction_spect &abst_spec)
 {
-  for(const abstraction_spect::spect &s: abst_spec.get_specs())
+  for(auto &spec: abst_spec.get_specs())
   {
-    const std::unordered_map<std::string, abstraction_spect::spect::entityt> &abst_arrays = s.get_abst_arrays();
-    for(const auto &pair: abst_arrays)
+    for(const auto &ent: spec.get_abst_arrays())
+      for(irep_idt index_name: find_index_symbols(goto_function, ent.first))
+        if(spec.get_abst_indices().find(index_name) != spec.get_abst_indices().end())
+          spec.insert_entity(index_name, true);
+  }
+}
+
+/// check if expr is a symbol (or typecast from a symbol)
+/// \return the symbol name, "" if expr is not a symbol
+irep_idt check_expr_is_symbol(const exprt &expr)
+{
+  if(expr.id() == ID_symbol)
+  {
+    // if it is a symbol, return itself's name
+    const symbol_exprt &symb = to_symbol_expr(expr);
+    return symb.get_identifier();
+  }
+  else if(expr.id() == ID_typecast)
+  {
+    // if it is a typecast, check the next level
+    return check_expr_is_symbol(expr.operands()[0]);
+  }
+  else
+  {
+    // otherwise, the argument is not a symbol
+    return irep_idt("");
+  }
+}
+
+// go into a function to find all function calls we'll need to abstract
+std::vector<std::tuple<irep_idt, std::unordered_map<irep_idt, irep_idt>>>
+find_function_calls(irep_idt func_name, goto_modelt &goto_model, const abstraction_spect &abst_spec)
+{
+  std::vector<std::tuple<irep_idt, std::unordered_map<irep_idt, irep_idt>>> result;
+  
+  const goto_functiont &goto_function = goto_model.get_goto_function(func_name);
+  forall_goto_program_instructions(it, goto_function.body)
+  {
+    // go through every instruction
+    if(it->is_function_call())
     {
-      std::cout << "=== Analyzing " << pair.first << " ===" << std::endl;
-      const std::unordered_set<irep_idt> &index_symbols = find_index_symbols(goto_model, pair.second.name);
-      for(const auto &v: index_symbols)
+      // it is a function call that we potentially need to abstract
+      const code_function_callt fc = it->get_function_call();
+      const irep_idt &new_func_name = to_symbol_expr(fc.function()).get_identifier();
+      std::unordered_map<irep_idt, irep_idt> map;
+      for(size_t i=0; i<fc.arguments().size(); i++)
       {
-        std::cout << v << std::endl;
+        // for each argument, we check whether we need to abstract it.
+        const exprt &arg = fc.arguments()[i];
+        irep_idt symbol_name = check_expr_is_symbol(arg);
+        if(symbol_name != "" && abst_spec.has_entity(symbol_name))
+        {
+          // if so, we push it into the map
+          const goto_functiont &new_function = goto_model.get_goto_function(new_func_name);
+          map.insert({symbol_name, new_function.parameter_identifiers[i]});
+        }
+      }
+      if(!map.empty())  //if map is not empty, we create a new entry in the result
+        result.push_back(std::make_tuple(new_func_name, map));
+    }
+  }
+  return result;
+}
+
+void calculate_complete_abst_specs_for_funcs(goto_modelt &goto_model, abstraction_spect &abst_spec)
+{
+  std::unordered_map<irep_idt, abstraction_spect> function_spec_map;  // map from function to its abst_spec
+  const goto_functiont &init_function = goto_model.get_goto_function(abst_spec.get_func_name());
+  complete_abst_spec(init_function, abst_spec);
+  function_spec_map.insert({abst_spec.get_func_name(), abst_spec});
+
+  // The following is a search of functions.
+  // At each step, we pop one function A from the todo list.
+  // We analyze A to see if it calls other functions.
+  // If any other functions are called and have not been analyzed, 
+  // we analyze the function with update_abst and complete_abst, 
+  // and then push that to the todo list.
+  // Each function is only analyzed for one time. 
+  // We assume each function will only have a unique abst_spec.
+  std::queue<irep_idt> todo;  // functions to be further analyzed
+  todo.push(abst_spec.get_func_name());
+
+  while(!todo.empty())
+  {
+    // pop the first function in the todo list
+    irep_idt current_func_name = todo.front();
+    todo.pop();
+
+    // check it calls any other functions that we need to abstract
+    std::vector<std::tuple<irep_idt, std::unordered_map<irep_idt, irep_idt>>>
+      func_tuples = find_function_calls(
+        current_func_name, goto_model, function_spec_map[current_func_name]);
+
+    // for each function we need to abstract, check if it's already analyzed
+    // if not, we analyze it and put it into the function_spec_map and todo
+    for(const auto &func_tuple: func_tuples)
+    {
+      irep_idt new_func_name = std::get<0>(func_tuple);
+      std::unordered_map<irep_idt, irep_idt> name_pairs = std::get<1>(func_tuple);
+      if(function_spec_map.find(new_func_name) == function_spec_map.end())
+      {
+        // we need to abstract it and analyze it
+        todo.push(new_func_name);
+        abstraction_spect new_func_abst =
+          function_spec_map[current_func_name].update_abst_spec(
+            current_func_name, new_func_name, name_pairs);
+        complete_abst_spec(goto_model.get_goto_function(new_func_name), new_func_abst);
+        function_spec_map.insert({new_func_name, new_func_abst});
       }
     }
   }
+}
+
+void abstract_goto_program(goto_modelt &goto_model, abstraction_spect &abst_spec)
+{
+  // A couple of spects are initialized from the json file. We should go from there and insert spects to other functions
+  calculate_complete_abst_specs_for_funcs(goto_model, abst_spec);
 }

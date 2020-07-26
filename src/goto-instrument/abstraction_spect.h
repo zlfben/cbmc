@@ -20,6 +20,7 @@ Authors: Murali Talupur, talupur@amazon.com
 class abstraction_spect
 {
 public:
+  abstraction_spect() {}
   //This constructor parses the json abstraction specification and populates the class.
   abstraction_spect(std::string, message_handlert &);
 
@@ -32,33 +33,22 @@ public:
   public:
     struct entityt
     {
-      //Hierarchical path to the array/list being abstracted
-      std::string function; // function name, no need to have path
       //Name of the array/list being abstracted
-      std::string name; // should be in the id format: function::x::name, this is the unique identifier
+      irep_idt name; // should be in the id format: function::x::name, this is the unique identifier
       std::string name_of_abst;
 
     public:
       entityt(){}
-      entityt(std::string _function, std::string _name) : function(_function), name(_name) {}
-      entityt(const entityt &_entity) : function(_entity.function), name(_entity.name), name_of_abst(_entity.name_of_abst) {}
+      entityt(irep_idt _name) : name(_name) {}
+      entityt(const entityt &_entity) : name(_entity.name), name_of_abst(_entity.name_of_abst) {}
 
-      std::string function_name() const
-      {
-        return function;
-      }
 
-      void set_function_name(const std::string &new_func_name)
-      {
-        function = new_func_name;
-      }
-
-      std::string entity_name() const
+      irep_idt entity_name() const
       {
         return name;
       }
 
-      void set_entity_name(const std::string &new_name)
+      void set_entity_name(const irep_idt &new_name)
       {
         name = new_name;
       }
@@ -79,11 +69,11 @@ public:
     std::string abst_func_file;
 
     //Arrays to be abstracted
-    std::unordered_map<std::string, entityt> abst_arrays;
+    std::unordered_map<irep_idt, entityt> abst_arrays;
     // std::vector<entityt> abst_arrays;
 
     //Index vars to be abstracted
-    std::unordered_map<std::string, entityt> abst_indices;
+    std::unordered_map<irep_idt, entityt> abst_indices;
     // std::vector<entityt> abst_indices;
 
     //Names of references in increasing order
@@ -131,18 +121,29 @@ public:
 
     //We will have functions for accessing and modifying the above data.
     //array_or_index: false-array, true-index
-    void insert_entity(const std::string &_function, const std::string &_name, bool array_or_index)
+    void insert_entity(const irep_idt &_name, bool array_or_index)
     {
-      entityt new_entity(_function, _name);
+      entityt new_entity(_name);
       if(array_or_index)
         abst_arrays.insert({_name, new_entity});
       else
         abst_indices.insert({_name, new_entity});
     }
 
-    const std::unordered_map<std::string, entityt> &get_abst_arrays() const
+    const std::unordered_map<irep_idt, entityt> &get_abst_arrays() const
     {
       return abst_arrays;
+    }
+
+    const std::unordered_map<irep_idt, entityt> &get_abst_indices() const
+    {
+      return abst_indices;
+    }
+
+    const bool has_entity(const irep_idt &entity_name) const
+    {
+      return (abst_arrays.find(entity_name) != abst_arrays.end()) ||
+             (abst_indices.find(entity_name) != abst_indices.end());
     }
 
     //set abst func file path
@@ -163,14 +164,44 @@ public:
     //Abst_spec in Foo will contain f1, f2. These should be renamed to b1, b2 to obtain abst_spec for Bar.
     //The argument for the following function would be Foo, Bar, {f1: b1, f2: b2}
     //Return a new spect reflecting the changes
-    spect update_abst_spec(std::string old_function, std::string new_function, std::unordered_map<std::string, std::string> _name_pairs);
+    spect update_abst_spec(
+      irep_idt old_function,
+      irep_idt new_function,
+      std::unordered_map<irep_idt, irep_idt> _name_pairs) const;
   };
 
   // gather specs
-  std::vector<spect> &get_specs();
+  std::vector<spect> &get_specs()
+  {
+    return specs;
+  }
+
+  // get function name
+  const irep_idt &get_func_name() const
+  {
+    return function;
+  }
+
+  // update all specs when crossing the function call boundary
+  abstraction_spect update_abst_spec(
+    irep_idt old_function,
+    irep_idt new_function,
+    std::unordered_map<irep_idt, irep_idt> _name_pairs) const;
+
+  // check if a variable is abstracted
+  bool has_entity(const irep_idt &entity_name) const
+  {
+    for(const spect &spec: specs)
+    {
+      if(spec.has_entity(entity_name))
+        return true;
+    }
+    return false;
+  }
 
 protected:
   std::vector<spect> specs;
+  irep_idt function; // function name, no need to have path
 };
 
 #endif // CPROVER_GOTO_INSTRUMENT_ABSTSPEC_H
