@@ -1136,9 +1136,9 @@ void goto_instrument_parse_optionst::instrument_goto_program()
 
     std::vector<std::string> abstfiles = abst_spec.get_abstraction_function_files();
 
-    log.status() << "Reading in abst funcs goto-model"  << messaget::eom;
-    link_abst_functions(goto_model, abst_spec, ui_message_handler, options);
-    log.status() << "Abst functions linked to goto-program"  << messaget::eom;
+    // log.status() << "Reading in abst funcs goto-model"  << messaget::eom;
+    // link_abst_functions(goto_model, abst_spec, ui_message_handler, options);
+    // log.status() << "Abst functions linked to goto-program"  << messaget::eom;
 
     log.status() << "Analyzing index variables related to the entity" << messaget::eom;
     abstract_goto_program(goto_model, abst_spec);
