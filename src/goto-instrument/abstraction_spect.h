@@ -20,6 +20,7 @@ Authors: Murali Talupur, talupur@amazon.com
 class abstraction_spect
 {
 public:
+  abstraction_spect() {}
   //This constructor parses the json abstraction specification and populates the class.
   abstraction_spect(std::string, message_handlert &);
 
@@ -32,27 +33,27 @@ public:
   public:
     struct entityt
     {
-      //Hierarchical path to the array/list being abstracted
-      std::string function; // function name, no need to have path
       //Name of the array/list being abstracted
-      std::string name; // should be in the id format: function::x::name
+      irep_idt name; // should be in the id format: function::x::name, this is the unique identifier
       std::string name_of_abst;
 
     public:
       entityt(){}
-      entityt(std::string _function, std::string _name) : function(_function), name(_name) {}
+      entityt(irep_idt _name) : name(_name) {}
+      entityt(const entityt &_entity) : name(_entity.name), name_of_abst(_entity.name_of_abst) {}
 
-      std::string function_name()
-      {
-        return function;
-      }
 
-      std::string entity_name()
+      irep_idt entity_name() const
       {
         return name;
       }
 
-      std::string entity_abst()
+      void set_entity_name(const irep_idt &new_name)
+      {
+        name = new_name;
+      }
+
+      std::string entity_abst() const
       {
         return name_of_abst;
       }
@@ -68,10 +69,12 @@ public:
     std::string abst_func_file;
 
     //Arrays to be abstracted
-    std::vector<entityt> abst_arrays;
+    std::unordered_map<irep_idt, entityt> abst_arrays;
+    // std::vector<entityt> abst_arrays;
 
     //Index vars to be abstracted
-    std::vector<entityt> abst_indices;
+    std::unordered_map<irep_idt, entityt> abst_indices;
+    // std::vector<entityt> abst_indices;
 
     //Names of references in increasing order
     //Each ref is stored with path+name of the array being abstracted along
@@ -101,24 +104,46 @@ public:
     std::string minus_func;
 
   public:
-    spect()
+    spect() {}
+    spect(const spect &_spec)
+      : abst_func_file(_spec.abst_func_file),
+        abst_arrays(_spec.abst_arrays),
+        abst_indices(_spec.abst_indices),
+        refs_name(_spec.refs_name),
+        assumptions(_spec.assumptions),
+        indices(_spec.indices),
+        is_precise_func(_spec.is_precise_func),
+        compare_indices_func(_spec.compare_indices_func),
+        addition_func(_spec.addition_func),
+        minus_func(_spec.minus_func)
     {
     }
 
     //We will have functions for accessing and modifying the above data.
     //array_or_index: false-array, true-index
-    void insert_entity(const std::string &_function, const std::string &_name, bool array_or_index)
+    void insert_entity(const irep_idt &_name, bool array_or_index)
     {
-      entityt new_entity(_function, _name);
+      entityt new_entity(_name);
       if(array_or_index)
-        abst_arrays.push_back(new_entity);
+        abst_arrays.insert({_name, new_entity});
       else
-        abst_indices.push_back(new_entity);
+        abst_indices.insert({_name, new_entity});
     }
 
-    const std::vector<entityt> &get_abst_arrays() const
+    const std::unordered_map<irep_idt, entityt> &get_abst_arrays() const
     {
       return abst_arrays;
+    }
+
+    const std::unordered_map<irep_idt, entityt> &get_abst_indices() const
+    {
+      return abst_indices;
+    }
+
+    const bool has_entity(const irep_idt &entity_name) const
+    {
+      return (abst_arrays.find(entity_name) != abst_arrays.end()) ||
+             (abst_indices.find(entity_name) != abst_indices.end());
     }
 
     //set abst func file path
@@ -137,26 +162,48 @@ public:
     //For example, if function Foo has two arrays f1 and f2 that are abstracted.
     //Function Bar is defined as void Bar(array b1, array b2) and suppose Foo calls Bar(f1,f2).
     //Abst_spec in Foo will contain f1, f2. These should be renamed to b1, b2 to obtain abst_spec for Bar.
-    //The argument for the following function would [(f1, b1),[f2,b2)]
-    int update_entity_names(std::vector<std::tuple<std::string, std::string>>);
-
-    //This function update indices list as we cross fucntion boundary.
-    //Say we are abstraction array f1 in Foo. Abst_spec for f1 has indices say {i,j}.
-    //That is, variables i, j are used to directly index into f1.
-    //Now we cross into Bar, and the arrays are now b1, b2. Suppose {l,m} are used to directly
-    //index into b1, b2. After renaming the arrays f1 --> b1, f2 --> b2 we need to update the
-    //indices from {i,j} --> {l,m}. That's what this function does.
-    int update_indices(std::string, std::string, std::vector<std::string>);
-
-    //Update abst_spec: the overall function that uses the above two functions.
-    int update_abst_spec(std::vector<std::tuple<std::string, std::string>>);
+    //The argument for the following function would be Foo, Bar, {f1: b1, f2: b2}
+    //Return a new spect reflecting the changes
+    spect update_abst_spec(
+      irep_idt old_function,
+      irep_idt new_function,
+      std::unordered_map<irep_idt, irep_idt> _name_pairs) const;
   };
 
   // gather specs
-  std::vector<spect> &get_specs();
+  std::vector<spect> &get_specs()
+  {
+    return specs;
+  }
 
+  // get function name
+  const irep_idt &get_func_name() const
+  {
+    return function;
+  }
+
+  // update all specs when crossing the function call boundary
+  abstraction_spect update_abst_spec(
+    irep_idt old_function,
+    irep_idt new_function,
+    std::unordered_map<irep_idt, irep_idt> _name_pairs) const;
+
+  // check if a variable is abstracted
+  bool has_entity(const irep_idt &entity_name) const
+  {
+    for(const spect &spec: specs)
+    {
+      if(spec.has_entity(entity_name))
+        return true;
+    }
+    return false;
+  }
+
+  // print all entities
+  void print_entities() const;
 protected:
   std::vector<spect> specs;
+  irep_idt function; // function name, no need to have path
 };
 
 #endif // CPROVER_GOTO_INSTRUMENT_ABSTSPEC_H

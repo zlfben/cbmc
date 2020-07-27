@@ -20,14 +20,21 @@ abstraction_spect::abstraction_spect(
 {
   jsont json;
   parse_json(filename, message_handler, json);
-  for(const jsont &entry : to_json_array(json["entries"]))
+  const auto &json_object = to_json_object(json);
+  const auto &json_entries = json_object.find("entries")->second;
+  const auto &json_entries_array = to_json_array(json_entries);
+  for(auto it=json_entries_array.begin(); it != json_entries_array.end(); ++it)
   {
+    const auto &entry_obj = to_json_object(*it);
     spect spec;
-    spec.insert_entity(entry["function"].value, entry["name"].value, entry["entity"].value=="array");
-    spec.set_abst_func_file(get_absolute_path(entry["abst-function-file"].value));
-    for(const jsont &related_entity : to_json_array(entry["related-entities"]))
+    function = entry_obj.find("function")->second.value;  // we assume that all entries in the json file are located in the same function
+    spec.insert_entity(entry_obj.find("name")->second.value, entry_obj.find("entity")->second.value=="array");
+    spec.set_abst_func_file(get_absolute_path(entry_obj.find("abst-function-file")->second.value));
+    const auto &json_re_array = to_json_array(entry_obj.find("related-entities")->second);
+    for(auto it_r=json_re_array.begin(); it_r != json_re_array.end(); ++it_r)
     {
-      spec.insert_entity(related_entity["function"].value, related_entity["name"].value, related_entity["entity"].value=="array");
+      const auto &related_entity = to_json_object(*it_r);
+      spec.insert_entity(related_entity.find("name")->second.value, related_entity.find("entity")->second.value=="array");
     }
     specs.push_back(spec);
   }
@@ -43,7 +50,78 @@ std::vector<std::string> abstraction_spect::get_abstraction_function_files() con
   return files;
 }
 
-std::vector<abstraction_spect::spect> &abstraction_spect::get_specs()
+abstraction_spect::spect abstraction_spect::spect::update_abst_spec(
+  irep_idt old_function,
+  irep_idt new_function,
+  std::unordered_map<irep_idt, irep_idt> _name_pairs) const
 {
-  return specs;
+  // copy the spec into a new one
+  spect new_spec(*this);
+
+  // store the entity names in the original spect
+  std::vector<irep_idt> abst_array_ids;
+  std::vector<irep_idt> abst_index_ids;
+  for(const auto &p: abst_arrays)
+    abst_array_ids.push_back(p.first);
+  for(const auto &p: abst_indices)
+    abst_index_ids.push_back(p.first);
+  
+  for(const auto &name: abst_array_ids)
+  {
+    if(
+      std::string(abst_arrays.at(name).entity_name().c_str())
+        .rfind(old_function.c_str(), 0) ==
+      0) // erase the old entity if it's not a global variable
+      new_spec.abst_arrays.erase(name);
+    if(_name_pairs.find(name) != _name_pairs.end())
+    {
+      // This array needs to be updated
+      new_spec.abst_arrays.insert({_name_pairs[name], entityt(_name_pairs[name])});
+    }
+  }
+  for(const auto &name: abst_index_ids)
+  {
+    if(
+        std::string(abst_indices.at(name).entity_name().c_str())
+          .rfind(old_function.c_str(), 0) ==
+        0) // erase the old entity if it's not a global variable
+        new_spec.abst_indices.erase(name);
+    if(_name_pairs.find(name) != _name_pairs.end())
+    {
+      // This index variable needs to be updated
+      new_spec.abst_indices.insert({_name_pairs[name], entityt(_name_pairs[name])});
+    }
+  }
+
+  return new_spec;
+}
+
+abstraction_spect abstraction_spect::update_abst_spec(
+  irep_idt old_function,
+  irep_idt new_function,
+  std::unordered_map<irep_idt, irep_idt> _name_pairs) const
+{
+  if(function != old_function)
+  {
+    throw "The old abstraction_spect should match the callee";
+  }
+
+  abstraction_spect new_abst_spec;
+  new_abst_spec.function = new_function;
+  for(const auto &spec: specs)
+  {
+    new_abst_spec.specs.push_back(spec.update_abst_spec(old_function, new_function, _name_pairs));
+  }
+  return new_abst_spec;
+}
+
+void abstraction_spect::print_entities() const
+{
+  for(const auto &spec: specs)
+  {
+    for(const auto &ent: spec.get_abst_arrays())
+      std::cout << ent.first << std::endl;
+    for(const auto &ent: spec.get_abst_indices())
+      std::cout << ent.first << std::endl;
+  }
 }

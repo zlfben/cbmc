@@ -55,7 +55,15 @@ public:
 void link_abst_functions(goto_modelt &goto_model, const abstraction_spect &abst_spec, ui_message_handlert &msg_handler, const optionst &options);
 
 // find related variables within function
-const std::unordered_set<irep_idt> find_index_symbols(goto_modelt &goto_model, const irep_idt &array_name);
+const std::unordered_set<irep_idt> find_index_symbols(const goto_functiont &goto_function, const irep_idt &array_name);
+
+/// \param goto_model: the goto model
+/// \param abst_spec: the initialized abst_spec, containing all spects from the json file
+/// \return a map with function name as key and its abst_spect as value
+/// The function starts from the initial spects and check all function calls to build a complete set of entityts.
+/// The new entityts are stored in abst_spec.specs
+std::unordered_map<irep_idt, abstraction_spect>
+calculate_complete_abst_specs_for_funcs(goto_modelt &goto_model, abstraction_spect &abst_spec);
 
 // abstract goto programs
 void abstract_goto_program(goto_modelt &goto_model, abstraction_spect &abst_spec);
