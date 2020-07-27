@@ -199,6 +199,8 @@ public:
     return false;
   }
 
+  // print all entities
+  void print_entities() const;
 protected:
   std::vector<spect> specs;
   irep_idt function; // function name, no need to have path

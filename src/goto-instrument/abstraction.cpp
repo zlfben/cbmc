@@ -294,7 +294,8 @@ find_function_calls(irep_idt func_name, goto_modelt &goto_model, const abstracti
   return result;
 }
 
-void calculate_complete_abst_specs_for_funcs(goto_modelt &goto_model, abstraction_spect &abst_spec)
+std::unordered_map<irep_idt, abstraction_spect> 
+calculate_complete_abst_specs_for_funcs(goto_modelt &goto_model, abstraction_spect &abst_spec)
 {
   std::unordered_map<irep_idt, abstraction_spect> function_spec_map;  // map from function to its abst_spec
   const goto_functiont &init_function = goto_model.get_goto_function(abst_spec.get_func_name());
@@ -341,10 +342,17 @@ void calculate_complete_abst_specs_for_funcs(goto_modelt &goto_model, abstractio
       }
     }
   }
+  return function_spec_map;
 }
 
 void abstract_goto_program(goto_modelt &goto_model, abstraction_spect &abst_spec)
 {
   // A couple of spects are initialized from the json file. We should go from there and insert spects to other functions
-  calculate_complete_abst_specs_for_funcs(goto_model, abst_spec);
+  std::unordered_map<irep_idt, abstraction_spect> function_spec_map =
+    calculate_complete_abst_specs_for_funcs(goto_model, abst_spec);
+  for(auto &p: function_spec_map)
+  {
+    std::cout << "=========== " << p.first << " ===========" << std::endl;
+    p.second.print_entities();
+  }
 }
