@@ -36,6 +36,17 @@ abstraction_spect::abstraction_spect(
       const auto &related_entity = to_json_object(*it_r);
       spec.insert_entity(related_entity.find("name")->second.value, related_entity.find("entity")->second.value=="array");
     }
+    const auto &json_shape_obj = to_json_object(entry_obj.find("shape")->second);
+    const auto &json_shape_i_array = to_json_array(json_shape_obj.find("indices")->second);
+    const auto &json_shape_a_array = to_json_array(json_shape_obj.find("assumptions")->second);
+    std::vector<irep_idt> indices;
+    std::vector<std::string> assumptions;
+    for(auto it_i=json_shape_i_array.begin(); it_i != json_shape_i_array.end(); ++it_i)
+      indices.push_back(to_json_string(*it_i).value);
+    for(auto it_a=json_shape_a_array.begin(); it_a != json_shape_a_array.end(); ++it_a)
+      assumptions.push_back(to_json_string(*it_a).value);
+    std::string shape_type = to_json_string(json_shape_obj.find("shape-type")->second).value;
+    spec.set_shape(indices, assumptions, shape_type);
     specs.push_back(spec);
   }
 }

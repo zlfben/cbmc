@@ -15,6 +15,8 @@ Author: Lefan Zhang, lefanz@amazon.com
 #include <queue>
 
 #include <util/std_expr.h>
+#include <util/expr_util.h>
+#include <util/format_expr.h>
 #include <goto-programs/initialize_goto_model.h>
 #include <goto-programs/link_goto_model.h>
 
@@ -206,7 +208,6 @@ const std::unordered_set<irep_idt> find_index_symbols(const goto_functiont &goto
     if(it->is_function_call())
     {
       const code_function_callt fc = it->get_function_call();
-      code_function_callt::argumentst new_arguments = fc.arguments();
       exprt new_lhs = fc.lhs();
       etr.add_expr(fc.lhs());
       
@@ -232,7 +233,7 @@ void complete_abst_spec(const goto_functiont& goto_function, abstraction_spect &
   {
     for(const auto &ent: spec.get_abst_arrays())
       for(irep_idt index_name: find_index_symbols(goto_function, ent.first))
-        if(spec.get_abst_indices().find(index_name) != spec.get_abst_indices().end())
+        if(spec.get_abst_indices().find(index_name) == spec.get_abst_indices().end())
           spec.insert_entity(index_name, true);
   }
 }
@@ -274,6 +275,7 @@ find_function_calls(irep_idt func_name, goto_modelt &goto_model, const abstracti
       // it is a function call that we potentially need to abstract
       const code_function_callt fc = it->get_function_call();
       const irep_idt &new_func_name = to_symbol_expr(fc.function()).get_identifier();
+      const goto_functiont &new_function = goto_model.get_goto_function(new_func_name);
       std::unordered_map<irep_idt, irep_idt> map;
       for(size_t i=0; i<fc.arguments().size(); i++)
       {
@@ -281,11 +283,8 @@ find_function_calls(irep_idt func_name, goto_modelt &goto_model, const abstracti
         const exprt &arg = fc.arguments()[i];
         irep_idt symbol_name = check_expr_is_symbol(arg);
         if(symbol_name != "" && abst_spec.has_entity(symbol_name))
-        {
           // if so, we push it into the map
-          const goto_functiont &new_function = goto_model.get_goto_function(new_func_name);
           map.insert({symbol_name, new_function.parameter_identifiers[i]});
-        }
       }
       if(!map.empty())  //if map is not empty, we create a new entry in the result
         result.push_back(std::make_tuple(new_func_name, map));
@@ -340,9 +339,37 @@ calculate_complete_abst_specs_for_funcs(goto_modelt &goto_model, abstraction_spe
         complete_abst_spec(goto_model.get_goto_function(new_func_name), new_func_abst);
         function_spec_map.insert({new_func_name, new_func_abst});
       }
+      else
+      {
+        // we need to compare if the structure is the same
+        abstraction_spect new_func_abst = function_spec_map[current_func_name].update_abst_spec(current_func_name, new_func_name, name_pairs);
+        if(!new_func_abst.compare_shape(function_spec_map[new_func_name]))
+          throw "Same function abstracted with different shape!";
+      }
     }
   }
   return function_spec_map;
+}
+
+bool contains_an_abstracted_entity(const exprt &expr, const abstraction_spect &abst_spec)
+{
+  struct match_abst_symbolt
+  {
+    match_abst_symbolt(const abstraction_spect &_abst_spec) : abst_spec(_abst_spec) {}
+    // check if expr is an entity symbol that we want to abstract
+    bool operator()(const exprt &expr)
+    {
+      irep_idt symbol_name = check_expr_is_symbol(expr);
+      return symbol_name != "" && abst_spec.has_entity(symbol_name);
+    }
+  protected:
+    // we assume this abst_spec's life span covers 
+    // the life span of the match_abst_symbolt object
+    const abstraction_spect &abst_spec;
+  };
+  match_abst_symbolt match_abst_symbol(abst_spec);
+  return has_subexpr(expr, match_abst_symbol);
+
 }
 
 void abstract_goto_program(goto_modelt &goto_model, abstraction_spect &abst_spec)
@@ -353,6 +380,37 @@ void abstract_goto_program(goto_modelt &goto_model, abstraction_spect &abst_spec
   for(auto &p: function_spec_map)
   {
     std::cout << "=========== " << p.first << " ===========" << std::endl;
+    std::cout << "----------- " << "Entities to be abstracted" << " -----------" << std::endl;
     p.second.print_entities();
+    std::cout << "----------- " << "Exprs containing the above entities" << " -----------" << std::endl;
+    const goto_functiont &goto_function = goto_model.get_goto_function(p.first);
+    const abstraction_spect &abst_spec = p.second;
+    forall_goto_program_instructions(it, goto_function.body)
+    {
+      // go through conditions
+      if(it->has_condition())
+        if(contains_an_abstracted_entity(it->get_condition(), abst_spec))
+          format_rec(std::cout, it->get_condition()) << std::endl;
+
+      // go through all expressions
+      if(it->is_function_call())
+      {
+        const code_function_callt fc = it->get_function_call();
+        if(contains_an_abstracted_entity(fc.lhs(), abst_spec))
+          format_rec(std::cout, fc.lhs()) << std::endl;
+        
+        for(const auto &arg : fc.arguments())
+          if(contains_an_abstracted_entity(arg, abst_spec))
+            format_rec(std::cout, arg) << std::endl;
+      }
+      else if(it->is_assign())
+      {
+        const code_assignt as = it->get_assign();
+        if(contains_an_abstracted_entity(as.lhs(), abst_spec))
+          format_rec(std::cout, as.lhs()) << std::endl;
+        if(contains_an_abstracted_entity(as.rhs(), abst_spec))
+          format_rec(std::cout, as.rhs()) << std::endl;
+      }
+    }
   }
 }

@@ -763,18 +763,6 @@ int goto_instrument_parse_optionst::doit()
       return CPROVER_EXIT_SUCCESS;
     }
 
-    if(cmdline.isset("use-abstraction"))
-    {
-      // std::string filename = cmdline.get_value("use-abstraction");
-      // jsont json;
-      // parse_json(filename, ui_message_handler, json);
-
-      // abstract_goto_program(goto_model, json);
-      std::cout << "abstract" << std::endl;
-
-      // return CPROVER_EXIT_SUCCESS;
-    }
-
     if(
       cmdline.isset("show-goto-functions") ||
       cmdline.isset("list-goto-functions"))

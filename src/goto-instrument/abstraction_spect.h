@@ -31,6 +31,52 @@ public:
   struct spect
   {
   public:
+    struct abst_shapet
+    {
+      std::vector<irep_idt> indices;
+      std::vector<std::string> assumptions;
+      std::string shape_type;
+    public:
+      abst_shapet() {}
+      abst_shapet(
+        std::vector<irep_idt> _indices,
+        std::vector<std::string> _assumptions,
+        std::string _shape_type)
+        : indices(_indices), assumptions(_assumptions), shape_type(_shape_type) {}
+      abst_shapet(const abst_shapet &other)
+        : indices(other.indices),
+          assumptions(other.assumptions),
+          shape_type(other.shape_type)
+      {
+      }
+      void add_index(const irep_idt &_index)
+      {
+        indices.push_back(_index);
+      }
+      void add_assumption(const std::string &_assumption)
+      {
+        assumptions.push_back(_assumption);
+      }
+      void set_shape_type(const std::string &_shape_type)
+      {
+        shape_type = _shape_type;
+      }
+      bool operator==(const abst_shapet &other)
+      {
+        if(indices.size() != other.indices.size())
+          return false;
+        if(assumptions.size() != other.assumptions.size())
+          return false;
+        for(size_t i=0; i<indices.size(); i++)
+          if(indices[i] != other.indices[i])
+            return false;
+        for(size_t i=0; i<assumptions.size(); i++)
+          if(assumptions[i] != other.assumptions[i])
+            return false;
+        return true;
+      }
+    };
+
     struct entityt
     {
       //Name of the array/list being abstracted
@@ -76,19 +122,8 @@ public:
     std::unordered_map<irep_idt, entityt> abst_indices;
     // std::vector<entityt> abst_indices;
 
-    //Names of references in increasing order
-    //Each ref is stored with path+name of the array being abstracted along
-    //with the name of ref itself (like c1, c2)
-    std::vector<entityt> refs_name;
-
-    //Assumptions on the references
-    std::vector<exprt> assumptions;
-
-    //List of variables directly indexing into array being abstracted.
-    //This list is required to handle while-loops correctly. Say ind indexes into array f
-    //and ind is used as iterator in the while loop. Then ind has to be abstracted ind-abs
-    //so as to reduce it's range from an potentially large value to a small abstract range.
-    std::vector<std::string> indices;
+    // Shape of the abstraction
+    abst_shapet shape;
 
     //Abstraction functions follow. These should be defined in the abstraction_funcs_file or
     //they are hard-coded ones. In abstraction_funcs_file function will begin with prefixes
@@ -109,9 +144,7 @@ public:
       : abst_func_file(_spec.abst_func_file),
         abst_arrays(_spec.abst_arrays),
         abst_indices(_spec.abst_indices),
-        refs_name(_spec.refs_name),
-        assumptions(_spec.assumptions),
-        indices(_spec.indices),
+        shape(_spec.shape), 
         is_precise_func(_spec.is_precise_func),
         compare_indices_func(_spec.compare_indices_func),
         addition_func(_spec.addition_func),
@@ -158,6 +191,18 @@ public:
       return abst_func_file;
     }
 
+    // set the shape
+    void set_shape(const std::vector<irep_idt> &indices, const std::vector<std::string> &assumptions, const std::string &shape_type)
+    {
+      shape = abst_shapet(indices, assumptions, shape_type);
+    }
+
+    // compare if two spect have the same abst shape
+    bool compare_shape(const spect &other)
+    {
+      return shape == other.shape;
+    }
+
     //We need to update the abstracted array/list/var names as we cross the function boundary.
     //For example, if function Foo has two arrays f1 and f2 that are abstracted.
     //Function Bar is defined as void Bar(array b1, array b2) and suppose Foo calls Bar(f1,f2).
@@ -197,6 +242,17 @@ public:
         return true;
     }
     return false;
+  }
+
+  // compare if two spect have the same structure
+  bool compare_shape(const abstraction_spect &other)
+  {
+    if(specs.size() != other.specs.size())
+      return false;
+    for(size_t i=0; i<specs.size(); i++)
+      if(!specs[i].compare_shape(other.specs[i]))
+        return false;
+    return true;
   }
 
   // print all entities
