@@ -5,12 +5,11 @@ CHECK=false
 
 # paths to the benchmark repos
 AWS_C_COMMON_PATH="/home/ubuntu/aws-c-common"
-AWS_IOT_SDK_PATH="/home/ubuntu/aws-iot-device-sdk-embedded-C-tuttle"
 
 # executables
 MAKE="make"
-GOTO_INSTRUMENT="goto-instrument"
-CBMC="cbmc"
+GOTO_INSTRUMENT="/home/ubuntu/abstract-cbmc/cbmc/build/bin/goto-instrument"
+CBMC="/home/ubuntu/abstract-cbmc/cbmc/build/bin/cbmc"
 CBMC_FLAGS="--unwind 10  
             --bounds-check 
             --pointer-check 
@@ -27,15 +26,7 @@ CBMC_FLAGS="--unwind 10
 
 AWS_C_COMMON_TESTS=(
     "aws_array_eq" 
-    "aws_array_eq_c_str_ignore_case" 
-    "aws_array_eq_ignore_case" 
-    "aws_array_list_comparator_string" 
-    "aws_array_list_front" 
-    "aws_array_list_get_at" 
-    "aws_array_list_pop_back" 
 )
-
-AWS_IOT_SDK_TEST="skip_string"
 
 cwd=$(pwd)
 for test in ${AWS_C_COMMON_TESTS[@]}; do
@@ -51,7 +42,7 @@ for test in ${AWS_C_COMMON_TESTS[@]}; do
         $AWS_C_COMMON_PATH/.cbmc-batch/jobs/$test/${test}_harness_abst.goto
     # print the goto-programs into txts
     rm $AWS_C_COMMON_PATH/.cbmc-batch/jobs/$test/${test}_harness_abst.txt
-    $GOTO_INSTRUMENT --print-internal-representation \
+    $GOTO_INSTRUMENT --show-goto-functions \
         $AWS_C_COMMON_PATH/.cbmc-batch/jobs/$test/${test}_harness_abst.goto \
         >> $AWS_C_COMMON_PATH/.cbmc-batch/jobs/$test/${test}_harness_abst.txt
     # check the program
@@ -59,22 +50,3 @@ for test in ${AWS_C_COMMON_TESTS[@]}; do
         $CBMC $CBMC_FLAGS $AWS_C_COMMON_PATH/.cbmc-batch/jobs/$test/${test}_harness_abst.goto
     fi
 done
-
-echo "===== $AWS_IOT_SDK_TEST ====="
-cd $AWS_IOT_SDK_PATH/cbmc/proofs/JsonParser/proofs
-# compile program into goto-programs
-$MAKE goto ENTRY=String 2&>1
-cd $cwd
-# run goto-instrument to make abstracted goto-programs
-$GOTO_INSTRUMENT --use-abstraction $cwd/$AWS_IOT_SDK_TEST.json \
-    $AWS_IOT_SDK_PATH/cbmc/proofs/JsonParser/proofs/String.goto \
-    $AWS_IOT_SDK_PATH/cbmc/proofs/JsonParser/proofs/String_abst.goto
-# print the goto-programs into txts
-rm $AWS_IOT_SDK_PATH/cbmc/proofs/JsonParser/proofs/String_abst.txt
-$GOTO_INSTRUMENT --print-internal-representation \
-    $AWS_IOT_SDK_PATH/cbmc/proofs/JsonParser/proofs/String_abst.goto \
-    >> $AWS_IOT_SDK_PATH/cbmc/proofs/JsonParser/proofs/String_abst.txt
-# check the program
-if [ $CHECK = true ]; then
-    $CBMC $CBMC_FLAGS $AWS_IOT_SDK_PATH/cbmc/proofs/JsonParser/proofs/String_abst.goto
-fi
