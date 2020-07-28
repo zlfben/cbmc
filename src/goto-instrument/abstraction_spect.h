@@ -35,7 +35,7 @@ public:
     {
       std::vector<irep_idt> indices;
       std::vector<std::string> assumptions;
-      std::string shape_type;
+      std::string shape_type;  // e.g. "*cc*"
     public:
       abst_shapet() {}
       abst_shapet(
@@ -73,7 +73,7 @@ public:
         for(size_t i=0; i<assumptions.size(); i++)
           if(assumptions[i] != other.assumptions[i])
             return false;
-        return true;
+        return (shape_type == other.shape_type);
       }
     };
 
@@ -200,6 +200,16 @@ public:
     // compare if two spect have the same abst shape
     bool compare_shape(const spect &other)
     {
+      if(abst_arrays.size() != other.abst_arrays.size())
+        return false;
+      if(abst_indices.size() != other.abst_indices.size())
+        return false;
+      for(const auto &array: abst_arrays)
+        if(other.abst_arrays.find(array.first) == other.abst_arrays.end())
+          return false;
+      for(const auto &index: abst_indices)
+        if(other.abst_indices.find(index.first) == other.abst_indices.end())
+          return false;
       return shape == other.shape;
     }
 
