@@ -14,7 +14,7 @@
                 "add-abs-conc": "add_abs_to_conc",
                 "sub-abs-conc": "sub_conc_from_abs",
                 "precise-check": "is_precise",
-                "abstract-index": "two_abs",
+                "abstract-index": "one_abs",
                 "concretize-index": "concretize",
                 "multiply-indices": null,
                 "mod-indices": null

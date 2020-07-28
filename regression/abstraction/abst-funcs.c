@@ -1,37 +1,38 @@
 #include <stdint.h>
-#include <cassert>
+#include <assert.h>
 
 //Some helper functions. 
 
-//nondet_bool, nondet_int, nondet_sizet are available in CBMC.
+//nndt_bool, nndt_int, nndt_sizet are available in CBMC.
 
-int nondet_int(){
+int nndt_int(){
     int i;
     return(i);
 }
 
-int nondet_bool(){
-    bool b;
-    return(b);
+int nndt_bool(){
+    int i;
+    return(i % 2);
 }
 
-int nondet_under(int bound){
+
+int nndt_under(int bound){
     int nd;
     // Mod is an expensive operation. We need to get rid of this.
     //return(nd%bound);
-    __CPROVER_ASSUME(nd < bound);
+    __CPROVER_assume(nd < bound);
     return(nd);
 }
 
-int nondet_between(int l, int u){
+int nndt_between(int l, int u){
     int diff = u - l;
-    int nd = nondet_under(diff);
+    int nd = nndt_under(diff);
     if (nd == 0) return(l+1);
     else return(nd + l);
 }
 
-int nondet_above(int bound){
-    int nd = nondet_int();
+int nndt_above(int bound){
+    int nd = nndt_int();
     if (nd > bound) return(nd);
     else return(bound + 1+ nd); 
 }
@@ -59,20 +60,20 @@ int concretize_1(int abs_ind, int a1){
     if(abs_ind < 1) {
         if (a1 == 0) 
         {
-            assert(false);
+            assert(0 != 0);
             return(-1);
         }
-        else return(nondet_under(a1));
+        else return(nndt_under(a1));
     }
     else if (abs_ind == 1) return(a1);
-    else return(nondet_above(a1));
+    else return(nndt_above(a1));
 }
 
 // Add a number to an abs_ind
 int add_abs_to_conc_1(int abs_ind, int num, int a1){
     if (num == 1){
         if(abs_ind == 0) {
-            if (nondet_bool()) return(abs_ind);
+            if (nndt_bool() > 0) return(abs_ind);
             else return(abs_ind + 1);
         }
         //abs_ind = 1 or 2
@@ -91,7 +92,7 @@ int add_abs_to_conc_1(int abs_ind, int num, int a1){
 int sub_conc_from_abs_1(int abs_ind, int num, int a1, int a2){
     if (num == 1){
         if(abs_ind == 2) {
-            if (nondet_bool()) return(abs_ind);
+            if (nndt_bool() > 0) return(abs_ind);
             else return(abs_ind - 1);
         }
         //abs_ind = 1 0r 0
@@ -133,37 +134,39 @@ int concretize_2(int abs_ind, int a1, int a2) {
         if (a1 == 0)
         {
             //throw an exception here?
-            assert(false);
+            assert(0 != 0);
             return(-1);
         }
-        else return(nondet_under(a1));
+        else return(nndt_under(a1));
     }
     else if (abs_ind == 1) return(a1);
     else if (abs_ind == 2){
         if (a1+1 == a2 ) {
             //throw an exception here? 
-            assert(false); 
+            assert(0 != 0); 
             return(-1);
         }
-        else return(nondet_between(a1, a2));
+        else return(nndt_between(a1, a2));
     }
     else if (abs_ind == 3) return(a2);
-    else return(nondet_above(a2));
+    else return(nndt_above(a2));
 }
 
-bool is_precise_2(int abs_ind){
-    return(abs_ind == 1 || abs_ind == 3);
+int is_precise_2(int abs_ind){
+    if (abs_ind == 1 || abs_ind == 3) return(1);
+    else return(0);
 }
 
-bool is_abstract_2(int abs_ind){
-    return(!is_precise_2(abs_ind));
+int is_abstract_2(int abs_ind){
+    int pre = is_precise_2(abs_ind);
+    return(1-pre);
 }
 
 // Add a number to an abs_ind
 int add_abs_to_conc_2(int abs_ind, int num, int a1, int a2){
     if (num == 1){
         if(abs_ind == 0 || abs_ind == 2) {
-            if (nondet_bool()) return(abs_ind);
+            if (nndt_bool() > 0) return(abs_ind);
             else return(abs_ind + 1);
         }
         else if (abs_ind == 1) {
@@ -187,7 +190,7 @@ int add_abs_to_conc_2(int abs_ind, int num, int a1, int a2){
 int sub_conc_from_abs_2(int abs_ind, int num, int a1, int a2){
     if (num == 1){
         if(abs_ind == 4 || abs_ind == 2) {
-            if (nondet_bool()) return(abs_ind);
+            if (nndt_bool() > 0) return(abs_ind);
             else return(abs_ind - 1);
         }
         else if (abs_ind == 3) {
@@ -248,39 +251,41 @@ int concretize_4(int abs_ind, int a1, int a2, int a3, int a4) {
         if (a1 == 0)
         {
             //throw an exception here?
-            assert(false);
+            assert(0 != 0);
             return(-1);
         }
-        else return(nondet_under(a1));
+        else return(nndt_under(a1));
     }
     else if (abs_ind == 1) return(a1);
     else if (abs_ind == 2) return(a2);
     else if (abs_ind == 3){
         if (a2+1 == a3 ) {
             //throw an exception here? 
-            assert(false); 
+            assert(0 != 0); 
             return(-1);
         }
-        else return(nondet_between(a2, a3));
+        else return(nndt_between(a2, a3));
     }
     else if (abs_ind == 4) return(a3);
     else if (abs_ind == 5) return(a4);
-    else return(nondet_above(a4));
+    else return(nndt_above(a4));
 }
 
-bool is_precise_4(int abs_ind){
-    return(abs_ind == 1 || abs_ind == 2 || abs_ind == 4 || abs_ind == 5);
+int is_precise_4(int abs_ind){
+    if (abs_ind == 1 || abs_ind == 2 || abs_ind == 4 || abs_ind == 5) return(1);
+    else return(0);
 }
 
-bool is_abstract_4(int abs_ind){
-    return(!is_precise_4(abs_ind));
+int is_abstract_4(int abs_ind){
+    if(!is_precise_4(abs_ind)) return(1);
+    else return(0);
 }
 
 // Add a number to an abs_ind
 int add_abs_to_conc_4(int abs_ind, int num, int a1, int a2, int a3, int a4){
     if (num == 1){
         if(abs_ind == 0 || abs_ind == 3) {
-            if (nondet_bool()) return(abs_ind);
+            if (nndt_bool() > 0) return(abs_ind);
             else return(abs_ind + 1);
         }
         else if (abs_ind == 1) return(2);
@@ -306,7 +311,7 @@ int add_abs_to_conc_4(int abs_ind, int num, int a1, int a2, int a3, int a4){
 int sub_conc_from_abs_4(int abs_ind, int num, int a1, int a2, int a3, int a4){
     if (num == 1){
         if(abs_ind == 6 || abs_ind == 3) {
-            if (nondet_bool()) return(abs_ind);
+            if (nndt_bool() > 0) return(abs_ind);
             else return(abs_ind - 1);
         }
         else if (abs_ind == 5 || abs_ind == 2 || abs_ind == 1) return(abs_ind-1);
