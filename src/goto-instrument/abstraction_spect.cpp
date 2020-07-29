@@ -121,7 +121,10 @@ abstraction_spect abstraction_spect::update_abst_spec(
   new_abst_spec.function = new_function;
   for(const auto &spec: specs)
   {
-    new_abst_spec.specs.push_back(spec.update_abst_spec(old_function, new_function, _name_pairs));
+    spect new_spec = spec.update_abst_spec(old_function, new_function, _name_pairs);
+    if(!spec.compare_shape_only(new_spec))
+      throw "The updated spect's shape should be the same as the original one";
+    new_abst_spec.specs.push_back(new_spec);
   }
   return new_abst_spec;
 }

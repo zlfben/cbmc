@@ -61,7 +61,7 @@ public:
       {
         shape_type = _shape_type;
       }
-      bool operator==(const abst_shapet &other)
+      bool operator==(const abst_shapet &other) const
       {
         if(indices.size() != other.indices.size())
           return false;
@@ -198,7 +198,7 @@ public:
     }
 
     // compare if two spect have the same abst shape
-    bool compare_shape(const spect &other)
+    bool compare_shape(const spect &other) const
     {
       if(abst_arrays.size() != other.abst_arrays.size())
         return false;
@@ -210,6 +210,11 @@ public:
       for(const auto &index: abst_indices)
         if(other.abst_indices.find(index.first) == other.abst_indices.end())
           return false;
+      return shape == other.shape;
+    }
+
+    bool compare_shape_only(const spect &other) const
+    {
       return shape == other.shape;
     }
 
@@ -255,8 +260,11 @@ public:
   }
 
   // compare if two spect have the same structure
-  bool compare_shape(const abstraction_spect &other)
+  bool compare_shape(const abstraction_spect &other) const
   {
+    // In the update_abst_spec function, the result and the 
+    // original one should have the same spects in terms 
+    // of both order and shape
     if(specs.size() != other.specs.size())
       return false;
     for(size_t i=0; i<specs.size(); i++)
