@@ -65,6 +65,11 @@ const std::unordered_set<irep_idt> find_index_symbols(const goto_functiont &goto
 std::unordered_map<irep_idt, abstraction_spect>
 calculate_complete_abst_specs_for_funcs(goto_modelt &goto_model, abstraction_spect &abst_spec);
 
+/// \param expr: the expression to be checked
+/// \param abst_spec: the abstraction_spect for the current function which contains all spects
+/// \return whether the expr contains an entity to be abstracted
+bool contains_an_abstracted_entity(const exprt &expr, const abstraction_spect &abst_spec);
+
 // abstract goto programs
 void abstract_goto_program(goto_modelt &goto_model, abstraction_spect &abst_spec);
 

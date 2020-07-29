@@ -36,6 +36,17 @@ abstraction_spect::abstraction_spect(
       const auto &related_entity = to_json_object(*it_r);
       spec.insert_entity(related_entity.find("name")->second.value, related_entity.find("entity")->second.value=="array");
     }
+    const auto &json_shape_obj = to_json_object(entry_obj.find("shape")->second);
+    const auto &json_shape_i_array = to_json_array(json_shape_obj.find("indices")->second);
+    const auto &json_shape_a_array = to_json_array(json_shape_obj.find("assumptions")->second);
+    std::vector<irep_idt> indices;
+    std::vector<std::string> assumptions;
+    for(auto it_i=json_shape_i_array.begin(); it_i != json_shape_i_array.end(); ++it_i)
+      indices.push_back(to_json_string(*it_i).value);
+    for(auto it_a=json_shape_a_array.begin(); it_a != json_shape_a_array.end(); ++it_a)
+      assumptions.push_back(to_json_string(*it_a).value);
+    std::string shape_type = to_json_string(json_shape_obj.find("shape-type")->second).value;
+    spec.set_shape(indices, assumptions, shape_type);
     specs.push_back(spec);
   }
 }
@@ -110,8 +121,13 @@ abstraction_spect abstraction_spect::update_abst_spec(
   new_abst_spec.function = new_function;
   for(const auto &spec: specs)
   {
-    new_abst_spec.specs.push_back(spec.update_abst_spec(old_function, new_function, _name_pairs));
+    spect new_spec = spec.update_abst_spec(old_function, new_function, _name_pairs);
+    if(!spec.compare_shape_only(new_spec))
+      throw "The updated spect's shape should be the same as the original one";
+    new_abst_spec.specs.push_back(new_spec);
   }
+  if(specs.size() != new_abst_spec.specs.size())
+    throw "The updated specs' size should remain the same";
   return new_abst_spec;
 }
 
