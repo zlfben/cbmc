@@ -344,7 +344,14 @@ calculate_complete_abst_specs_for_funcs(goto_modelt &goto_model, abstraction_spe
         // we need to compare if the structure is the same
         abstraction_spect new_func_abst = function_spec_map[current_func_name].update_abst_spec(current_func_name, new_func_name, name_pairs);
         if(!new_func_abst.compare_shape(function_spec_map[new_func_name]))
-          throw "Same function abstracted with different shape!";
+        {
+          std::string error_code = "Same function abstracted with different shape!\n";
+          error_code += "Original abst spec:\n";
+          error_code += function_spec_map[new_func_name].get_entities_string();
+          error_code += "New abst spec:\n";
+          error_code += new_func_abst.get_entities_string();
+          throw error_code;
+        }
       }
     }
   }

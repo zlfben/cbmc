@@ -131,13 +131,20 @@ abstraction_spect abstraction_spect::update_abst_spec(
   return new_abst_spec;
 }
 
-void abstraction_spect::print_entities() const
+std::string abstraction_spect::get_entities_string() const
 {
+  std::string str = "";
   for(const auto &spec: specs)
   {
     for(const auto &ent: spec.get_abst_arrays())
-      std::cout << ent.first << std::endl;
+      str += std::string(ent.first.c_str()) + "\n";
     for(const auto &ent: spec.get_abst_indices())
-      std::cout << ent.first << std::endl;
+      str += std::string(ent.first.c_str()) + "\n";
   }
+  return str;
+}
+
+void abstraction_spect::print_entities() const
+{
+  std::cout << get_entities_string();
 }

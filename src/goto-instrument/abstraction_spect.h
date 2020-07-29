@@ -273,6 +273,8 @@ public:
     return true;
   }
 
+  // get a string containing all entity names
+  std::string get_entities_string() const;
   // print all entities
   void print_entities() const;
 protected:
