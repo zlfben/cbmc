@@ -126,6 +126,8 @@ abstraction_spect abstraction_spect::update_abst_spec(
       throw "The updated spect's shape should be the same as the original one";
     new_abst_spec.specs.push_back(new_spec);
   }
+  if(specs.size() != new_abst_spec.specs.size())
+    throw "The updated specs' size should remain the same";
   return new_abst_spec;
 }
 
