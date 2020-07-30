@@ -70,6 +70,16 @@ calculate_complete_abst_specs_for_funcs(goto_modelt &goto_model, abstraction_spe
 /// \return whether the expr contains an entity to be abstracted
 bool contains_an_abstracted_entity(const exprt &expr, const abstraction_spect &abst_spec);
 
+/// \param goto_model: the goto model
+/// \param func_name: the target function
+/// \param abst_spec: the abstraction specification
+/// The function helps declare the abstract variables in the abst_spec
+/// For each variable "var_name", the function inserts the abstracted version
+/// into the symbol table with name "var_name$abst"
+/// If it is a local variable in the function, we'll also change the declaration for the abstracted variable to "var_name$abst"
+/// If it is a function argument, we'll change the parameter table (var_name => var_name$abst)
+void declare_abst_variables_for_func(goto_modelt &goto_model, const irep_idt &func_name, const abstraction_spect &abst_spec);
+
 // abstract goto programs
 void abstract_goto_program(goto_modelt &goto_model, abstraction_spect &abst_spec);
 

@@ -236,6 +236,12 @@ public:
     return specs;
   }
 
+  // gather specs constant version
+  const std::vector<spect> &get_specs() const
+  {
+    return specs;
+  }
+
   // get function name
   const irep_idt &get_func_name() const
   {

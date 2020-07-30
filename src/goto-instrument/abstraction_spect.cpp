@@ -137,9 +137,9 @@ std::string abstraction_spect::get_entities_string() const
   for(const auto &spec: specs)
   {
     for(const auto &ent: spec.get_abst_arrays())
-      str += std::string(ent.first.c_str()) + "\n";
+      str += "array: " + std::string(ent.second.entity_name().c_str()) + "\n";
     for(const auto &ent: spec.get_abst_indices())
-      str += std::string(ent.first.c_str()) + "\n";
+      str += "index: " + std::string(ent.second.entity_name().c_str()) + "\n";
   }
   return str;
 }

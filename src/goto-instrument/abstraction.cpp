@@ -379,11 +379,84 @@ bool contains_an_abstracted_entity(const exprt &expr, const abstraction_spect &a
 
 }
 
+void declare_abst_variables_for_func(goto_modelt &goto_model, const irep_idt &func_name, const abstraction_spect &abst_spec)
+{
+  symbol_tablet &symbol_table = goto_model.symbol_table;
+
+  // helper function to insert abst variables into the symbol table
+  auto insert_abst_symbol = [&symbol_table](const abstraction_spect::spect::entityt &entity)
+  {
+    // sometimes vars in built in functions has no identifers
+    // we don't handle those cases by default
+    if(symbol_table.has_symbol(entity.entity_name()))
+    {
+      // insert the symbol var_name$abst into the symbol table
+      const symbolt &orig_symbol = symbol_table.lookup_ref(entity.entity_name());
+      symbolt abst_symbol(orig_symbol);
+      abst_symbol.name = std::string(entity.entity_name().c_str()) + "$abst";
+      if(!symbol_table.has_symbol(abst_symbol.name))
+        symbol_table.insert(abst_symbol);
+    }
+    
+  };
+
+  // Step 1: insert abst variables into the symbol table
+  for(const abstraction_spect::spect &spec: abst_spec.get_specs())
+  {
+    for(const auto &ent_pair: spec.get_abst_arrays())
+      insert_abst_symbol(ent_pair.second);
+    for(const auto &ent_pair: spec.get_abst_indices())
+      insert_abst_symbol(ent_pair.second);
+  }
+
+  // Step 2: if it is in the function parameter list, change the name
+  goto_functiont &function = goto_model.goto_functions.function_map.at(func_name);
+  for(auto &param: function.parameter_identifiers)
+    if(abst_spec.has_entity(param))
+      param = std::string(param.c_str()) + "$abst";
+  
+  // Step 3: if it is declared within the function, change DECLARE and DEAD
+  Forall_goto_program_instructions(it, function.body)
+  {
+    if(it->is_decl())
+    {
+      // change symbol name in DECLARE instruction
+      const code_declt &decl = it->get_decl();
+      if(abst_spec.has_entity(decl.get_identifier()))
+      {
+        irep_idt new_name = std::string(decl.get_identifier().c_str()) + "$abst";
+        typet typ = symbol_table.lookup_ref(new_name).type;
+        symbol_exprt new_symb_expr(new_name, typ);
+        code_declt new_decl(new_symb_expr);
+        it->set_decl(new_decl);
+      }
+    }
+    else if(it->is_dead())
+    {
+      // change symbol name in DEAD instruction
+      const code_deadt &dead = it->get_dead();
+      if(abst_spec.has_entity(dead.get_identifier()))
+      {
+        irep_idt new_name = std::string(dead.get_identifier().c_str()) + "$abst";
+        typet typ = symbol_table.lookup_ref(new_name).type;
+        symbol_exprt new_symb_expr(new_name, typ);
+        code_deadt new_dead(new_symb_expr);
+        it->set_dead(new_dead);
+      }
+    }
+    else {}
+    
+  }
+}
+
 void abstract_goto_program(goto_modelt &goto_model, abstraction_spect &abst_spec)
 {
   // A couple of spects are initialized from the json file. We should go from there and insert spects to other functions
   std::unordered_map<irep_idt, abstraction_spect> function_spec_map =
     calculate_complete_abst_specs_for_funcs(goto_model, abst_spec);
+  for(auto &p: function_spec_map)
+    declare_abst_variables_for_func(goto_model, p.first, p.second);
+  
   for(auto &p: function_spec_map)
   {
     std::cout << "=========== " << p.first << " ===========" << std::endl;
