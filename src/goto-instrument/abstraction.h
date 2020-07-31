@@ -84,6 +84,21 @@ void declare_abst_variables_for_func(
   const abstraction_spect &abst_spec,
   std::unordered_set<irep_idt> &abst_var_set);
 
+/// \param expr: the lhs expression to be written to
+/// \param abst_spec: the abstration information for the current function
+/// \param goto_model: the goto_model
+/// \param insts_before: instructions that need to be added before the instruction to support the write
+/// \param insts_after: instructions that need to be added after the instruction to support the write
+/// \param new_symbs: new symbols to be added to support the write
+/// \return an exprt that is abstracted
+exprt abstract_expr_write(
+  const exprt &expr,
+  const abstraction_spect &abst_spec,
+  const goto_modelt &goto_model,
+  goto_programt::instructionst &insts_before,
+  goto_programt::instructionst &insts_after,
+  std::vector<symbolt> &new_symbs);
+
 // abstract goto programs
 void abstract_goto_program(goto_modelt &goto_model, abstraction_spect &abst_spec);
 
