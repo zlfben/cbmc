@@ -78,7 +78,11 @@ bool contains_an_abstracted_entity(const exprt &expr, const abstraction_spect &a
 /// into the symbol table with name "var_name$abst"
 /// If it is a local variable in the function, we'll also change the declaration for the abstracted variable to "var_name$abst"
 /// If it is a function argument, we'll change the parameter table (var_name => var_name$abst)
-void declare_abst_variables_for_func(goto_modelt &goto_model, const irep_idt &func_name, const abstraction_spect &abst_spec);
+void declare_abst_variables_for_func(
+  goto_modelt &goto_model,
+  const irep_idt &func_name,
+  const abstraction_spect &abst_spec,
+  std::unordered_set<irep_idt> &abst_var_set);
 
 // abstract goto programs
 void abstract_goto_program(goto_modelt &goto_model, abstraction_spect &abst_spec);

@@ -379,12 +379,16 @@ bool contains_an_abstracted_entity(const exprt &expr, const abstraction_spect &a
 
 }
 
-void declare_abst_variables_for_func(goto_modelt &goto_model, const irep_idt &func_name, const abstraction_spect &abst_spec)
+void declare_abst_variables_for_func(
+  goto_modelt &goto_model,
+  const irep_idt &func_name,
+  const abstraction_spect &abst_spec,
+  std::unordered_set<irep_idt> &abst_var_set)
 {
   symbol_tablet &symbol_table = goto_model.symbol_table;
 
   // helper function to insert abst variables into the symbol table
-  auto insert_abst_symbol = [&symbol_table](const abstraction_spect::spect::entityt &entity)
+  auto insert_abst_symbol = [&symbol_table, &abst_var_set](const abstraction_spect::spect::entityt &entity)
   {
     // sometimes vars in built in functions has no identifers
     // we don't handle those cases by default
@@ -395,7 +399,16 @@ void declare_abst_variables_for_func(goto_modelt &goto_model, const irep_idt &fu
       symbolt abst_symbol(orig_symbol);
       abst_symbol.name = std::string(entity.entity_name().c_str()) + "$abst";
       if(!symbol_table.has_symbol(abst_symbol.name))
-        symbol_table.insert(abst_symbol);
+      {
+          symbol_table.insert(abst_symbol);
+          abst_var_set.insert(abst_symbol.name);
+      }
+      else
+      {
+        if(abst_var_set.find(abst_symbol.name) == abst_var_set.end())
+          throw "Abstract variable's name already occupied.";
+      }
+      
     }
     
   };
@@ -454,8 +467,9 @@ void abstract_goto_program(goto_modelt &goto_model, abstraction_spect &abst_spec
   // A couple of spects are initialized from the json file. We should go from there and insert spects to other functions
   std::unordered_map<irep_idt, abstraction_spect> function_spec_map =
     calculate_complete_abst_specs_for_funcs(goto_model, abst_spec);
+  std::unordered_set<irep_idt> abst_symbol_set;
   for(auto &p: function_spec_map)
-    declare_abst_variables_for_func(goto_model, p.first, p.second);
+    declare_abst_variables_for_func(goto_model, p.first, p.second, abst_symbol_set);
   
   for(auto &p: function_spec_map)
   {
