@@ -379,6 +379,11 @@ bool contains_an_abstracted_entity(const exprt &expr, const abstraction_spect &a
 
 }
 
+irep_idt get_abstract_name(const irep_idt &old_name)
+{
+  return irep_idt(std::string(old_name.c_str())+"$abst");
+}
+
 void declare_abst_variables_for_func(
   goto_modelt &goto_model,
   const irep_idt &func_name,
@@ -397,7 +402,7 @@ void declare_abst_variables_for_func(
       // insert the symbol var_name$abst into the symbol table
       const symbolt &orig_symbol = symbol_table.lookup_ref(entity.entity_name());
       symbolt abst_symbol(orig_symbol);
-      abst_symbol.name = std::string(entity.entity_name().c_str()) + "$abst";
+      abst_symbol.name = get_abstract_name(entity.entity_name());
       if(!symbol_table.has_symbol(abst_symbol.name))
       {
           symbol_table.insert(abst_symbol);
@@ -437,7 +442,7 @@ void declare_abst_variables_for_func(
       const code_declt &decl = it->get_decl();
       if(abst_spec.has_entity(decl.get_identifier()))
       {
-        irep_idt new_name = std::string(decl.get_identifier().c_str()) + "$abst";
+        irep_idt new_name = get_abstract_name(decl.get_identifier());
         typet typ = symbol_table.lookup_ref(new_name).type;
         symbol_exprt new_symb_expr(new_name, typ);
         code_declt new_decl(new_symb_expr);
@@ -450,7 +455,7 @@ void declare_abst_variables_for_func(
       const code_deadt &dead = it->get_dead();
       if(abst_spec.has_entity(dead.get_identifier()))
       {
-        irep_idt new_name = std::string(dead.get_identifier().c_str()) + "$abst";
+        irep_idt new_name = get_abstract_name(dead.get_identifier());
         typet typ = symbol_table.lookup_ref(new_name).type;
         symbol_exprt new_symb_expr(new_name, typ);
         code_deadt new_dead(new_symb_expr);
@@ -460,6 +465,49 @@ void declare_abst_variables_for_func(
     else {}
     
   }
+}
+
+exprt abstract_expr_write(
+  const exprt &expr,
+  const abstraction_spect &abst_spec,
+  const goto_modelt &goto_model,
+  goto_programt::instructionst &insts_before,
+  goto_programt::instructionst &insts_after,
+  std::vector<symbolt> &new_symbs)
+{
+  if(!contains_an_abstracted_entity(expr, abst_spec))
+    return expr;
+  
+  if(expr.id() == ID_symbol)
+  {
+    // if it is a symbol, we just return the new abstract symbol
+    const symbol_exprt &symb = to_symbol_expr(expr);
+    irep_idt new_name = get_abstract_name(symb.get_identifier());
+    if(goto_model.symbol_table.has_symbol(new_name))
+    {
+      const typet &typ = goto_model.symbol_table.lookup_ref(new_name).type;
+      symbol_exprt new_symb_expr(new_name, typ);
+      return new_symb_expr;
+    }
+    else
+    {
+      std::string error_code = "Abst variable " +
+                               std::string(new_name.c_str()) +
+                               " used before inserting to the symbol table";
+      throw error_code;
+    }
+  }
+  else
+  {
+    // TODO: actually we also support abstracting array access as lhs
+    //       we haven't implemented it yet because there's no such case in our benchmarks
+    //       an error is thrown if we find this case
+    std::string error_code = "";
+    error_code += "Currently, " + std::string(expr.id().c_str()) + "cannot be abstracted as lhs.";
+    throw error_code;
+  }
+  
+  
 }
 
 void abstract_goto_program(goto_modelt &goto_model, abstraction_spect &abst_spec)
@@ -487,12 +535,18 @@ void abstract_goto_program(goto_modelt &goto_model, abstraction_spect &abst_spec
           format_rec(std::cout, it->get_condition()) << std::endl;
 
       // go through all expressions
+      goto_programt::instructionst inst_before;
+      goto_programt::instructionst inst_after;
+      std::vector<symbolt> new_symbs;
       if(it->is_function_call())
       {
         const code_function_callt fc = it->get_function_call();
         if(contains_an_abstracted_entity(fc.lhs(), abst_spec))
-          format_rec(std::cout, fc.lhs()) << std::endl;
-        
+        {
+          format_rec(std::cout, fc.lhs()) << " ==abst==> ";
+          format_rec(std::cout, abstract_expr_write(fc.lhs(), abst_spec, goto_model, inst_before, inst_after, new_symbs)) << std::endl;
+        }
+
         for(const auto &arg : fc.arguments())
           if(contains_an_abstracted_entity(arg, abst_spec))
             format_rec(std::cout, arg) << std::endl;
@@ -501,7 +555,10 @@ void abstract_goto_program(goto_modelt &goto_model, abstraction_spect &abst_spec
       {
         const code_assignt as = it->get_assign();
         if(contains_an_abstracted_entity(as.lhs(), abst_spec))
-          format_rec(std::cout, as.lhs()) << std::endl;
+        {
+          format_rec(std::cout, as.lhs()) << " ==abst==> ";
+          format_rec(std::cout, abstract_expr_write(as.lhs(), abst_spec, goto_model, inst_before, inst_after, new_symbs)) << std::endl;
+        }
         if(contains_an_abstracted_entity(as.rhs(), abst_spec))
           format_rec(std::cout, as.rhs()) << std::endl;
       }
