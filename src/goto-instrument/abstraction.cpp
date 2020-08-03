@@ -28,11 +28,18 @@ void expr_type_relation::link(size_t i1, size_t i2)
   edges[i2].push_back(i1);
 }
 
+void expr_type_relation::link_array(size_t i1, size_t i2)
+{
+  edges_array[i1].push_back(i2);
+  edges_array[i2].push_back(i1);
+}
+
 size_t expr_type_relation::add_expr(const exprt &expr)
 {
   size_t index = expr_list.size();
   expr_list.push_back(expr);
   edges.push_back(std::vector<size_t>());
+  edges_array.push_back(std::vector<size_t>());
 
   // add symbol to symbol list
   if(expr.id() == ID_symbol)
@@ -61,6 +68,7 @@ size_t expr_type_relation::add_expr(const exprt &expr)
       expr.id() == ID_dynamic_cast || expr.id() == ID_reinterpret_cast)
     {
       link(index, operands_index[0]);
+      link_array(index, operands_index[0]);
     }
     else if(expr.id() == ID_plus || expr.id() == ID_minus)
     {
@@ -85,6 +93,16 @@ size_t expr_type_relation::add_expr(const exprt &expr)
       {
         todo.insert(operands_index[1]);
       }
+    }
+  }
+
+  // If this is the array itself, put it into the set of array exprs
+  if(expr.id() == ID_symbol)
+  {
+    const symbol_exprt &symb = to_symbol_expr(expr);
+    if(symb.get_identifier() == target_array)
+    {
+      todo_array.insert(index);
     }
   }
 
@@ -122,6 +140,37 @@ void expr_type_relation::solve()
   }
 }
 
+void expr_type_relation::solve_array()
+{
+  while(!todo_array.empty())
+  {
+    std::unordered_set<size_t>::iterator current_it = todo_array.begin();
+    size_t current_index = *current_it;
+    todo_array.erase(current_it);
+    finished_array.insert(current_index);
+
+    for(size_t neighbor: edges_array[current_index])
+    {
+      if(todo_array.find(neighbor) == todo_array.end() && finished_array.find(neighbor) == finished_array.end())
+      {
+        // this neighbor doesn't exist previously, should be put into todo
+        todo_array.insert(neighbor);
+      }
+    }
+    if(expr_list[current_index].id() == ID_symbol)
+    {
+      const symbol_exprt &symb = to_symbol_expr(expr_list[current_index]);
+      const irep_idt symb_id = symb.get_identifier();
+      for(size_t neighbor: symbols[symb_id])
+      {
+        if(todo_array.find(neighbor) == todo_array.end() && finished_array.find(neighbor) == finished_array.end())
+          todo_array.insert(neighbor);
+      }
+      abst_arrays.insert(symb_id);
+    }
+  }
+}
+
 void link_abst_functions(goto_modelt &goto_model, const abstraction_spect &abst_spec, ui_message_handlert &msg_handler, const optionst &options)
 {
   std::vector<std::string> abstfiles = abst_spec.get_abstraction_function_files();  // get abst function file names
@@ -129,7 +178,10 @@ void link_abst_functions(goto_modelt &goto_model, const abstraction_spect &abst_
   link_goto_model(goto_model, goto_model_for_abst_fns, msg_handler);  // link goto model
 }
 
-const std::unordered_set<irep_idt> find_index_symbols(const goto_functiont &goto_function, const irep_idt &array_name)
+const std::tuple<std::unordered_set<irep_idt>, std::unordered_set<irep_idt>>
+find_index_symbols(
+  const goto_functiont &goto_function,
+  const irep_idt &array_name)
 {
   class show_index_exprt : public expr_visitort
   {
@@ -220,11 +272,17 @@ const std::unordered_set<irep_idt> find_index_symbols(const goto_functiont &goto
       size_t l_id = etr.add_expr(as.lhs());
       size_t r_id = etr.add_expr(as.rhs());
       etr.link(l_id, r_id);
+      etr.link_array(l_id, r_id);
     }
   }
 
   etr.solve();
-  return etr.get_abst_variables();
+  etr.solve_array();
+
+  std::tuple<std::unordered_set<irep_idt>, std::unordered_set<irep_idt>> result(
+    etr.get_abst_arrays(), etr.get_abst_variables());
+
+  return result;
 }
 
 void complete_abst_spec(const goto_functiont& goto_function, abstraction_spect &abst_spec)
@@ -232,9 +290,15 @@ void complete_abst_spec(const goto_functiont& goto_function, abstraction_spect &
   for(auto &spec: abst_spec.get_specs())
   {
     for(const auto &ent: spec.get_abst_arrays())
-      for(irep_idt index_name: find_index_symbols(goto_function, ent.first))
+    {
+      std::tuple<std::unordered_set<irep_idt>, std::unordered_set<irep_idt>> abst_entities = find_index_symbols(goto_function, ent.first);
+      for(irep_idt index_name: std::get<0>(abst_entities))
+        if(spec.get_abst_arrays().find(index_name) == spec.get_abst_arrays().end())
+          spec.insert_entity(index_name, false);
+      for(irep_idt index_name: std::get<1>(abst_entities))
         if(spec.get_abst_indices().find(index_name) == spec.get_abst_indices().end())
           spec.insert_entity(index_name, true);
+    }
   }
 }
 
@@ -510,6 +574,81 @@ exprt abstract_expr_write(
   
 }
 
+exprt abstract_expr_read(
+  const exprt &expr,
+  const abstraction_spect &abst_spec,
+  const goto_modelt &goto_model,
+  goto_programt::instructionst &insts_before,
+  goto_programt::instructionst &insts_after,
+  std::vector<symbolt> &new_symbs)
+{
+  if(!contains_an_abstracted_entity(expr, abst_spec))
+    return expr;
+  
+  if(expr.id() == ID_symbol)
+  {
+    // if it is a symbol, we just return the new abstract symbol
+    const symbol_exprt &symb = to_symbol_expr(expr);
+    irep_idt new_name = get_abstract_name(symb.get_identifier());
+    if(goto_model.symbol_table.has_symbol(new_name))
+    {
+      const typet &typ = goto_model.symbol_table.lookup_ref(new_name).type;
+      symbol_exprt new_symb_expr(new_name, typ);
+      return new_symb_expr;
+    }
+    else
+    {
+      std::string error_code = "Abst variable " +
+                               std::string(new_name.c_str()) +
+                               " used before inserting to the symbol table";
+      throw error_code;
+    }
+  }
+  else if(
+    expr.id() == ID_typecast || expr.id() == ID_and || expr.id() == ID_or ||
+    expr.id() == ID_xor || expr.id() == ID_not || expr.id() == ID_implies ||
+    expr.id() == ID_is_invalid_pointer || expr.id() == ID_is_dynamic_object)
+  {
+    // those types of exprs should not be changed, just run abst_read on lower level
+    exprt new_expr(expr);
+    for(size_t i = 0; i < expr.operands().size(); i++)
+      new_expr.operands()[i] = abstract_expr_read(expr.operands()[i], abst_spec, goto_model, insts_before, insts_after, new_symbs);
+    return new_expr;
+  }
+  else if(
+    expr.id() == ID_le || expr.id() == ID_lt || expr.id() == ID_ge ||
+    expr.id() == ID_gt || expr.id() == ID_equal || expr.id() == ID_notequal)
+  {
+    // TODO: handle comparators, need to call functions if 
+    // needed based on whether each operands are abstract
+    return expr;
+  }
+  else if(expr.id() == ID_dereference)
+  {
+    // TODO: handle dereference, need to check the structure of lower exprts
+    return expr;
+  }
+  else if(expr.id() == ID_plus)
+  {
+    // TODO: handle plus, should call plus function if needed
+    return expr;
+  }
+  else if(expr.id() == ID_minus)
+  {
+    // TODO: handle minus, should call plus function if needed
+    return expr;
+  }
+  else
+  {
+    // TODO: actually we also support abstracting array access as lhs
+    //       we haven't implemented it yet because there's no such case in our benchmarks
+    //       an error is thrown if we find this case
+    std::string error_code = "";
+    error_code += "Currently, " + std::string(expr.id().c_str()) + " cannot be abstracted in abst_read.";
+    throw error_code;
+  }
+}
+
 void abstract_goto_program(goto_modelt &goto_model, abstraction_spect &abst_spec)
 {
   // A couple of spects are initialized from the json file. We should go from there and insert spects to other functions
@@ -529,38 +668,52 @@ void abstract_goto_program(goto_modelt &goto_model, abstraction_spect &abst_spec
     const abstraction_spect &abst_spec = p.second;
     forall_goto_program_instructions(it, goto_function.body)
     {
-      // go through conditions
-      if(it->has_condition())
-        if(contains_an_abstracted_entity(it->get_condition(), abst_spec))
-          format_rec(std::cout, it->get_condition()) << std::endl;
-
       // go through all expressions
       goto_programt::instructionst inst_before;
       goto_programt::instructionst inst_after;
       std::vector<symbolt> new_symbs;
+
+      // go through conditions
+      if(it->has_condition())
+      {
+        if(contains_an_abstracted_entity(it->get_condition(), abst_spec))
+        {
+          format_rec(std::cout, it->get_condition()) << " ==abst_read==> ";
+          format_rec(std::cout, abstract_expr_read(it->get_condition(), abst_spec, goto_model, inst_before, inst_after, new_symbs)) << std::endl;
+        }
+      }
+      
       if(it->is_function_call())
       {
         const code_function_callt fc = it->get_function_call();
         if(contains_an_abstracted_entity(fc.lhs(), abst_spec))
         {
-          format_rec(std::cout, fc.lhs()) << " ==abst==> ";
+          format_rec(std::cout, fc.lhs()) << " ==abst_write==> ";
           format_rec(std::cout, abstract_expr_write(fc.lhs(), abst_spec, goto_model, inst_before, inst_after, new_symbs)) << std::endl;
         }
 
         for(const auto &arg : fc.arguments())
+        {
           if(contains_an_abstracted_entity(arg, abst_spec))
-            format_rec(std::cout, arg) << std::endl;
+          {
+            format_rec(std::cout, arg) << " ==abst_read==> ";
+            format_rec(std::cout, abstract_expr_read(arg, abst_spec, goto_model, inst_before, inst_after, new_symbs)) << std::endl;
+          }
+        }
       }
       else if(it->is_assign())
       {
         const code_assignt as = it->get_assign();
         if(contains_an_abstracted_entity(as.lhs(), abst_spec))
         {
-          format_rec(std::cout, as.lhs()) << " ==abst==> ";
+          format_rec(std::cout, as.lhs()) << " ==abst_write==> ";
           format_rec(std::cout, abstract_expr_write(as.lhs(), abst_spec, goto_model, inst_before, inst_after, new_symbs)) << std::endl;
         }
         if(contains_an_abstracted_entity(as.rhs(), abst_spec))
-          format_rec(std::cout, as.rhs()) << std::endl;
+        {
+          format_rec(std::cout, as.rhs()) << " ==abst_read==> ";
+          format_rec(std::cout, abstract_expr_read(as.rhs(), abst_spec, goto_model, inst_before, inst_after, new_symbs)) << std::endl;
+        }
       }
     }
   }

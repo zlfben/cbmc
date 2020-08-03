@@ -157,7 +157,7 @@ public:
     void insert_entity(const irep_idt &_name, bool array_or_index)
     {
       entityt new_entity(_name);
-      if(array_or_index)
+      if(!array_or_index)
         abst_arrays.insert({_name, new_entity});
       else
         abst_indices.insert({_name, new_entity});

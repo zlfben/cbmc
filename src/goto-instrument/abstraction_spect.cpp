@@ -28,13 +28,13 @@ abstraction_spect::abstraction_spect(
     const auto &entry_obj = to_json_object(*it);
     spect spec;
     function = entry_obj.find("function")->second.value;  // we assume that all entries in the json file are located in the same function
-    spec.insert_entity(entry_obj.find("name")->second.value, entry_obj.find("entity")->second.value=="array");
+    spec.insert_entity(entry_obj.find("name")->second.value, entry_obj.find("entity")->second.value!="array");
     spec.set_abst_func_file(get_absolute_path(entry_obj.find("abst-function-file")->second.value));
     const auto &json_re_array = to_json_array(entry_obj.find("related-entities")->second);
     for(auto it_r=json_re_array.begin(); it_r != json_re_array.end(); ++it_r)
     {
       const auto &related_entity = to_json_object(*it_r);
-      spec.insert_entity(related_entity.find("name")->second.value, related_entity.find("entity")->second.value=="array");
+      spec.insert_entity(related_entity.find("name")->second.value, related_entity.find("entity")->second.value!="array");
     }
     const auto &json_shape_obj = to_json_object(entry_obj.find("shape")->second);
     const auto &json_shape_i_array = to_json_array(json_shape_obj.find("indices")->second);
