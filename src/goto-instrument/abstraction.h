@@ -100,6 +100,15 @@ void declare_abst_variables_for_func(
   const abstraction_spect &abst_spec,
   std::unordered_set<irep_idt> &abst_var_set);
 
+/// \param expr: the expression to be checked
+/// \param abst_spec: the abstraction specification
+/// \param index: if this exprt is abstract, 
+/// \return whether it is abstract, the spec will be put here
+bool check_if_exprt_is_abstract(
+  const exprt &expr,
+  const abstraction_spect &abst_spec,
+  abstraction_spect::spect &spec);
+
 /// \param expr: the lhs expression to be written to
 /// \param abst_spec: the abstration information for the current function
 /// \param goto_model: the goto_model

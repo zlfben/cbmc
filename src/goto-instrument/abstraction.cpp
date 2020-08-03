@@ -531,6 +531,69 @@ void declare_abst_variables_for_func(
   }
 }
 
+bool check_if_exprt_is_abstract(
+  const exprt &expr,
+  const abstraction_spect &abst_spec,
+  abstraction_spect::spect &spec)
+{
+  if(expr.id() == ID_symbol)
+  {
+    // if it is a symbol, check whether if it is in the entity list
+    const symbol_exprt &symb = to_symbol_expr(expr);
+    if(abst_spec.has_index_entity(symb.get_identifier()))
+    {
+      spec = abst_spec.get_spec_for_index_entity(symb.get_identifier());
+      return true;
+    }
+    else
+    {
+      return false;
+    }
+  }
+  else if(
+      expr.id() == ID_const_cast || expr.id() == ID_static_cast || expr.id() == ID_typecast || 
+      expr.id() == ID_dynamic_cast || expr.id() == ID_reinterpret_cast)
+  {
+    // if it is a cast, we check the lower level
+    if(expr.operands().size() != 1)
+      throw "cast expressions should have one operand";
+    return check_if_exprt_is_abstract(*expr.operands().begin(), abst_spec, spec);
+  }
+  else if(expr.id() == ID_plus || expr.id() == ID_minus)
+  {
+    // if it is plus or minus, it should stay the same as the abstracted operand
+    if(expr.operands().size() != 2)
+      throw "add/minus expressions should have two operands";
+    abstraction_spect::spect spec1, spec2;
+    bool abs1 = check_if_exprt_is_abstract(expr.operands()[0], abst_spec, spec1);
+    bool abs2 = check_if_exprt_is_abstract(expr.operands()[1], abst_spec, spec2);
+    if(!abs1 && !abs2)
+    {
+      return false;
+    }
+    else if(!abs1 && abs2)
+    {
+      spec = spec2;
+      return true;
+    }
+    else if(abs1 && !abs2)
+    {
+      spec = spec1;
+      return true;
+    }
+    else
+    {
+      // TODO: we may want to change that in the future
+      // e.g. using abst_index1-abst_index2 might be possible in the code
+      throw "Direct computation on two abstracted indices are prohibited";
+    }
+  }
+  else
+  {
+    return false;
+  }
+}
+
 exprt abstract_expr_write(
   const exprt &expr,
   const abstraction_spect &abst_spec,
@@ -570,8 +633,6 @@ exprt abstract_expr_write(
     error_code += "Currently, " + std::string(expr.id().c_str()) + "cannot be abstracted as lhs.";
     throw error_code;
   }
-  
-  
 }
 
 exprt abstract_expr_read(
