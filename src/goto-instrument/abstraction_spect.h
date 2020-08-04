@@ -157,7 +157,7 @@ public:
     void insert_entity(const irep_idt &_name, bool array_or_index)
     {
       entityt new_entity(_name);
-      if(array_or_index)
+      if(!array_or_index)
         abst_arrays.insert({_name, new_entity});
       else
         abst_indices.insert({_name, new_entity});
@@ -177,6 +177,11 @@ public:
     {
       return (abst_arrays.find(entity_name) != abst_arrays.end()) ||
              (abst_indices.find(entity_name) != abst_indices.end());
+    }
+
+    const bool has_index_entity(const irep_idt &entity_name) const
+    {
+      return (abst_indices.find(entity_name) != abst_indices.end());
     }
 
     //set abst func file path
@@ -263,6 +268,28 @@ public:
         return true;
     }
     return false;
+  }
+
+  // check if a variable is an index to be abstracted
+  bool has_index_entity(const irep_idt &entity_name) const
+  {
+    for(const spect &spec: specs)
+    {
+      if(spec.has_index_entity(entity_name))
+        return true;
+    }
+    return false;
+  }
+
+  // return the spect that has the entity, should always run has_index_entity before running this function
+  const spect &get_spec_for_index_entity(const irep_idt &entity_name) const
+  {
+    for(const spect &spec: specs)
+    {
+      if(spec.has_index_entity(entity_name))
+        return spec;
+    }
+    throw "Entity " + std::string(entity_name.c_str()) + " not found";
   }
 
   // compare if two spect have the same structure

@@ -32,30 +32,46 @@ protected:
   irep_idt target_array;
 
   std::vector<std::vector<size_t>> edges;
+  std::vector<std::vector<size_t>> edges_array;
   std::vector<exprt> expr_list;
   std::unordered_set<size_t> finished;
+  std::unordered_set<size_t> finished_array;
   std::unordered_set<size_t> todo;
+  std::unordered_set<size_t> todo_array;
   std::map<irep_idt, std::vector<size_t>> symbols;
   std::unordered_set<irep_idt> abst_variables;
+  std::unordered_set<irep_idt> abst_arrays;
 
 public:
   expr_type_relation(irep_idt _target_array) : target_array(_target_array)
   {
   }
   void link(size_t i1, size_t i2);
+  void link_array(size_t i1, size_t i2);
   size_t add_expr(const exprt &expr);
   void solve();
+  void solve_array();
   const std::unordered_set<irep_idt> get_abst_variables()
   {
     return abst_variables;
+  }
+  const std::unordered_set<irep_idt> get_abst_arrays()
+  {
+    return abst_arrays;
   }
 };
 
 // link abst functions to goto programs
 void link_abst_functions(goto_modelt &goto_model, const abstraction_spect &abst_spec, ui_message_handlert &msg_handler, const optionst &options);
 
-// find related variables within function
-const std::unordered_set<irep_idt> find_index_symbols(const goto_functiont &goto_function, const irep_idt &array_name);
+/// \param goto_function: the function to be analyzed
+/// \param array_name: the array to be analyzed
+/// \return the related variables within function. the first entry in the tuple is the set of related arrays
+/// the second entry is the set of related indices
+const std::tuple<std::unordered_set<irep_idt>, std::unordered_set<irep_idt>>
+find_index_symbols(
+  const goto_functiont &goto_function,
+  const irep_idt &array_name);
 
 /// \param goto_model: the goto model
 /// \param abst_spec: the initialized abst_spec, containing all spects from the json file
@@ -84,6 +100,15 @@ void declare_abst_variables_for_func(
   const abstraction_spect &abst_spec,
   std::unordered_set<irep_idt> &abst_var_set);
 
+/// \param expr: the expression to be checked
+/// \param abst_spec: the abstraction specification
+/// \param index: if this exprt is abstract, 
+/// \return whether it is abstract, the spec will be put here
+bool check_if_exprt_is_abstract(
+  const exprt &expr,
+  const abstraction_spect &abst_spec,
+  abstraction_spect::spect &spec);
+
 /// \param expr: the lhs expression to be written to
 /// \param abst_spec: the abstration information for the current function
 /// \param goto_model: the goto_model
@@ -92,6 +117,21 @@ void declare_abst_variables_for_func(
 /// \param new_symbs: new symbols to be added to support the write
 /// \return an exprt that is abstracted
 exprt abstract_expr_write(
+  const exprt &expr,
+  const abstraction_spect &abst_spec,
+  const goto_modelt &goto_model,
+  goto_programt::instructionst &insts_before,
+  goto_programt::instructionst &insts_after,
+  std::vector<symbolt> &new_symbs);
+
+/// \param expr: the expression to be read 
+/// \param abst_spec: the abstration information for the current function
+/// \param goto_model: the goto_model
+/// \param insts_before: instructions that need to be added before the instruction to support the read
+/// \param insts_after: instructions that need to be added after the instruction to support the read
+/// \param new_symbs: new symbols to be added to support the read
+/// \return an exprt that is abstracted
+exprt abstract_expr_read(
   const exprt &expr,
   const abstraction_spect &abst_spec,
   const goto_modelt &goto_model,
