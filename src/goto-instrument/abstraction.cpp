@@ -19,7 +19,7 @@ Author: Lefan Zhang, lefanz@amazon.com
 #include <util/format_expr.h>
 #include <goto-programs/initialize_goto_model.h>
 #include <goto-programs/link_goto_model.h>
-
+#include <linking/static_lifetime_init.h>
 #include "abstraction.h"
 
 void expr_type_relation::link(size_t i1, size_t i2)
@@ -614,7 +614,7 @@ exprt abstract_expr_write(
     {
       const typet &typ = goto_model.symbol_table.lookup_ref(new_name).type;
       symbol_exprt new_symb_expr(new_name, typ);
-      return new_symb_expr;
+      return std::move(new_symb_expr);
     }
     else
     {
@@ -655,7 +655,7 @@ exprt abstract_expr_read(
     {
       const typet &typ = goto_model.symbol_table.lookup_ref(new_name).type;
       symbol_exprt new_symb_expr(new_name, typ);
-      return new_symb_expr;
+      return std::move(new_symb_expr);
     }
     else
     {
@@ -710,8 +710,49 @@ exprt abstract_expr_read(
   }
 }
 
+void define_concrete_indices(goto_modelt &goto_model, const abstraction_spect &abst_spec)
+{
+  for(const auto &spec: abst_spec.get_specs())
+  {
+    for(const irep_idt &index: spec.get_shape_indices())
+    {
+      // define the "index" in the global scope
+      // Step 0: Define the symbolt. what is the type/location of this variable?
+      // TODO: currently let's assume all index are 32-bit. In the future we should infer the width from the arch
+      unsignedbv_typet index_type(32);
+      source_locationt src_loc;
+      symbolt symb;
+      symb.type = index_type;
+      symb.location = src_loc;
+      symb.name = index;
+      symbol_exprt symb_expr(index, index_type);
+
+      // Step 1: put it into the symbol table
+      if(goto_model.symbol_table.has_symbol(index))
+        throw "the concrete index variable " + std::string(index.c_str()) + " is already defined";
+      goto_model.symbol_table.insert(std::move(symb));
+
+      // Step 2: put it into __CPROVER_initialize
+      goto_functionst::function_mapt::iterator fct_entry =
+        goto_model.goto_functions.function_map.find(INITIALIZE_FUNCTION);
+      CHECK_RETURN(fct_entry != goto_model.goto_functions.function_map.end());
+      goto_programt &init_function = fct_entry->second.body;
+      auto last_instruction = std::prev(init_function.instructions.end());
+      DATA_INVARIANT(
+        last_instruction->is_end_function(),
+        "last instruction in function should be END_FUNCTION");
+      goto_programt::instructiont new_inst = goto_programt::make_assignment(
+        code_assignt(symb_expr, side_effect_expr_nondett(index_type, src_loc)));
+      init_function.insert_before_swap(last_instruction, new_inst);
+    }
+  }
+}
+
 void abstract_goto_program(goto_modelt &goto_model, abstraction_spect &abst_spec)
 {
+  // Define the global concrete indices to be used
+  define_concrete_indices(goto_model, abst_spec);
+
   // A couple of spects are initialized from the json file. We should go from there and insert spects to other functions
   std::unordered_map<irep_idt, abstraction_spect> function_spec_map =
     calculate_complete_abst_specs_for_funcs(goto_model, abst_spec);

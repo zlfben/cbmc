@@ -139,6 +139,9 @@ exprt abstract_expr_read(
   goto_programt::instructionst &insts_after,
   std::vector<symbolt> &new_symbs);
 
+// define concrete indices globally
+void define_concrete_indices(goto_modelt &goto_model, const abstraction_spect &abst_spec);
+
 // abstract goto programs
 void abstract_goto_program(goto_modelt &goto_model, abstraction_spect &abst_spec);
 

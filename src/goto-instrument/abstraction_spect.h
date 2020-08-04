@@ -75,6 +75,16 @@ public:
             return false;
         return (shape_type == other.shape_type);
       }
+      static irep_idt get_index_name(const irep_idt &raw_name, const size_t &spec_index)
+      {
+        return irep_idt(
+          "$abst$spec" + std::to_string(spec_index) + "$" +
+          std::string(raw_name.c_str()));
+      }
+      const std::vector<irep_idt> &get_indices() const
+      {
+        return indices;
+      }
     };
 
     struct entityt
@@ -197,9 +207,16 @@ public:
     }
 
     // set the shape
-    void set_shape(const std::vector<irep_idt> &indices, const std::vector<std::string> &assumptions, const std::string &shape_type)
+    void set_shape(
+      const std::vector<irep_idt> &indices,
+      const std::vector<std::string> &assumptions,
+      const std::string &shape_type,
+      const size_t &spec_index)
     {
-      shape = abst_shapet(indices, assumptions, shape_type);
+      std::vector<irep_idt> new_indices(indices);
+      for(auto &index: new_indices)
+        index = abst_shapet::get_index_name(index, spec_index);
+      shape = abst_shapet(new_indices, assumptions, shape_type);
     }
 
     // compare if two spect have the same abst shape
@@ -221,6 +238,11 @@ public:
     bool compare_shape_only(const spect &other) const
     {
       return shape == other.shape;
+    }
+
+    const std::vector<irep_idt> &get_shape_indices() const
+    {
+      return shape.get_indices();
     }
 
     //We need to update the abstracted array/list/var names as we cross the function boundary.
