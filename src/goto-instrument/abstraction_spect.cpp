@@ -27,6 +27,7 @@ abstraction_spect::abstraction_spect(
   {
     const auto &entry_obj = to_json_object(*it);
     spect spec;
+    size_t spec_index = specs.size();
     function = entry_obj.find("function")->second.value;  // we assume that all entries in the json file are located in the same function
     spec.insert_entity(entry_obj.find("name")->second.value, entry_obj.find("entity")->second.value!="array");
     spec.set_abst_func_file(get_absolute_path(entry_obj.find("abst-function-file")->second.value));
@@ -46,7 +47,7 @@ abstraction_spect::abstraction_spect(
     for(auto it_a=json_shape_a_array.begin(); it_a != json_shape_a_array.end(); ++it_a)
       assumptions.push_back(to_json_string(*it_a).value);
     std::string shape_type = to_json_string(json_shape_obj.find("shape-type")->second).value;
-    spec.set_shape(indices, assumptions, shape_type);
+    spec.set_shape(indices, assumptions, shape_type, spec_index);
     specs.push_back(spec);
   }
 }
