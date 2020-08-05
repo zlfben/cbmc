@@ -1,0 +1,33 @@
+{
+    "entries": [
+    {
+        "entity": "array",
+        "function": "test1",
+        "name": "test1::1::a1",
+        "shape": {
+            "indices": ["c"],
+            "assumptions": [],
+            "shape-type": "*c*"
+        },
+        "abst-function-file": "./abst-funcs.c",
+        "abst-functions":{
+            "add-abs-conc": "add_abs_to_conc",
+            "sub-abs-conc": "sub_conc_from_abs",
+            "precise-check": "is_precise",
+            "abstract-index": "one_abs",
+            "concretize-index": "concretize",
+            "multiply-indices": null,
+            "mod-indices": null
+        },
+        "related-entities": [
+            {
+                "entity": "scalar",
+                "function": "test1",
+                "name": "test1::1::a2_len"
+            }
+        ]
+
+    }
+],
+    "comment" : "Gives only one array --a1-- to be abstracted but throws a2_len as related. "
+}
