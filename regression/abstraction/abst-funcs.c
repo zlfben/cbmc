@@ -1,67 +1,68 @@
 #include <stdint.h>
 #include <assert.h>
+#include <stddef.h>
 
 //Some helper functions. 
 
 //nndt_bool, nndt_int, nndt_sizet are available in CBMC.
 
-int nndt_int(){
-    int i;
+size_t nndt_int(){
+    size_t i;
     return(i);
 }
 
-int nndt_bool(){
-    int i;
+size_t nndt_bool(){
+    size_t i;
     return(i % 2);
 }
 
 
-int nndt_under(int bound){
-    int nd;
+size_t nndt_under(size_t bound){
+    size_t nd;
     // Mod is an expensive operation. We need to get rid of this.
     //return(nd%bound);
     __CPROVER_assume(nd < bound);
     return(nd);
 }
 
-int nndt_between(int l, int u){
-    int diff = u - l;
-    int nd = nndt_under(diff);
+size_t nndt_between(size_t l, size_t u){
+    size_t diff = u - l;
+    size_t nd = nndt_under(diff);
     if (nd == 0) return(l+1);
     else return(nd + l);
 }
 
-int nndt_above(int bound){
-    int nd = nndt_int();
-    if (nd > bound) return(nd);
-    else return(bound + 1+ nd); 
+size_t nndt_above(size_t bound){
+    size_t nd = nndt_int();
+    __CPROVER_assume(nd < bound);
+    return(nd);
 }
 
 //For one index: *c*
 // covers c*, +c*
-int one_abs(int index, int a1){
+size_t one_abs(size_t index, size_t a1){
     if(index < a1) return(0);
     else if(index == a1) return(1);
     else return(2);
 }
 
 
-int is_precise_1(int abs_ind, int a1){
+size_t is_precise_1(size_t abs_ind, size_t a1){
     return(abs_ind == 1);
 }
 
-int is_abstract_1(int abs_ind, int a1){
+size_t is_abstract_1(size_t abs_ind, size_t a1){
     return(abs_ind != 1);
 }
 
-int concretize_1(int abs_ind, int a1){
+size_t concretize_1(size_t abs_ind, size_t a1){
     assert(abs_ind >= 0);
     assert(a1 >= 0);
     if(abs_ind < 1) {
         if (a1 == 0) 
         {
-            assert(0 != 0);
-            return(-1);
+            assert(0);
+            return(0);
         }
         else return(nndt_under(a1));
     }
@@ -70,7 +71,7 @@ int concretize_1(int abs_ind, int a1){
 }
 
 // Add a number to an abs_ind
-int add_abs_to_conc_1(int abs_ind, int num, int a1){
+size_t add_abs_to_conc_1(size_t abs_ind, size_t num, size_t a1){
     if (num == 1){
         if(abs_ind == 0) {
             if (nndt_bool() > 0) return(abs_ind);
@@ -83,13 +84,13 @@ int add_abs_to_conc_1(int abs_ind, int num, int a1){
         assert(num >= 2);
         //This might be inefficient model checking wise.
         //We can always write an explicit abstraction like we did for num = 1.
-        int conc = concretize_1(abs_ind, a1);
+        size_t conc = concretize_1(abs_ind, a1);
         return(one_abs(conc+num, a1));
     }
 
 }
 
-int sub_conc_from_abs_1(int abs_ind, int num, int a1, int a2){
+size_t sub_conc_from_abs_1(size_t abs_ind, size_t num, size_t a1){
     if (num == 1){
         if(abs_ind == 2) {
             if (nndt_bool() > 0) return(abs_ind);
@@ -102,7 +103,8 @@ int sub_conc_from_abs_1(int abs_ind, int num, int a1, int a2){
         assert(num >= 2);
         //This might be inefficient model checking wise.
         //We can always write an explicit abstraction like we did for num = 1.
-        int conc = concretize_1(abs_ind, a1);
+        size_t conc = concretize_1(abs_ind, a1);
+        assert(conc>=num);
         return(one_abs(conc-num, a1));
     }
 }

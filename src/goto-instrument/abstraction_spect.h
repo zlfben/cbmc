@@ -140,13 +140,13 @@ public:
     //such as is_precise, compare_indices,... followed by the some shape identifier.
 
     //Says if an index into the abstracted entity is precisely tracked or not.
-    std::string is_precise_func;
+    irep_idt is_precise_func;
     //Says how the two indices into abstracted entity compare.
-    std::string compare_indices_func;
+    irep_idt compare_indices_func;
     //Addition over abstract indices
-    std::string addition_func;
+    irep_idt addition_func;
     //Subtraction over abstract indices
-    std::string minus_func;
+    irep_idt minus_func;
 
   public:
     spect() {}
@@ -204,6 +204,30 @@ public:
     std::string get_abst_func_file() const
     {
       return abst_func_file;
+    }
+
+    // set addition func
+    void set_addition_func(const irep_idt &_func_name)
+    {
+      addition_func = _func_name;
+    }
+
+    // get addition func
+    const irep_idt &get_addition_func() const
+    {
+      return addition_func;
+    }
+
+    // set minus func
+    void set_minus_func(const irep_idt &_func_name)
+    {
+      minus_func = _func_name;
+    }
+
+    // get addition func
+    const irep_idt &get_minus_func() const
+    {
+      return minus_func;
     }
 
     // set the shape

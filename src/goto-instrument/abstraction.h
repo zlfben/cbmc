@@ -109,9 +109,28 @@ bool check_if_exprt_is_abstract(
   const abstraction_spect &abst_spec,
   abstraction_spect::spect &spec);
 
+/// \param func_name: The name of the function call.
+/// \param operands: The operands for the function call.
+/// \param caller: the name of the caller function. this is used to create temp variable
+/// \param insts_before: It will put the instructions that declare the temp variable here.
+/// \param insts_after: It will put the instructions that unclare the temp variable here.
+/// \param new_symbs: The new introduced symbol will be stored here.
+/// \return the tmp variable's symbolt that contains the return value of the function call
+/// This function creates a function call given the func_name and operands.
+/// The function to be called should already exist in the goto_model.
+symbolt create_function_call(
+  const irep_idt &func_name,
+  const std::vector<exprt> operands,
+  const irep_idt &caller, 
+  goto_modelt &goto_model,
+  goto_programt::instructionst &insts_before,
+  goto_programt::instructionst &insts_after,
+  std::vector<symbolt> &new_symbs);
+
 /// \param expr: the lhs expression to be written to
 /// \param abst_spec: the abstration information for the current function
 /// \param goto_model: the goto_model
+/// \param current_func: the name of the current function
 /// \param insts_before: instructions that need to be added before the instruction to support the write
 /// \param insts_after: instructions that need to be added after the instruction to support the write
 /// \param new_symbs: new symbols to be added to support the write
@@ -120,6 +139,7 @@ exprt abstract_expr_write(
   const exprt &expr,
   const abstraction_spect &abst_spec,
   const goto_modelt &goto_model,
+  const irep_idt &current_func,
   goto_programt::instructionst &insts_before,
   goto_programt::instructionst &insts_after,
   std::vector<symbolt> &new_symbs);
@@ -127,6 +147,7 @@ exprt abstract_expr_write(
 /// \param expr: the expression to be read 
 /// \param abst_spec: the abstration information for the current function
 /// \param goto_model: the goto_model
+/// \param current_func: the name of the current function
 /// \param insts_before: instructions that need to be added before the instruction to support the read
 /// \param insts_after: instructions that need to be added after the instruction to support the read
 /// \param new_symbs: new symbols to be added to support the read
@@ -135,6 +156,7 @@ exprt abstract_expr_read(
   const exprt &expr,
   const abstraction_spect &abst_spec,
   const goto_modelt &goto_model,
+  const irep_idt &current_func,
   goto_programt::instructionst &insts_before,
   goto_programt::instructionst &insts_after,
   std::vector<symbolt> &new_symbs);
