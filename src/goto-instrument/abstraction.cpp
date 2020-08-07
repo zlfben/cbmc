@@ -711,7 +711,7 @@ exprt create_comparator_expr_abs_abs(
   std::vector<symbolt> &new_symbs)
 {
   // create the function call is_abst(op0)
-  irep_idt is_abst_func = spec.get_precise_func();
+  irep_idt is_prec_func = spec.get_precise_func();
   exprt::operandst operands{orig_expr.operands()[0]};
   for(const auto &c_ind: spec.get_shape_indices())
   {
@@ -721,14 +721,14 @@ exprt create_comparator_expr_abs_abs(
     operands.push_back(c_ind_symb.symbol_expr());
   }
   symbolt is_prec_symb = create_function_call(
-    is_abst_func, operands, caller, goto_model,
+    is_prec_func, operands, caller, goto_model,
     insts_before, insts_after, new_symbs);
   
   // create the expr op0==op1 ? (is_precise(op0) ? true : non_det) : orig_expr
   equal_exprt eq_expr_0(orig_expr.operands()[0], orig_expr.operands()[1]);
   typecast_exprt eq_expr(eq_expr_0, bool_typet());
   typecast_exprt is_prec_expr(is_prec_symb.symbol_expr(), bool_typet());
-  if_exprt t_expr(is_prec_expr, true_exprt(), side_effect_expr_nondett(bool_typet(), source_locationt()));
+  if_exprt t_expr(is_prec_expr, orig_expr, side_effect_expr_nondett(bool_typet(), source_locationt()));
   if_exprt result_expr(eq_expr, t_expr, orig_expr);
   return std::move(result_expr);
 }
