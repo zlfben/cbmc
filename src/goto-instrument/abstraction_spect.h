@@ -147,6 +147,8 @@ public:
     irep_idt addition_func;
     //Subtraction over abstract indices
     irep_idt minus_func;
+    //Translate a concrete index to an abst index
+    irep_idt abstract_func;
 
   public:
     spect() {}
@@ -158,7 +160,8 @@ public:
         is_precise_func(_spec.is_precise_func),
         compare_indices_func(_spec.compare_indices_func),
         addition_func(_spec.addition_func),
-        minus_func(_spec.minus_func)
+        minus_func(_spec.minus_func),
+        abstract_func(_spec.abstract_func)
     {
     }
 
@@ -230,6 +233,30 @@ public:
       return minus_func;
     }
 
+    // set is_precise func
+    void set_precise_func(const irep_idt &_func_name)
+    {
+      is_precise_func = _func_name;
+    }
+
+    // get is_precise func
+    const irep_idt &get_precise_func() const
+    {
+      return is_precise_func;
+    }
+
+    // set abstract_func
+    void set_abstract_func(const irep_idt &_func_name)
+    {
+      abstract_func = _func_name;
+    }
+
+    // get is_precise func
+    const irep_idt &get_abstract_func() const
+    {
+      return abstract_func;
+    }
+    
     // set the shape
     void set_shape(
       const std::vector<irep_idt> &indices,

@@ -14,8 +14,8 @@
             "abst-functions":{
                 "add-abs-conc": "add_abs_to_conc_1",
                 "sub-abs-conc": "sub_conc_from_abs_1",
-                "precise-check": "is_precise",
-                "abstract-index": "four_abs",
+                "precise-check": "is_precise_1",
+                "abstract-index": "one_abs",
                 "concretize-index": "concretize",
                 "multiply-indices": null,
                 "mod-indices": null

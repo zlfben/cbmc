@@ -84,7 +84,7 @@ calculate_complete_abst_specs_for_funcs(goto_modelt &goto_model, abstraction_spe
 /// \param expr: the expression to be checked
 /// \param abst_spec: the abstraction_spect for the current function which contains all spects
 /// \return whether the expr contains an entity to be abstracted
-bool contains_an_abstracted_entity(const exprt &expr, const abstraction_spect &abst_spec);
+bool contains_an_entity_to_be_abstracted(const exprt &expr, const abstraction_spect &abst_spec);
 
 /// \param goto_model: the goto model
 /// \param func_name: the target function
@@ -104,7 +104,7 @@ void declare_abst_variables_for_func(
 /// \param abst_spec: the abstraction specification
 /// \param index: if this exprt is abstract, 
 /// \return whether it is abstract, the spec will be put here
-bool check_if_exprt_is_abstract(
+bool check_if_exprt_eval_to_abst_index(
   const exprt &expr,
   const abstraction_spect &abst_spec,
   abstraction_spect::spect &spec);
@@ -136,6 +136,44 @@ symbolt create_function_call(
 /// \param new_symbs: new symbols to be added to support the write
 /// \return an exprt that is abstracted
 exprt abstract_expr_write(
+  const exprt &expr,
+  const abstraction_spect &abst_spec,
+  const goto_modelt &goto_model,
+  const irep_idt &current_func,
+  goto_programt::instructionst &insts_before,
+  goto_programt::instructionst &insts_after,
+  std::vector<symbolt> &new_symbs);
+
+/// \param orig_expr: the original expr, both ops should already been abstracted
+/// \param spec: the spec for both op0 and op1
+/// \param goto_model: the goto model
+/// \param caller: the caller function
+/// \param insts_before: instructions to insert before it
+/// \param insts_after: instructions to insert after it
+/// \param new_symbs: symbols to be inserted
+/// \return an exprt of the comparison
+/// This function creates an exprt that compares two abstract indices
+exprt create_comparator_expr_abs_abs(
+  const exprt &orig_expr,
+  const abstraction_spect::spect &spec,
+  const goto_modelt &goto_model,
+  const irep_idt &caller,
+  goto_programt::instructionst &insts_before,
+  goto_programt::instructionst &insts_after,
+  std::vector<symbolt> &new_symbs);
+
+// abst_read for comparator
+exprt abstract_expr_read_comparator(
+  const exprt &expr,
+  const abstraction_spect &abst_spec,
+  const goto_modelt &goto_model,
+  const irep_idt &current_func,
+  goto_programt::instructionst &insts_before,
+  goto_programt::instructionst &insts_after,
+  std::vector<symbolt> &new_symbs);
+
+// abst_read for plus/minus
+exprt abstract_expr_read_plusminus(
   const exprt &expr,
   const abstraction_spect &abst_spec,
   const goto_modelt &goto_model,

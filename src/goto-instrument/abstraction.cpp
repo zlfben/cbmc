@@ -422,7 +422,7 @@ calculate_complete_abst_specs_for_funcs(goto_modelt &goto_model, abstraction_spe
   return function_spec_map;
 }
 
-bool contains_an_abstracted_entity(const exprt &expr, const abstraction_spect &abst_spec)
+bool contains_an_entity_to_be_abstracted(const exprt &expr, const abstraction_spect &abst_spec)
 {
   struct match_abst_symbolt
   {
@@ -531,7 +531,7 @@ void declare_abst_variables_for_func(
   }
 }
 
-bool check_if_exprt_is_abstract(
+bool check_if_exprt_eval_to_abst_index(
   const exprt &expr,
   const abstraction_spect &abst_spec,
   abstraction_spect::spect &spec)
@@ -557,7 +557,7 @@ bool check_if_exprt_is_abstract(
     // if it is a cast, we check the lower level
     if(expr.operands().size() != 1)
       throw "cast expressions should have one operand";
-    return check_if_exprt_is_abstract(*expr.operands().begin(), abst_spec, spec);
+    return check_if_exprt_eval_to_abst_index(*expr.operands().begin(), abst_spec, spec);
   }
   else if(expr.id() == ID_plus || expr.id() == ID_minus)
   {
@@ -565,8 +565,8 @@ bool check_if_exprt_is_abstract(
     if(expr.operands().size() != 2)
       throw "add/minus expressions should have two operands";
     abstraction_spect::spect spec1, spec2;
-    bool abs1 = check_if_exprt_is_abstract(expr.operands()[0], abst_spec, spec1);
-    bool abs2 = check_if_exprt_is_abstract(expr.operands()[1], abst_spec, spec2);
+    bool abs1 = check_if_exprt_eval_to_abst_index(expr.operands()[0], abst_spec, spec1);
+    bool abs2 = check_if_exprt_eval_to_abst_index(expr.operands()[1], abst_spec, spec2);
     if(!abs1 && !abs2)
     {
       return false;
@@ -669,7 +669,7 @@ exprt abstract_expr_write(
   goto_programt::instructionst &insts_after,
   std::vector<symbolt> &new_symbs)
 {
-  if(!contains_an_abstracted_entity(expr, abst_spec))
+  if(!contains_an_entity_to_be_abstracted(expr, abst_spec))
     return expr;
   
   if(expr.id() == ID_symbol)
@@ -701,6 +701,188 @@ exprt abstract_expr_write(
   }
 }
 
+exprt create_comparator_expr_abs_abs(
+  const exprt &orig_expr,
+  const abstraction_spect::spect &spec,
+  const goto_modelt &goto_model,
+  const irep_idt &caller,
+  goto_programt::instructionst &insts_before,
+  goto_programt::instructionst &insts_after,
+  std::vector<symbolt> &new_symbs)
+{
+  // create the function call is_abst(op0)
+  irep_idt is_prec_func = spec.get_precise_func();
+  exprt::operandst operands{orig_expr.operands()[0]};
+  for(const auto &c_ind: spec.get_shape_indices())
+  {
+    if(!goto_model.get_symbol_table().has_symbol(c_ind))
+      throw "Concrete index symbol " + std::string(c_ind.c_str()) + " not found";
+    const symbolt &c_ind_symb = goto_model.get_symbol_table().lookup_ref(c_ind);
+    operands.push_back(c_ind_symb.symbol_expr());
+  }
+  symbolt is_prec_symb = create_function_call(
+    is_prec_func, operands, caller, goto_model,
+    insts_before, insts_after, new_symbs);
+  
+  // create the expr op0==op1 ? (is_precise(op0) ? orig_expr : non_det) : orig_expr
+  // we allow users to create custom plus/minus functions, 
+  // but we use built-in comparator function for comparing two abst indices
+  // this is fine because we think this would work for most common shapes such as "*c*", "*c*c*", etc.
+  equal_exprt eq_expr_0(orig_expr.operands()[0], orig_expr.operands()[1]);
+  typecast_exprt eq_expr(eq_expr_0, bool_typet());
+  typecast_exprt is_prec_expr(is_prec_symb.symbol_expr(), bool_typet());
+  if_exprt t_expr(is_prec_expr, orig_expr, side_effect_expr_nondett(bool_typet(), source_locationt()));
+  if_exprt result_expr(eq_expr, t_expr, orig_expr);
+  return std::move(result_expr);
+}
+
+exprt abstract_expr_read_comparator(
+  const exprt &expr,
+  const abstraction_spect &abst_spec,
+  const goto_modelt &goto_model,
+  const irep_idt &current_func,
+  goto_programt::instructionst &insts_before,
+  goto_programt::instructionst &insts_after,
+  std::vector<symbolt> &new_symbs)
+{
+  // handle comparators, need to call functions if 
+  // needed based on whether each operands are abstract
+  INVARIANT(
+    expr.id() == ID_le || expr.id() == ID_lt || expr.id() == ID_ge ||
+      expr.id() == ID_gt || expr.id() == ID_equal || expr.id() == ID_notequal,
+    "type of expr does not match abst_read_comparator");
+  INVARIANT(expr.operands().size() == 2, "number of ops should be 2 for comparators");
+
+  abstraction_spect::spect spec0;
+  abstraction_spect::spect spec1;
+  bool abs0 = check_if_exprt_eval_to_abst_index(expr.operands()[0], abst_spec, spec0);
+  bool abs1 = check_if_exprt_eval_to_abst_index(expr.operands()[1], abst_spec, spec1);
+  if(!abs0 && !abs1)
+  {
+    // if none of op0 and op1 is abstract index, just do plain comparision.
+    exprt new_expr(expr);
+    new_expr.operands()[0] = abstract_expr_read(expr.operands()[0], abst_spec, goto_model, current_func, insts_before, insts_after, new_symbs);
+    new_expr.operands()[1] = abstract_expr_read(expr.operands()[1], abst_spec, goto_model, current_func, insts_before, insts_after, new_symbs);
+    return new_expr;
+  }
+  else if(abs0 && abs1)
+  {
+    // if both of them is abstract index, we should do non-det comparision if they are at the same abst value
+    exprt new_expr(expr);
+    if(!spec0.compare_shape(spec1))
+      throw "two operands of a comparator is not of the same spect";
+    new_expr.operands()[0] = abstract_expr_read(expr.operands()[0], abst_spec, goto_model, current_func, insts_before, insts_after, new_symbs);
+    new_expr.operands()[1] = abstract_expr_read(expr.operands()[1], abst_spec, goto_model, current_func, insts_before, insts_after, new_symbs);
+    return create_comparator_expr_abs_abs(new_expr, spec0, goto_model, current_func, insts_before, insts_after, new_symbs);
+  }
+  else if(abs0 && !abs1)
+  {
+    // we need to make op1 abstract before calling create_comparator_expr_abs_abs
+    exprt new_expr(expr);
+    irep_idt abst_func = spec0.get_abstract_func();
+    exprt::operandst operands{abstract_expr_read(
+      expr.operands()[1], abst_spec, goto_model,
+      current_func, insts_before, insts_after, new_symbs)};
+    for(const auto &c_ind: spec0.get_shape_indices())
+    {
+      if(!goto_model.get_symbol_table().has_symbol(c_ind))
+        throw "Concrete index symbol " + std::string(c_ind.c_str()) + " not found";
+      const symbolt &c_ind_symb = goto_model.get_symbol_table().lookup_ref(c_ind);
+      operands.push_back(c_ind_symb.symbol_expr());
+    }
+    symbolt op1_abst_symb = create_function_call(
+      abst_func, operands, current_func, goto_model, 
+      insts_before, insts_after, new_symbs);
+    new_expr.operands()[0] = abstract_expr_read(expr.operands()[0], abst_spec, goto_model, current_func, insts_before, insts_after, new_symbs);
+    new_expr.operands()[1] = op1_abst_symb.symbol_expr();
+    return create_comparator_expr_abs_abs(new_expr, spec0, goto_model, current_func, insts_before, insts_after, new_symbs);
+  }
+  else  // !abs0 && abs1
+  {
+    // we need to make op0 abstract before calling create_comparator_expr_abs_abs
+    exprt new_expr(expr);
+    irep_idt abst_func = spec1.get_abstract_func();
+    exprt::operandst operands{abstract_expr_read(
+      expr.operands()[0], abst_spec, goto_model,
+      current_func, insts_before, insts_after, new_symbs)};
+    for(const auto &c_ind: spec1.get_shape_indices())
+    {
+      if(!goto_model.get_symbol_table().has_symbol(c_ind))
+        throw "Concrete index symbol " + std::string(c_ind.c_str()) + " not found";
+      const symbolt &c_ind_symb = goto_model.get_symbol_table().lookup_ref(c_ind);
+      operands.push_back(c_ind_symb.symbol_expr());
+    }
+    symbolt op0_abst_symb = create_function_call(
+      abst_func, operands, current_func, goto_model, 
+      insts_before, insts_after, new_symbs);
+    new_expr.operands()[0] = op0_abst_symb.symbol_expr();
+    new_expr.operands()[1] = abstract_expr_read(expr.operands()[1], abst_spec, goto_model, current_func, insts_before, insts_after, new_symbs);
+    return create_comparator_expr_abs_abs(new_expr, spec1, goto_model, current_func, insts_before, insts_after, new_symbs);
+  }
+}
+
+exprt abstract_expr_read_plusminus(
+  const exprt &expr,
+  const abstraction_spect &abst_spec,
+  const goto_modelt &goto_model,
+  const irep_idt &current_func,
+  goto_programt::instructionst &insts_before,
+  goto_programt::instructionst &insts_after,
+  std::vector<symbolt> &new_symbs)
+{
+  // handle plus/minus, should call plus/minus function if needed
+  INVARIANT(expr.id() == ID_plus || expr.id() == ID_minus, "abst_read_plus_minus should get + or - exprs");
+  INVARIANT(expr.operands().size() == 2, "The number of operands should be 2 for plus/minus");
+
+  abstraction_spect::spect spec0;
+  abstraction_spect::spect spec1;
+  bool abs0 = check_if_exprt_eval_to_abst_index(expr.operands()[0], abst_spec, spec0);
+  bool abs1 = check_if_exprt_eval_to_abst_index(expr.operands()[1], abst_spec, spec1);
+  if(!abs0 && !abs1)
+  {
+    exprt new_expr(expr);
+    new_expr.operands()[0] = abstract_expr_read(expr.operands()[0], abst_spec, goto_model, current_func, insts_before, insts_after, new_symbs);
+    new_expr.operands()[1] = abstract_expr_read(expr.operands()[1], abst_spec, goto_model, current_func, insts_before, insts_after, new_symbs);
+    return new_expr;
+  }
+  else if((!abs0 && abs1) || (abs0 && !abs1))
+  {
+    // couldn't do conc-abs
+    if(!abs0 && abs1 && expr.id() == ID_minus)
+      throw "We couldn't do concrete_index-abst_index right now";
+    
+    // what is the spec we are using?
+    const abstraction_spect::spect &spec = abs0 ? spec0 : spec1;
+    // find the func name of add_abs_to_conc
+    const irep_idt &calc_func_name = expr.id() == ID_plus ? spec.get_addition_func() : spec.get_minus_func();
+    // define the operands {abs, num}
+    exprt op0 = abstract_expr_read(
+      abs0 ? expr.operands()[0] : expr.operands()[1],
+      abst_spec, goto_model, current_func,
+      insts_before, insts_after, new_symbs);
+    exprt op1 = abs0 ? expr.operands()[1] : expr.operands()[0];
+    exprt::operandst operands{op0, op1};
+    // put the concrete indices into operands
+    for(const auto &c_ind: spec.get_shape_indices())
+    {
+      if(!goto_model.get_symbol_table().has_symbol(c_ind))
+        throw "Concrete index symbol " + std::string(c_ind.c_str()) + " not found";
+      const symbolt &c_ind_symb = goto_model.get_symbol_table().lookup_ref(c_ind);
+      operands.push_back(c_ind_symb.symbol_expr());
+    }
+    // make the function call
+    symbolt temp_var = create_function_call(
+      calc_func_name, operands, current_func,
+      goto_model, insts_before, insts_after, new_symbs);
+    return std::move(temp_var.symbol_expr());
+  }
+  else
+  {
+    // this is an error
+    throw "Direct computation on two abstracted indices are prohibited";
+  }
+}
+
 exprt abstract_expr_read(
   const exprt &expr,
   const abstraction_spect &abst_spec,
@@ -710,7 +892,7 @@ exprt abstract_expr_read(
   goto_programt::instructionst &insts_after,
   std::vector<symbolt> &new_symbs)
 {
-  if(!contains_an_abstracted_entity(expr, abst_spec))
+  if(!contains_an_entity_to_be_abstracted(expr, abst_spec))
     return expr;
   
   if(expr.id() == ID_symbol)
@@ -734,7 +916,9 @@ exprt abstract_expr_read(
   else if(
     expr.id() == ID_typecast || expr.id() == ID_and || expr.id() == ID_or ||
     expr.id() == ID_xor || expr.id() == ID_not || expr.id() == ID_implies ||
-    expr.id() == ID_is_invalid_pointer || expr.id() == ID_is_dynamic_object)
+    expr.id() == ID_is_invalid_pointer || expr.id() == ID_is_dynamic_object || 
+    expr.id() == ID_pointer_object || expr.id() == ID_pointer_offset || 
+    expr.id() == ID_object_size)
   {
     // those types of exprs should not be changed, just run abst_read on lower level
     exprt new_expr(expr);
@@ -746,9 +930,11 @@ exprt abstract_expr_read(
     expr.id() == ID_le || expr.id() == ID_lt || expr.id() == ID_ge ||
     expr.id() == ID_gt || expr.id() == ID_equal || expr.id() == ID_notequal)
   {
-    // TODO: handle comparators, need to call functions if 
+    // handle comparators, need to call functions if 
     // needed based on whether each operands are abstract
-    return expr;
+    return abstract_expr_read_comparator(
+      expr,abst_spec, goto_model, current_func,
+      insts_before, insts_after, new_symbs);
   }
   else if(expr.id() == ID_dereference)
   {
@@ -757,52 +943,10 @@ exprt abstract_expr_read(
   }
   else if(expr.id() == ID_plus || expr.id() == ID_minus)
   {
-    // handle plus, should call plus function if needed
-    if(expr.operands().size() != 2)
-      throw "The number of operands should be 2 for plus";
-    abstraction_spect::spect spec0;
-    abstraction_spect::spect spec1;
-    bool abs0 = check_if_exprt_is_abstract(expr.operands()[0], abst_spec, spec0);
-    bool abs1 = check_if_exprt_is_abstract(expr.operands()[1], abst_spec, spec1);
-    if(!abs0 && !abs1)
-    {
-      exprt new_expr(expr);
-      new_expr.operands()[0] = abstract_expr_read(expr.operands()[0], abst_spec, goto_model, current_func, insts_before, insts_after, new_symbs);
-      new_expr.operands()[1] = abstract_expr_read(expr.operands()[1], abst_spec, goto_model, current_func, insts_before, insts_after, new_symbs);
-      return new_expr;
-    }
-    else if((!abs0 && abs1) || (abs0 && !abs1))
-    {
-      // what is the spec we are using?
-      const abstraction_spect::spect &spec = abs0 ? spec0 : spec1;
-      // find the func name of add_abs_to_conc
-      const irep_idt &calc_func_name = expr.id() == ID_plus ? spec.get_addition_func() : spec.get_minus_func();
-      // define the operands {abs, num}
-      exprt op0 = abstract_expr_read(
-        abs0 ? expr.operands()[0] : expr.operands()[1],
-        abst_spec, goto_model, current_func,
-        insts_before, insts_after, new_symbs);
-      exprt op1 = abs0 ? expr.operands()[1] : expr.operands()[0];
-      exprt::operandst operands{op0, op1};
-      // put the concrete indices into operands
-      for(const auto &c_ind: spec.get_shape_indices())
-      {
-        if(!goto_model.get_symbol_table().has_symbol(c_ind))
-          throw "Concrete index symbol " + std::string(c_ind.c_str()) + " not found";
-        const symbolt &c_ind_symb = goto_model.get_symbol_table().lookup_ref(c_ind);
-        operands.push_back(c_ind_symb.symbol_expr());
-      }
-      // make the function call
-      symbolt temp_var = create_function_call(
-        calc_func_name, operands, current_func,
-        goto_model, insts_before, insts_after, new_symbs);
-      return std::move(temp_var.symbol_expr());
-    }
-    else
-    {
-      // this is an error
-      throw "Direct computation on two abstracted indices are prohibited";
-    }
+    // handle plus/minus, should call plus/minus function if needed
+    return abstract_expr_read_plusminus(
+      expr, abst_spec, goto_model, current_func,
+      insts_before, insts_after, new_symbs);
   }
   else
   {
@@ -883,7 +1027,7 @@ void abstract_goto_program(goto_modelt &goto_model, abstraction_spect &abst_spec
       // go through conditions
       if(it->has_condition())
       {
-        if(contains_an_abstracted_entity(it->get_condition(), abst_spec))
+        if(contains_an_entity_to_be_abstracted(it->get_condition(), abst_spec))
         {
           format_rec(std::cout, it->get_condition()) << " ==abst_read==> ";
           exprt new_condition = abstract_expr_read(it->get_condition(), abst_spec, goto_model, p.first, inst_before, inst_after, new_symbs);
@@ -896,7 +1040,7 @@ void abstract_goto_program(goto_modelt &goto_model, abstraction_spect &abst_spec
       {
         const code_function_callt fc = it->get_function_call();
         exprt new_lhs;
-        if(contains_an_abstracted_entity(fc.lhs(), abst_spec))
+        if(contains_an_entity_to_be_abstracted(fc.lhs(), abst_spec))
         {
           format_rec(std::cout, fc.lhs()) << " ==abst_write==> ";
           new_lhs = abstract_expr_write(fc.lhs(), abst_spec, goto_model, p.first, inst_before, inst_after, new_symbs);
@@ -911,7 +1055,7 @@ void abstract_goto_program(goto_modelt &goto_model, abstraction_spect &abst_spec
         for(const auto &arg : fc.arguments())
         {
           exprt new_arg;
-          if(contains_an_abstracted_entity(arg, abst_spec))
+          if(contains_an_entity_to_be_abstracted(arg, abst_spec))
           {
             format_rec(std::cout, arg) << " ==abst_read==> ";
             new_arg = abstract_expr_read(arg, abst_spec, goto_model, p.first, inst_before, inst_after, new_symbs);
@@ -931,7 +1075,7 @@ void abstract_goto_program(goto_modelt &goto_model, abstraction_spect &abst_spec
       {
         const code_assignt as = it->get_assign();
         exprt new_lhs;
-        if(contains_an_abstracted_entity(as.lhs(), abst_spec))
+        if(contains_an_entity_to_be_abstracted(as.lhs(), abst_spec))
         {
           format_rec(std::cout, as.lhs()) << " ==abst_write==> ";
           new_lhs = abstract_expr_write(as.lhs(), abst_spec, goto_model, p.first, inst_before, inst_after, new_symbs);
@@ -941,10 +1085,9 @@ void abstract_goto_program(goto_modelt &goto_model, abstraction_spect &abst_spec
         {
           new_lhs = as.lhs();
         }
-        
-        
+
         exprt new_rhs;
-        if(contains_an_abstracted_entity(as.rhs(), abst_spec))
+        if(contains_an_entity_to_be_abstracted(as.rhs(), abst_spec))
         {
           format_rec(std::cout, as.rhs()) << " ==abst_read==> ";
           new_rhs = abstract_expr_read(as.rhs(), abst_spec, goto_model, p.first, inst_before, inst_after, new_symbs);
@@ -959,6 +1102,13 @@ void abstract_goto_program(goto_modelt &goto_model, abstraction_spect &abst_spec
         it->set_assign(new_as);
       }
 
+      // is there any unknown inst types?
+      if(
+        !it->is_decl() && !it->is_end_function() && !it->is_goto() &&
+        !it->is_return() && !it->is_function_call() && !it->is_assert() &&
+        !it->is_assign() && !it->is_assume() && !it->is_dead())
+        throw "Unknown instruction type " + std::to_string(it->type);
+      
       // insert new instructions before it
       for(auto &inst: inst_before)
       {
