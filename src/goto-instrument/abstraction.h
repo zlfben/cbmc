@@ -104,7 +104,7 @@ void declare_abst_variables_for_func(
 /// \param abst_spec: the abstraction specification
 /// \param index: if this exprt is abstract, 
 /// \return whether it is abstract, the spec will be put here
-bool check_if_exprt_eval_to_abst(
+bool check_if_exprt_eval_to_abst_index(
   const exprt &expr,
   const abstraction_spect &abst_spec,
   abstraction_spect::spect &spec);
@@ -152,7 +152,7 @@ exprt abstract_expr_write(
 /// \param insts_after: instructions to insert after it
 /// \param new_symbs: symbols to be inserted
 /// \return an exprt of the comparison
-/// This function 
+/// This function creates an exprt that compares two abstract indices
 exprt create_comparator_expr_abs_abs(
   const exprt &orig_expr,
   const abstraction_spect::spect &spec,

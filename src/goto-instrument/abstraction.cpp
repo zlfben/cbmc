@@ -531,7 +531,7 @@ void declare_abst_variables_for_func(
   }
 }
 
-bool check_if_exprt_eval_to_abst(
+bool check_if_exprt_eval_to_abst_index(
   const exprt &expr,
   const abstraction_spect &abst_spec,
   abstraction_spect::spect &spec)
@@ -557,7 +557,7 @@ bool check_if_exprt_eval_to_abst(
     // if it is a cast, we check the lower level
     if(expr.operands().size() != 1)
       throw "cast expressions should have one operand";
-    return check_if_exprt_eval_to_abst(*expr.operands().begin(), abst_spec, spec);
+    return check_if_exprt_eval_to_abst_index(*expr.operands().begin(), abst_spec, spec);
   }
   else if(expr.id() == ID_plus || expr.id() == ID_minus)
   {
@@ -565,8 +565,8 @@ bool check_if_exprt_eval_to_abst(
     if(expr.operands().size() != 2)
       throw "add/minus expressions should have two operands";
     abstraction_spect::spect spec1, spec2;
-    bool abs1 = check_if_exprt_eval_to_abst(expr.operands()[0], abst_spec, spec1);
-    bool abs2 = check_if_exprt_eval_to_abst(expr.operands()[1], abst_spec, spec2);
+    bool abs1 = check_if_exprt_eval_to_abst_index(expr.operands()[0], abst_spec, spec1);
+    bool abs2 = check_if_exprt_eval_to_abst_index(expr.operands()[1], abst_spec, spec2);
     if(!abs1 && !abs2)
     {
       return false;
@@ -724,7 +724,10 @@ exprt create_comparator_expr_abs_abs(
     is_prec_func, operands, caller, goto_model,
     insts_before, insts_after, new_symbs);
   
-  // create the expr op0==op1 ? (is_precise(op0) ? true : non_det) : orig_expr
+  // create the expr op0==op1 ? (is_precise(op0) ? orig_expr : non_det) : orig_expr
+  // we allow users to create custom plus/minus functions, 
+  // but we use built-in comparator function for comparing two abst indices
+  // this is fine because we think this would work for most common shapes such as "*c*", "*c*c*", etc.
   equal_exprt eq_expr_0(orig_expr.operands()[0], orig_expr.operands()[1]);
   typecast_exprt eq_expr(eq_expr_0, bool_typet());
   typecast_exprt is_prec_expr(is_prec_symb.symbol_expr(), bool_typet());
@@ -742,7 +745,7 @@ exprt abstract_expr_read_comparator(
   goto_programt::instructionst &insts_after,
   std::vector<symbolt> &new_symbs)
 {
-  // TODO: handle comparators, need to call functions if 
+  // handle comparators, need to call functions if 
   // needed based on whether each operands are abstract
   INVARIANT(
     expr.id() == ID_le || expr.id() == ID_lt || expr.id() == ID_ge ||
@@ -752,8 +755,8 @@ exprt abstract_expr_read_comparator(
 
   abstraction_spect::spect spec0;
   abstraction_spect::spect spec1;
-  bool abs0 = check_if_exprt_eval_to_abst(expr.operands()[0], abst_spec, spec0);
-  bool abs1 = check_if_exprt_eval_to_abst(expr.operands()[1], abst_spec, spec1);
+  bool abs0 = check_if_exprt_eval_to_abst_index(expr.operands()[0], abst_spec, spec0);
+  bool abs1 = check_if_exprt_eval_to_abst_index(expr.operands()[1], abst_spec, spec1);
   if(!abs0 && !abs1)
   {
     // if none of op0 and op1 is abstract index, just do plain comparision.
@@ -833,8 +836,8 @@ exprt abstract_expr_read_plusminus(
 
   abstraction_spect::spect spec0;
   abstraction_spect::spect spec1;
-  bool abs0 = check_if_exprt_eval_to_abst(expr.operands()[0], abst_spec, spec0);
-  bool abs1 = check_if_exprt_eval_to_abst(expr.operands()[1], abst_spec, spec1);
+  bool abs0 = check_if_exprt_eval_to_abst_index(expr.operands()[0], abst_spec, spec0);
+  bool abs1 = check_if_exprt_eval_to_abst_index(expr.operands()[1], abst_spec, spec1);
   if(!abs0 && !abs1)
   {
     exprt new_expr(expr);
