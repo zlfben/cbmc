@@ -1,6 +1,7 @@
 #include <stdint.h>
 #include <assert.h>
 #include <stddef.h>
+#include <stdbool.h>
 
 //Some helper functions. 
 
@@ -11,7 +12,7 @@ size_t nndt_int(){
     return(i);
 }
 
-size_t nndt_bool(){
+bool nndt_bool(){
     size_t i;
     return(i % 2);
 }
@@ -47,11 +48,11 @@ size_t one_abs(size_t index, size_t a1){
 }
 
 
-size_t is_precise_1(size_t abs_ind, size_t a1){
+bool is_precise_1(size_t abs_ind, size_t a1){
     return(abs_ind == 1);
 }
 
-size_t is_abstract_1(size_t abs_ind, size_t a1){
+bool is_abstract_1(size_t abs_ind, size_t a1){
     return(abs_ind != 1);
 }
 
