@@ -594,10 +594,77 @@ bool check_if_exprt_is_abstract(
   }
 }
 
+symbolt create_function_call(
+  const irep_idt &func_name,
+  const exprt::operandst operands,
+  const irep_idt &caller, 
+  const goto_modelt &goto_model,
+  goto_programt::instructionst &insts_before,
+  goto_programt::instructionst &insts_after,
+  std::vector<symbolt> &new_symbs)
+{
+  // determine the temp symbol's name
+  std::unordered_set<irep_idt> new_symbs_name;
+  for(const auto &symb: new_symbs)
+    new_symbs_name.insert(symb.name);
+
+  auto get_name = [&caller, &func_name, &goto_model, &new_symbs_name]() {
+    // base name is "{caller}::$temp::return_value_{callee}"
+    std::string base_name = std::string(caller.c_str()) +
+                            "::$tmp::return_value_" +
+                            std::string(func_name.c_str());
+    // if base name is not defined yet, use the base name
+    if(
+      !goto_model.symbol_table.has_symbol(irep_idt(base_name)) &&
+      new_symbs_name.find(irep_idt(base_name)) == new_symbs_name.end())
+      return irep_idt(base_name);
+    
+    // otherwise use "{basename}$id" with the lowest id available
+    size_t id = 0;
+    while(goto_model.symbol_table.has_symbol(
+            irep_idt(base_name + "$" + std::to_string(id))) ||
+          new_symbs_name.find(irep_idt(base_name + "$" + std::to_string(id))) !=
+            new_symbs_name.end())
+      id++;
+    
+    return irep_idt(base_name + "$" + std::to_string(id));
+  };
+  irep_idt temp_symb_name = get_name();
+
+  // define the symbol
+  symbolt new_symb;
+  if(!goto_model.get_symbol_table().has_symbol(func_name))
+    throw "unable to find function " + std::string(func_name.c_str()) + " in the symbol table";
+  new_symb.type =
+    to_code_type(goto_model.get_symbol_table().lookup_ref(func_name).type)
+      .return_type();
+  new_symb.name = temp_symb_name;
+  symbol_exprt new_symb_expr = new_symb.symbol_expr();
+  new_symbs.push_back(new_symb);
+
+  // instruction 1: DECLARE of the temp symbol
+  auto new_decl_inst = goto_programt::make_decl(code_declt(new_symb_expr));
+  insts_before.push_back(new_decl_inst);
+
+  // instruction 2: FUNCTION_CALL
+  symbol_exprt func_call_expr =
+    goto_model.get_symbol_table().lookup_ref(func_name).symbol_expr();
+  auto new_func_call_inst = goto_programt::make_function_call(
+    code_function_callt(new_symb_expr, func_call_expr, operands));
+  insts_before.push_back(new_func_call_inst);
+
+  // instruction 3: DEAD for the temp symbol 
+  auto new_dead_inst = goto_programt::make_dead(new_symb_expr);
+  insts_after.push_back(new_dead_inst);
+
+  return new_symb;
+}
+
 exprt abstract_expr_write(
   const exprt &expr,
   const abstraction_spect &abst_spec,
   const goto_modelt &goto_model,
+  const irep_idt &current_func,
   goto_programt::instructionst &insts_before,
   goto_programt::instructionst &insts_after,
   std::vector<symbolt> &new_symbs)
@@ -612,8 +679,7 @@ exprt abstract_expr_write(
     irep_idt new_name = get_abstract_name(symb.get_identifier());
     if(goto_model.symbol_table.has_symbol(new_name))
     {
-      const typet &typ = goto_model.symbol_table.lookup_ref(new_name).type;
-      symbol_exprt new_symb_expr(new_name, typ);
+      symbol_exprt new_symb_expr = goto_model.symbol_table.lookup_ref(new_name).symbol_expr();
       return std::move(new_symb_expr);
     }
     else
@@ -639,6 +705,7 @@ exprt abstract_expr_read(
   const exprt &expr,
   const abstraction_spect &abst_spec,
   const goto_modelt &goto_model,
+  const irep_idt &current_func,
   goto_programt::instructionst &insts_before,
   goto_programt::instructionst &insts_after,
   std::vector<symbolt> &new_symbs)
@@ -653,8 +720,7 @@ exprt abstract_expr_read(
     irep_idt new_name = get_abstract_name(symb.get_identifier());
     if(goto_model.symbol_table.has_symbol(new_name))
     {
-      const typet &typ = goto_model.symbol_table.lookup_ref(new_name).type;
-      symbol_exprt new_symb_expr(new_name, typ);
+      symbol_exprt new_symb_expr = goto_model.symbol_table.lookup_ref(new_name).symbol_expr();
       return std::move(new_symb_expr);
     }
     else
@@ -673,7 +739,7 @@ exprt abstract_expr_read(
     // those types of exprs should not be changed, just run abst_read on lower level
     exprt new_expr(expr);
     for(size_t i = 0; i < expr.operands().size(); i++)
-      new_expr.operands()[i] = abstract_expr_read(expr.operands()[i], abst_spec, goto_model, insts_before, insts_after, new_symbs);
+      new_expr.operands()[i] = abstract_expr_read(expr.operands()[i], abst_spec, goto_model, current_func, insts_before, insts_after, new_symbs);
     return new_expr;
   }
   else if(
@@ -689,15 +755,54 @@ exprt abstract_expr_read(
     // TODO: handle dereference, need to check the structure of lower exprts
     return expr;
   }
-  else if(expr.id() == ID_plus)
+  else if(expr.id() == ID_plus || expr.id() == ID_minus)
   {
-    // TODO: handle plus, should call plus function if needed
-    return expr;
-  }
-  else if(expr.id() == ID_minus)
-  {
-    // TODO: handle minus, should call plus function if needed
-    return expr;
+    // handle plus, should call plus function if needed
+    if(expr.operands().size() != 2)
+      throw "The number of operands should be 2 for plus";
+    abstraction_spect::spect spec0;
+    abstraction_spect::spect spec1;
+    bool abs0 = check_if_exprt_is_abstract(expr.operands()[0], abst_spec, spec0);
+    bool abs1 = check_if_exprt_is_abstract(expr.operands()[1], abst_spec, spec1);
+    if(!abs0 && !abs1)
+    {
+      exprt new_expr(expr);
+      new_expr.operands()[0] = abstract_expr_read(expr.operands()[0], abst_spec, goto_model, current_func, insts_before, insts_after, new_symbs);
+      new_expr.operands()[1] = abstract_expr_read(expr.operands()[1], abst_spec, goto_model, current_func, insts_before, insts_after, new_symbs);
+      return new_expr;
+    }
+    else if((!abs0 && abs1) || (abs0 && !abs1))
+    {
+      // what is the spec we are using?
+      const abstraction_spect::spect &spec = abs0 ? spec0 : spec1;
+      // find the func name of add_abs_to_conc
+      const irep_idt &calc_func_name = expr.id() == ID_plus ? spec.get_addition_func() : spec.get_minus_func();
+      // define the operands {abs, num}
+      exprt op0 = abstract_expr_read(
+        abs0 ? expr.operands()[0] : expr.operands()[1],
+        abst_spec, goto_model, current_func,
+        insts_before, insts_after, new_symbs);
+      exprt op1 = abs0 ? expr.operands()[1] : expr.operands()[0];
+      exprt::operandst operands{op0, op1};
+      // put the concrete indices into operands
+      for(const auto &c_ind: spec.get_shape_indices())
+      {
+        if(!goto_model.get_symbol_table().has_symbol(c_ind))
+          throw "Concrete index symbol " + std::string(c_ind.c_str()) + " not found";
+        const symbolt &c_ind_symb = goto_model.get_symbol_table().lookup_ref(c_ind);
+        operands.push_back(c_ind_symb.symbol_expr());
+      }
+      // make the function call
+      symbolt temp_var = create_function_call(
+        calc_func_name, operands, current_func,
+        goto_model, insts_before, insts_after, new_symbs);
+      return std::move(temp_var.symbol_expr());
+    }
+    else
+    {
+      // this is an error
+      throw "Direct computation on two abstracted indices are prohibited";
+    }
   }
   else
   {
@@ -725,14 +830,14 @@ void define_concrete_indices(goto_modelt &goto_model, const abstraction_spect &a
       symb.type = index_type;
       symb.location = src_loc;
       symb.name = index;
-      symbol_exprt symb_expr(index, index_type);
+      symbol_exprt symb_expr = symb.symbol_expr();
 
       // Step 1: put it into the symbol table
       if(goto_model.symbol_table.has_symbol(index))
         throw "the concrete index variable " + std::string(index.c_str()) + " is already defined";
       goto_model.symbol_table.insert(std::move(symb));
 
-      // Step 2: put it into __CPROVER_initialize
+      // Step 2: put it into __CPROVER_initialize which is the entry function for each goto program
       goto_functionst::function_mapt::iterator fct_entry =
         goto_model.goto_functions.function_map.find(INITIALIZE_FUNCTION);
       CHECK_RETURN(fct_entry != goto_model.goto_functions.function_map.end());
@@ -766,9 +871,9 @@ void abstract_goto_program(goto_modelt &goto_model, abstraction_spect &abst_spec
     std::cout << "----------- " << "Entities to be abstracted" << " -----------" << std::endl;
     p.second.print_entities();
     std::cout << "----------- " << "Exprs containing the above entities" << " -----------" << std::endl;
-    const goto_functiont &goto_function = goto_model.get_goto_function(p.first);
+    goto_functiont &goto_function = goto_model.goto_functions.function_map.at(p.first);
     const abstraction_spect &abst_spec = p.second;
-    forall_goto_program_instructions(it, goto_function.body)
+    Forall_goto_program_instructions(it, goto_function.body)
     {
       // go through all expressions
       goto_programt::instructionst inst_before;
@@ -781,41 +886,99 @@ void abstract_goto_program(goto_modelt &goto_model, abstraction_spect &abst_spec
         if(contains_an_abstracted_entity(it->get_condition(), abst_spec))
         {
           format_rec(std::cout, it->get_condition()) << " ==abst_read==> ";
-          format_rec(std::cout, abstract_expr_read(it->get_condition(), abst_spec, goto_model, inst_before, inst_after, new_symbs)) << std::endl;
+          exprt new_condition = abstract_expr_read(it->get_condition(), abst_spec, goto_model, p.first, inst_before, inst_after, new_symbs);
+          format_rec(std::cout, new_condition) << std::endl;
+          it->set_condition(new_condition);
         }
       }
       
       if(it->is_function_call())
       {
         const code_function_callt fc = it->get_function_call();
+        exprt new_lhs;
         if(contains_an_abstracted_entity(fc.lhs(), abst_spec))
         {
           format_rec(std::cout, fc.lhs()) << " ==abst_write==> ";
-          format_rec(std::cout, abstract_expr_write(fc.lhs(), abst_spec, goto_model, inst_before, inst_after, new_symbs)) << std::endl;
+          new_lhs = abstract_expr_write(fc.lhs(), abst_spec, goto_model, p.first, inst_before, inst_after, new_symbs);
+          format_rec(std::cout, new_lhs) << std::endl;
+        }
+        else
+        {
+          new_lhs = fc.lhs();
         }
 
+        code_function_callt::argumentst new_arguments;
         for(const auto &arg : fc.arguments())
         {
+          exprt new_arg;
           if(contains_an_abstracted_entity(arg, abst_spec))
           {
             format_rec(std::cout, arg) << " ==abst_read==> ";
-            format_rec(std::cout, abstract_expr_read(arg, abst_spec, goto_model, inst_before, inst_after, new_symbs)) << std::endl;
+            new_arg = abstract_expr_read(arg, abst_spec, goto_model, p.first, inst_before, inst_after, new_symbs);
+            format_rec(std::cout, new_arg) << std::endl;
+            new_arguments.push_back(new_arg);
+          }
+          else
+          {
+            new_arguments.push_back(arg);
           }
         }
+
+        code_function_callt new_fc(new_lhs, fc.function(), new_arguments);
+        it->set_function_call(new_fc);
       }
       else if(it->is_assign())
       {
         const code_assignt as = it->get_assign();
+        exprt new_lhs;
         if(contains_an_abstracted_entity(as.lhs(), abst_spec))
         {
           format_rec(std::cout, as.lhs()) << " ==abst_write==> ";
-          format_rec(std::cout, abstract_expr_write(as.lhs(), abst_spec, goto_model, inst_before, inst_after, new_symbs)) << std::endl;
+          new_lhs = abstract_expr_write(as.lhs(), abst_spec, goto_model, p.first, inst_before, inst_after, new_symbs);
+          format_rec(std::cout, new_lhs) << std::endl;
         }
+        else
+        {
+          new_lhs = as.lhs();
+        }
+        
+        
+        exprt new_rhs;
         if(contains_an_abstracted_entity(as.rhs(), abst_spec))
         {
           format_rec(std::cout, as.rhs()) << " ==abst_read==> ";
-          format_rec(std::cout, abstract_expr_read(as.rhs(), abst_spec, goto_model, inst_before, inst_after, new_symbs)) << std::endl;
+          new_rhs = abstract_expr_read(as.rhs(), abst_spec, goto_model, p.first, inst_before, inst_after, new_symbs);
+          format_rec(std::cout, new_rhs) << std::endl;
         }
+        else
+        {
+          new_rhs = as.rhs();
+        }
+
+        code_assignt new_as(new_lhs, new_rhs);
+        it->set_assign(new_as);
+      }
+
+      // insert new instructions before it
+      for(auto &inst: inst_before)
+      {
+        goto_function.body.insert_before_swap(it, inst);
+        it++;
+      }
+
+      // insert new instructions after it
+      for(auto &inst: inst_after)
+      {
+        goto_function.body.insert_after(it, inst);
+        it++;
+      }
+
+      // insert new symbols to the symbol table
+      for(auto &symb: new_symbs)
+      {
+        if(goto_model.get_symbol_table().has_symbol(symb.name))
+          throw "the temp symbol " + std::string(symb.name.c_str()) + " is already defined";
+        goto_model.symbol_table.insert(symb);
       }
     }
   }

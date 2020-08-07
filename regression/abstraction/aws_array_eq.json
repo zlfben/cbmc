@@ -5,16 +5,15 @@
             "function": "aws_array_eq_harness",
             "name": "aws_array_eq_harness::1::rhs",
             "shape": {
-                "indices": ["lhs_cncrt", "rhs_cncrt"],
+                "indices": ["cncrt"],
                 "assumptions": [
-                    "lhs_cncrt < rhs_cncrt"
                 ],
-                "shape-type": "*c+c*"
+                "shape-type": "*c*"
             },
             "abst-function-file": "./abst-funcs.c",
             "abst-functions":{
-                "add-abs-conc": "add_abs_to_conc",
-                "sub-abs-conc": "sub_conc_from_abs",
+                "add-abs-conc": "add_abs_to_conc_1",
+                "sub-abs-conc": "sub_conc_from_abs_1",
                 "precise-check": "is_precise",
                 "abstract-index": "four_abs",
                 "concretize-index": "concretize",

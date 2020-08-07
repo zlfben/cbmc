@@ -29,14 +29,21 @@ abstraction_spect::abstraction_spect(
     spect spec;
     size_t spec_index = specs.size();
     function = entry_obj.find("function")->second.value;  // we assume that all entries in the json file are located in the same function
+    // insert the entity
     spec.insert_entity(entry_obj.find("name")->second.value, entry_obj.find("entity")->second.value!="array");
-    spec.set_abst_func_file(get_absolute_path(entry_obj.find("abst-function-file")->second.value));
     const auto &json_re_array = to_json_array(entry_obj.find("related-entities")->second);
     for(auto it_r=json_re_array.begin(); it_r != json_re_array.end(); ++it_r)
     {
       const auto &related_entity = to_json_object(*it_r);
       spec.insert_entity(related_entity.find("name")->second.value, related_entity.find("entity")->second.value!="array");
     }
+
+    // initialize the abst functions
+    spec.set_abst_func_file(get_absolute_path(entry_obj.find("abst-function-file")->second.value));
+    spec.set_addition_func(to_json_object(entry_obj.find("abst-functions")->second).find("add-abs-conc")->second.value);
+    spec.set_minus_func(to_json_object(entry_obj.find("abst-functions")->second).find("sub-abs-conc")->second.value);
+    
+    // initialize the shape of this spect
     const auto &json_shape_obj = to_json_object(entry_obj.find("shape")->second);
     const auto &json_shape_i_array = to_json_array(json_shape_obj.find("indices")->second);
     const auto &json_shape_a_array = to_json_array(json_shape_obj.find("assumptions")->second);
@@ -48,6 +55,7 @@ abstraction_spect::abstraction_spect(
       assumptions.push_back(to_json_string(*it_a).value);
     std::string shape_type = to_json_string(json_shape_obj.find("shape-type")->second).value;
     spec.set_shape(indices, assumptions, shape_type, spec_index);
+
     specs.push_back(spec);
   }
 }
