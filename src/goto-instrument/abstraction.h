@@ -86,6 +86,36 @@ calculate_complete_abst_specs_for_funcs(goto_modelt &goto_model, abstraction_spe
 /// \return whether the expr contains an entity to be abstracted
 bool contains_an_entity_to_be_abstracted(const exprt &expr, const abstraction_spect &abst_spec);
 
+/// \param expr: the expression to be checked
+/// \return whether the expr contains a function call
+bool contains_a_function_call(const exprt &expr);
+
+/// \param expr: the expression to be checked
+/// \param abst_spec: the abstraction spec containing all info
+/// \return a list of symbols that are abstract indices in expr
+std::vector<irep_idt> get_all_abstract_indices(const exprt &expr, const abstraction_spect &abst_spec);
+
+/// \param expr: the expr to be modified, it should be a boolean expr used in assert inst
+/// \param expr_before_abst: the exprt before we do abstract_read. this is used to check function calls and abst indices
+/// \param abst_spec: the abstration information for the current function
+/// \param goto_model: the goto_model
+/// \param current_func: the name of the current function
+/// \param insts_before: instructions that need to be added before the instruction to support the write
+/// \param insts_after: instructions that need to be added after the instruction to support the write
+/// \param new_symbs: new symbols to be added to support the write
+/// \return an exprt that will be evaluated true if there are abstract indices in expr
+/// This is used to modify assertions. Assertions should be evaluated true if there are non-concrete abst indices in it.
+/// This should be called after abst_read on the expr.
+exprt make_assertion_expr_optimistic(
+  const exprt &expr,
+  const exprt &expr_before_abst,
+  const abstraction_spect &abst_spec,
+  const goto_modelt &goto_model,
+  const irep_idt &current_func,
+  goto_programt::instructionst &insts_before,
+  goto_programt::instructionst &insts_after,
+  std::vector<symbolt> &new_symbs);
+
 /// \param goto_model: the goto model
 /// \param func_name: the target function
 /// \param abst_spec: the abstraction specification
@@ -122,7 +152,7 @@ symbolt create_function_call(
   const irep_idt &func_name,
   const std::vector<exprt> operands,
   const irep_idt &caller, 
-  goto_modelt &goto_model,
+  const goto_modelt &goto_model,
   goto_programt::instructionst &insts_before,
   goto_programt::instructionst &insts_after,
   std::vector<symbolt> &new_symbs);

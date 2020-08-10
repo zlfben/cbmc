@@ -448,6 +448,121 @@ irep_idt get_abstract_name(const irep_idt &old_name)
   return irep_idt(std::string(old_name.c_str())+"$abst");
 }
 
+bool contains_a_function_call(const exprt &expr)
+{
+  class find_functiont : public const_expr_visitort
+  {
+  public:
+    bool found;
+    find_functiont(): found(false) {}
+    void operator()(const exprt &expr)
+    {
+      if(expr.id() == ID_symbol)
+      {
+        std::string symb_name(to_symbol_expr(expr).get_identifier().c_str());
+        if(
+          symb_name.find("$tmp") != std::string::npos &&
+          symb_name.find("return_value") != std::string::npos)
+          found = true;
+      }
+    }
+  };
+  find_functiont ff;
+  expr.visit(ff);
+  return ff.found;
+}
+
+std::vector<irep_idt> get_all_abstract_indices(const exprt &expr, const abstraction_spect &abst_spec)
+{
+  class find_abst_indicest : public const_expr_visitort
+  {
+  protected:
+    const abstraction_spect &abst_spec;
+    std::unordered_set<irep_idt> indices;
+  public:
+    find_abst_indicest(const abstraction_spect &_abst_spec): abst_spec(_abst_spec) {}
+    void operator()(const exprt &expr)
+    {
+      if(expr.id() == ID_symbol)
+      {
+        const irep_idt &symb_name = to_symbol_expr(expr).get_identifier();
+        if(abst_spec.has_index_entity(symb_name) && indices.find(symb_name) == indices.end())
+          indices.insert(symb_name);
+      }
+    }
+    std::vector<irep_idt> get_indices() const
+    {
+      return std::vector<irep_idt>(indices.begin(), indices.end());
+    }
+  };
+  find_abst_indicest fai(abst_spec);
+  expr.visit(fai);
+  return fai.get_indices();
+}
+
+exprt make_assertion_expr_optimistic(
+  const exprt &expr,
+  const exprt &expr_before_abst,
+  const abstraction_spect &abst_spec,
+  const goto_modelt &goto_model,
+  const irep_idt &current_func,
+  goto_programt::instructionst &insts_before,
+  goto_programt::instructionst &insts_after,
+  std::vector<symbolt> &new_symbs)
+{
+  // helper: create a symbol map to find symbols faster
+  std::unordered_map<irep_idt, symbolt> new_symbs_map;
+  for(const auto &symb: new_symbs)
+    new_symbs_map.insert({symb.name, symb});
+  // helper: find an abst symbol. it should be either in the symbol table or in the new_symbs
+  auto find_symbol_helper = [&new_symbs_map, &goto_model](const irep_idt &symb_name)
+  {
+    if(goto_model.symbol_table.has_symbol(symb_name))
+      return goto_model.symbol_table.lookup_ref(symb_name);
+    if(new_symbs_map.find(symb_name) != new_symbs_map.end())
+      return new_symbs_map.at(symb_name);
+    throw "The abstract symbol " + std::string(symb_name.c_str()) + " is not found";
+  };
+
+  if(contains_a_function_call(expr_before_abst))
+    throw "The assertion contains a function call. Currently our system doesn't support it.";
+
+  // get all abstract indices in the assertion and create the new expr
+  std::vector<irep_idt> abst_indices = get_all_abstract_indices(expr_before_abst, abst_spec);
+  exprt::operandst is_precise_exprs;
+  for(const irep_idt &index: abst_indices)
+  {
+    if(!abst_spec.has_index_entity(index))
+      throw "The index " + std::string(index.c_str()) + " is not in the abst spec.";
+    
+    // get the abst index's name; get the is_precise function's name
+    irep_idt index_abst = get_abstract_name(index);
+    symbolt index_abst_symb = find_symbol_helper(index_abst);
+    const auto &spec = abst_spec.get_spec_for_index_entity(index);
+    const irep_idt is_prec_func = spec.get_precise_func();
+
+    // initialize the operands used by is_precise function
+    exprt::operandst operands{index_abst_symb.symbol_expr()};
+    for(const auto &c_ind: spec.get_shape_indices())
+    {
+      const symbolt &c_ind_symb = find_symbol_helper(c_ind);
+      operands.push_back(c_ind_symb.symbol_expr());
+    }
+
+    // create the function call for is_precise
+    symbolt symb_precise = create_function_call(
+      is_prec_func, operands, current_func,
+      goto_model, insts_before, insts_after, new_symbs);
+    typecast_exprt symb_precise_bool(symb_precise.symbol_expr(), bool_typet());
+    is_precise_exprs.push_back(symb_precise_bool);
+  }
+  
+  // the final exprt should be is_prec_all->expr
+  and_exprt is_prec_all(is_precise_exprs);
+  implies_exprt final_expr(is_prec_all, expr);
+  return std::move(final_expr);
+}
+
 void declare_abst_variables_for_func(
   goto_modelt &goto_model,
   const irep_idt &func_name,
@@ -1024,6 +1139,11 @@ void abstract_goto_program(goto_modelt &goto_model, abstraction_spect &abst_spec
       goto_programt::instructionst inst_after;
       std::vector<symbolt> new_symbs;
 
+      // need to backup the expr for assertion
+      exprt assert_orig_expr;
+      if(it->is_assert())
+        assert_orig_expr = it->get_condition();
+      
       // go through conditions
       if(it->has_condition())
       {
@@ -1100,6 +1220,16 @@ void abstract_goto_program(goto_modelt &goto_model, abstraction_spect &abst_spec
 
         code_assignt new_as(new_lhs, new_rhs);
         it->set_assign(new_as);
+      }
+      else if(it->is_assert())
+      {
+        // if this is assertion, we should make the condition optimistic
+        format_rec(std::cout, it->get_condition()) << " ==optimistic==> ";
+        exprt optim_cond = make_assertion_expr_optimistic(
+          it->get_condition(), assert_orig_expr, abst_spec,
+          goto_model, p.first, inst_before, inst_after, new_symbs);
+        format_rec(std::cout, optim_cond) << std::endl;
+        it->set_condition(optim_cond);
       }
 
       // is there any unknown inst types?
