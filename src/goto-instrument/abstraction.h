@@ -90,10 +90,10 @@ bool contains_an_entity_to_be_abstracted(const exprt &expr, const abstraction_sp
 /// \return whether the expr contains a function call
 bool contains_a_function_call(const exprt &expr);
 
-/// \param expr: the expression to be checked
+/// \param expr: the expression to be checked. this should be called after abst_read
 /// \param abst_spec: the abstraction spec containing all info
-/// \return a list of symbols that are abstract indices in expr
-std::vector<irep_idt> get_all_abstract_indices(const exprt &expr, const abstraction_spect &abst_spec);
+/// \return a list of exprts that directly access abst arrays
+std::vector<exprt> get_direct_access_exprs(const exprt &expr, const abstraction_spect::spect &spec);
 
 /// \param expr: the expr to be modified, it should be a boolean expr used in assert inst
 /// \param expr_before_abst: the exprt before we do abstract_read. this is used to check function calls and abst indices
@@ -106,7 +106,7 @@ std::vector<irep_idt> get_all_abstract_indices(const exprt &expr, const abstract
 /// \return an exprt that will be evaluated true if there are abstract indices in expr
 /// This is used to modify assertions. Assertions should be evaluated true if there are non-concrete abst indices in it.
 /// This should be called after abst_read on the expr.
-exprt make_assertion_expr_optimistic(
+exprt add_guard_expression_to_assert(
   const exprt &expr,
   const exprt &expr_before_abst,
   const abstraction_spect &abst_spec,
@@ -204,6 +204,16 @@ exprt abstract_expr_read_comparator(
 
 // abst_read for plus/minus
 exprt abstract_expr_read_plusminus(
+  const exprt &expr,
+  const abstraction_spect &abst_spec,
+  const goto_modelt &goto_model,
+  const irep_idt &current_func,
+  goto_programt::instructionst &insts_before,
+  goto_programt::instructionst &insts_after,
+  std::vector<symbolt> &new_symbs);
+
+// abst_read for dereference
+exprt abstract_expr_read_dereference(
   const exprt &expr,
   const abstraction_spect &abst_spec,
   const goto_modelt &goto_model,
