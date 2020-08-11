@@ -192,6 +192,11 @@ public:
              (abst_indices.find(entity_name) != abst_indices.end());
     }
 
+    const bool has_array_entity(const irep_idt &entity_name) const
+    {
+      return (abst_arrays.find(entity_name) != abst_arrays.end());
+    }
+
     const bool has_index_entity(const irep_idt &entity_name) const
     {
       return (abst_indices.find(entity_name) != abst_indices.end());
@@ -343,6 +348,16 @@ public:
     return false;
   }
 
+  bool has_array_entity(const irep_idt &entity_name) const
+  {
+    for(const spect &spec: specs)
+    {
+      if(spec.has_array_entity(entity_name))
+        return true;
+    }
+    return false;
+  }
+
   // check if a variable is an index to be abstracted
   bool has_index_entity(const irep_idt &entity_name) const
   {
@@ -360,6 +375,17 @@ public:
     for(const spect &spec: specs)
     {
       if(spec.has_index_entity(entity_name))
+        return spec;
+    }
+    throw "Entity " + std::string(entity_name.c_str()) + " not found";
+  }
+
+  // return the spect that has the entity, should always run has_array_entity before running this function
+  const spect &get_spec_for_array_entity(const irep_idt &entity_name) const
+  {
+    for(const spect &spec: specs)
+    {
+      if(spec.has_array_entity(entity_name))
         return spec;
     }
     throw "Entity " + std::string(entity_name.c_str()) + " not found";

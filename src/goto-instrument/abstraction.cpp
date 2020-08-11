@@ -448,6 +448,138 @@ irep_idt get_abstract_name(const irep_idt &old_name)
   return irep_idt(std::string(old_name.c_str())+"$abst");
 }
 
+bool contains_a_function_call(const exprt &expr)
+{
+  class find_functiont : public const_expr_visitort
+  {
+  public:
+    bool found;
+    find_functiont(): found(false) {}
+    void operator()(const exprt &expr)
+    {
+      if(expr.id() == ID_symbol)
+      {
+        std::string symb_name(to_symbol_expr(expr).get_identifier().c_str());
+        if(
+          symb_name.find("$tmp") != std::string::npos &&
+          symb_name.find("return_value") != std::string::npos)
+          found = true;
+      }
+    }
+  };
+  find_functiont ff;
+  expr.visit(ff);
+  return ff.found;
+}
+
+std::vector<exprt> get_direct_access_exprs(const exprt &expr, const abstraction_spect::spect &spec)
+{
+  class find_direct_accesst : public const_expr_visitort
+  {
+  protected:
+    const irep_idt target_array;
+    std::vector<exprt> direct_accesses;
+  public:
+    find_direct_accesst(const irep_idt &_target_array): target_array(_target_array) {}
+    void operator()(const exprt &expr)
+    {
+      if(expr.id() == ID_dereference)
+      {
+        INVARIANT(expr.operands().size() == 1, "dereference should only have one operand");
+        const exprt pointer_expr = expr.operands()[0];
+        if(
+          pointer_expr.id() == ID_plus && pointer_expr.operands().front().id() == ID_symbol &&
+          pointer_expr.operands().front().type().id() == ID_pointer)
+        {
+          INVARIANT(pointer_expr.operands().size() == 2, "plus should have 2 operands");
+          const symbol_exprt &symb = to_symbol_expr(pointer_expr.operands().front());
+          // tell if the pointer is the target one
+          if(symb.get_identifier() == target_array)
+            direct_accesses.push_back(pointer_expr.operands()[1]);
+        }
+      }
+    }
+    std::vector<exprt> get_direct_accesses() const
+    {
+      return direct_accesses;
+    }
+  };
+  std::vector<exprt> result;
+  for(const auto &array: spec.get_abst_arrays())
+  {
+    const irep_idt &array_name = array.first;
+    const irep_idt array_name_abst = get_abstract_name(array_name);
+    find_direct_accesst fda(array_name_abst);
+    expr.visit(fda);
+    for(const auto &e: fda.get_direct_accesses())
+      result.push_back(e);
+  }
+  return result;
+}
+
+exprt add_guard_expression_to_assert(
+  const exprt &expr,
+  const exprt &expr_before_abst,
+  const abstraction_spect &abst_spec,
+  const goto_modelt &goto_model,
+  const irep_idt &current_func,
+  goto_programt::instructionst &insts_before,
+  goto_programt::instructionst &insts_after,
+  std::vector<symbolt> &new_symbs)
+{
+  // helper: create a symbol map to find symbols faster
+  std::unordered_map<irep_idt, symbolt> new_symbs_map;
+  for(const auto &symb: new_symbs)
+    new_symbs_map.insert({symb.name, symb});
+  // helper: find an abst symbol. it should be either in the symbol table or in the new_symbs
+  auto find_symbol_helper = [&new_symbs_map, &goto_model](const irep_idt &symb_name)
+  {
+    if(goto_model.symbol_table.has_symbol(symb_name))
+      return goto_model.symbol_table.lookup_ref(symb_name);
+    if(new_symbs_map.find(symb_name) != new_symbs_map.end())
+      return new_symbs_map.at(symb_name);
+    throw "The abstract symbol " + std::string(symb_name.c_str()) + " is not found";
+  };
+
+  if(contains_a_function_call(expr_before_abst))
+    throw "The assertion contains a function call. Currently our system doesn't support it.";
+
+  // get all abstract indices in the assertion and create the new expr
+  exprt::operandst is_precise_exprs;
+  for(const auto &spec: abst_spec.get_specs())
+  {
+    const irep_idt is_prec_func = spec.get_precise_func();
+    for(const exprt &index: get_direct_access_exprs(expr, spec))
+    {
+      // initialize the operands used by is_precise function
+      exprt::operandst operands{index};
+      for(const auto &c_ind: spec.get_shape_indices())
+      {
+        const symbolt &c_ind_symb = find_symbol_helper(c_ind);
+        operands.push_back(c_ind_symb.symbol_expr());
+      }
+      // create the function call for is_precise
+      symbolt symb_precise = create_function_call(
+        is_prec_func, operands, current_func,
+        goto_model, insts_before, insts_after, new_symbs);
+      typecast_exprt symb_precise_bool(symb_precise.symbol_expr(), bool_typet());
+      is_precise_exprs.push_back(symb_precise_bool);
+    }
+  }
+  
+  // the final exprt should be is_prec_all->expr
+  if(is_precise_exprs.size() > 0)
+  {
+    and_exprt is_prec_all(is_precise_exprs);
+    implies_exprt final_expr(is_prec_all, expr);
+    return std::move(final_expr);
+  }
+  else
+  {
+    return expr;
+  }
+}
+
 void declare_abst_variables_for_func(
   goto_modelt &goto_model,
   const irep_idt &func_name,
@@ -883,6 +1015,110 @@ exprt abstract_expr_read_plusminus(
   }
 }
 
+exprt abstract_expr_read_dereference(
+  const exprt &expr,
+  const abstraction_spect &abst_spec,
+  const goto_modelt &goto_model,
+  const irep_idt &current_func,
+  goto_programt::instructionst &insts_before,
+  goto_programt::instructionst &insts_after,
+  std::vector<symbolt> &new_symbs)
+{
+  INVARIANT(expr.id() == ID_dereference, "abstract_expr_read_dereference should get dereference exprs");
+  INVARIANT(expr.operands().size() == 1, "The number of operands should be 1 for dereference");
+
+  // the pointer to be dereferenced
+  exprt pointer_expr = expr.operands()[0];
+
+  if(pointer_expr.id() == ID_symbol)
+  {
+    const symbol_exprt pointer_symb_expr = to_symbol_expr(pointer_expr);
+    const irep_idt orig_name = pointer_symb_expr.get_identifier();
+    if(abst_spec.has_array_entity(orig_name))
+    {
+      const irep_idt new_name = get_abstract_name(orig_name);
+      if(!goto_model.symbol_table.has_symbol(new_name))
+        throw "The abst symbol " + std::string(new_name.c_str()) + " is not added to the symbol table";
+      const symbolt &abst_symb = goto_model.symbol_table.lookup_ref(new_name);
+      dereference_exprt new_expr(abst_symb.symbol_expr());
+      return std::move(new_expr);
+    }
+    else
+    {
+      return expr;
+    }
+  }
+  else if(pointer_expr.id() == ID_plus)
+  {
+    INVARIANT(pointer_expr.operands().size() == 2, "The number of operands should be 2 for plus/minus");
+    const exprt &base_pointer = pointer_expr.operands()[0];
+    const exprt &offset_expr = pointer_expr.operands()[1];
+    if(base_pointer.id() == ID_symbol && base_pointer.type().id() == ID_pointer)
+    {
+      const irep_idt base_pointer_orig_name = to_symbol_expr(base_pointer).get_identifier();
+      if(abst_spec.has_array_entity(base_pointer_orig_name))
+      {
+        // a[i]  ==>   is_prec(i$abst) ? a$abst[i$abst] : nondet
+
+        // get the new base pointer a$abst
+        const irep_idt base_pointer_new_name = get_abstract_name(base_pointer_orig_name);
+        if(!goto_model.symbol_table.has_symbol(base_pointer_new_name))
+          throw "The abst symbol " + std::string(base_pointer_new_name.c_str()) + " is not added to the symbol table";
+        const symbolt &abst_base_pointer_symb = goto_model.symbol_table.lookup_ref(base_pointer_new_name);
+        const exprt new_base_pointer = abst_base_pointer_symb.symbol_expr();
+
+        // get the new offset i$abst
+        const exprt new_offset = abstract_expr_read(
+          offset_expr, abst_spec, goto_model, current_func,
+          insts_before, insts_after, new_symbs);
+
+        // the access a$abst[i$abst]
+        plus_exprt new_plus_expr(abst_base_pointer_symb.symbol_expr(), new_offset);
+        dereference_exprt new_access(new_plus_expr);
+
+        // the function call is_prec(i$abst)
+        const auto &spec = abst_spec.get_spec_for_array_entity(base_pointer_orig_name);
+        exprt::operandst operands{new_offset};
+        for(const auto &c_ind: spec.get_shape_indices())
+        {
+          if(!goto_model.get_symbol_table().has_symbol(c_ind))
+          throw "Concrete index symbol " + std::string(c_ind.c_str()) + " not found";
+          const symbolt &c_ind_symb = goto_model.get_symbol_table().lookup_ref(c_ind);
+          operands.push_back(c_ind_symb.symbol_expr());
+        }
+        const symbolt is_prec_symb = create_function_call(
+          spec.get_precise_func(), operands, current_func,
+          goto_model, insts_before, insts_after, new_symbs);
+        const exprt is_prec = is_prec_symb.symbol_expr();
+        const typecast_exprt is_prec_bool(is_prec, bool_typet());
+
+        // the final expression is_prec(i$abst) ? a$abst[i$abst] : nondet
+        if_exprt final_expr(
+          is_prec_bool, new_access,
+          side_effect_expr_nondett(expr.type(), source_locationt()));
+        return std::move(final_expr);
+      }
+      else
+      {
+        const exprt new_offset = abstract_expr_read(
+          offset_expr, abst_spec, goto_model, current_func,
+          insts_before, insts_after, new_symbs);
+        plus_exprt new_plus_expr(base_pointer, new_offset);
+        dereference_exprt new_expr(new_plus_expr);
+        return std::move(new_expr);
+      }
+    }
+    else
+    {
+      throw "unknown type of dereference";
+    }
+  }
+  else
+  {
+    throw "Unknown type to be dereferenced: " + std::string(pointer_expr.id().c_str());
+  }
+}
+
 exprt abstract_expr_read(
   const exprt &expr,
   const abstraction_spect &abst_spec,
@@ -939,7 +1175,9 @@ exprt abstract_expr_read(
   else if(expr.id() == ID_dereference)
   {
     // TODO: handle dereference, need to check the structure of lower exprts
-    return expr;
+    return abstract_expr_read_dereference(
+      expr,abst_spec, goto_model, current_func,
+      insts_before, insts_after, new_symbs);
   }
   else if(expr.id() == ID_plus || expr.id() == ID_minus)
   {
@@ -1024,6 +1262,11 @@ void abstract_goto_program(goto_modelt &goto_model, abstraction_spect &abst_spec
       goto_programt::instructionst inst_after;
       std::vector<symbolt> new_symbs;
 
+      // need to backup the expr for assertion
+      exprt assert_orig_expr;
+      if(it->is_assert())
+        assert_orig_expr = it->get_condition();
+      
       // go through conditions
       if(it->has_condition())
       {
@@ -1100,6 +1343,16 @@ void abstract_goto_program(goto_modelt &goto_model, abstraction_spect &abst_spec
 
         code_assignt new_as(new_lhs, new_rhs);
         it->set_assign(new_as);
+      }
+      else if(it->is_assert())
+      {
+        // if this is assertion, we should make the condition optimistic
+        format_rec(std::cout, it->get_condition()) << " ==optimistic==> ";
+        exprt optim_cond = add_guard_expression_to_assert(
+          it->get_condition(), assert_orig_expr, abst_spec,
+          goto_model, p.first, inst_before, inst_after, new_symbs);
+        format_rec(std::cout, optim_cond) << std::endl;
+        it->set_condition(optim_cond);
       }
 
       // is there any unknown inst types?
