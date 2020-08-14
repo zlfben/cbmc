@@ -27,16 +27,14 @@ bool search(char* a, int a_len, char key){
     return res;
 }
 
-void copy(char * a1, char* a2){
-    a1 = a2;
+void copy(char ** a1, char** a2){
+    *a1 = *a2;
     return;
-
 }
 
 bool main(){
-    const char * a1;
-    const char * a2;
-    const char * a3;
+    char * a1;
+    char * a2;
     int a1_len;
     int a2_len;
     //Some char
@@ -49,12 +47,16 @@ bool main(){
     __CPROVER_assume(i < a2_len);
 
     a2 = malloc(a2_len);
+    //a2_len is identified as abstract in the spec but a1_len is not.
+    //So in the abstracted program a1_len will get the original a2_len, not abst(a2_len)
+    a1_len = a2_len;
 
     //assignment of the full array. 
     //a2's spec has to be copied over for a1 as well.    
-    copy(a1, a2);
-    bool res = search(a1, a2_len, key);
-    return res;
+    copy(&a1, &a2);
 
-   
+    //If a2's spec is not transferred to a1, then the search should result in out of bounds access.
+    //If a2's spec is transferred then inside search a1_len will get abstracted and there will be no out of bounds. 
+    bool res = search(a1, a1_len, key);
+    return res;
 }

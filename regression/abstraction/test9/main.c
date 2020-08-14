@@ -28,6 +28,7 @@ bool main(){
     __CPROVER_assume(i < a2_len);
 
     a2 = malloc(a2_len);
+    a1_len = a2_len;
 
     //assignment of the full array. 
     //a2's spec has to be copied over for a1 as well.    

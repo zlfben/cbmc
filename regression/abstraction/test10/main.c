@@ -12,9 +12,11 @@ bool search(char* a, int a_len, char key){
     return res;
 }
 
-bool copy_and_search(char * a1, char* a2, char a2_len, char key){
+bool copy_and_search(char * a1, char* a2, char key){
     a1 = a2;
-    return(search(a1, a2_len, key));
+    //a1 will be of length 3 but it won't have abstraction spec. So searching at index 3,4 will lead to out of bounds.
+    //If a2's spec is transferred to a1 then there will be no out of bounds error.
+    return(search(a1, 5, key));
 
 }
 
@@ -31,13 +33,14 @@ bool main(){
 
     __CPROVER_assume(a1_len < MAX_LEN);
     __CPROVER_assume(a2_len <= a1_len);
+    __CPROVER_assume(a2_len > 5);
     __CPROVER_assume(i < a2_len);
 
     a2 = malloc(a2_len);
 
     //assignment of the full array. 
     //a2's spec has to be copied over for a1 as well.    
-    bool res = copy_and_search(a1, a2, a2_len, key);
+    bool res = copy_and_search(a1, a2, key);
     return res;
 
    

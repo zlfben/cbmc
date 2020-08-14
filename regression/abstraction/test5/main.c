@@ -29,7 +29,7 @@ void main(){
     int i;
 
     __CPROVER_assume(a1_len < MAX_LEN);
-    __CPROVER_assume(a2_len < a1_len);
+    __CPROVER_assume(a2_len <= a1_len);
     __CPROVER_assume(i < a2_len);
 
     a1 = malloc(a1_len);

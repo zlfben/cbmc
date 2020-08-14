@@ -4,7 +4,7 @@
 
 #define MAX_LEN 100
 
-// Compares if two arrays are the same (sort of)
+// Copies entries from a1 to a2 array.
 int foo(char* a1, int a1_len, char* a2, int a2_len){
     bool res = true;
     if(a1_len == a2_len){
@@ -34,7 +34,7 @@ void main(){
     int i;
 
     __CPROVER_assume(a1_len < MAX_LEN);
-    __CPROVER_assume(a2_len < a1_len);
+    __CPROVER_assume(a2_len <= a1_len);
     __CPROVER_assume(i < a2_len);
 
     a1 = malloc(a1_len);

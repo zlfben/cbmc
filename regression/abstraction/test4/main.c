@@ -22,7 +22,7 @@ bool bar(char * a1, int a1_len, char * a2, int a2_len, int i) {
     int k = i-1;
     assert(a1_len == a2_len);
     if (k > 0) {
-        if(a2[i] == a1[i] + 1) return true;
+        if(a2[k] == a1[i] + 1) return true;
         else return false; 
     }
     else return true;
