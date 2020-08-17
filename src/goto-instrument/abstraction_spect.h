@@ -173,13 +173,13 @@ public:
     }
 
     //We will have functions for accessing and modifying the above data.
-    //_type: "array", "index", "length"
+    //_type: "array", "scalar", "length"
     void insert_entity(const irep_idt &_name, const std::string &_type)
     {
       entityt new_entity(_name);
       if(_type == "array")
         abst_arrays.insert({_name, new_entity});
-      else if(_type == "index")
+      else if(_type == "scalar")
         abst_indices.insert({_name, new_entity});
       else if(_type == "length")
         abst_lengths.insert({_name, new_entity});

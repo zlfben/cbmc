@@ -5,10 +5,10 @@
             "function": "aws_array_eq_harness",
             "name": "aws_array_eq_harness::1::rhs",
             "shape": {
-                "indices": ["cncrt"],
+                "indices": ["cncrt", "length"],
                 "assumptions": [
                 ],
-                "shape-type": "*c*"
+                "shape-type": "*c*l"
             },
             "abst-function-file": "../abst-funcs.c",
             "abst-functions":{

@@ -53,7 +53,6 @@ abstraction_spect::abstraction_spect(
     std::vector<std::string> assumptions;
     for(auto it_i=json_shape_i_array.begin(); it_i != json_shape_i_array.end(); ++it_i)
       indices.push_back(to_json_string(*it_i).value);
-    indices.push_back("$clen");  // the implicit length concrete index
     for(auto it_a=json_shape_a_array.begin(); it_a != json_shape_a_array.end(); ++it_a)
       assumptions.push_back(to_json_string(*it_a).value);
     std::string shape_type = to_json_string(json_shape_obj.find("shape-type")->second).value;
