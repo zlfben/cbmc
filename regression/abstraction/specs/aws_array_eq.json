@@ -10,12 +10,12 @@
                 ],
                 "shape-type": "*c*"
             },
-            "abst-function-file": "./abst-funcs.c",
+            "abst-function-file": "../abst-funcs.c",
             "abst-functions":{
-                "add-abs-conc": "add_abs_to_conc_1",
-                "sub-abs-conc": "sub_conc_from_abs_1",
-                "precise-check": "is_precise_1",
-                "abstract-index": "one_abs",
+                "add-abs-conc": "add_abs_to_conc_2",
+                "sub-abs-conc": "sub_conc_from_abs_2",
+                "precise-check": "is_precise_2",
+                "abstract-index": "two_abs",
                 "concretize-index": "concretize",
                 "multiply-indices": null,
                 "mod-indices": null
@@ -27,12 +27,7 @@
                     "name": "aws_array_eq_harness::1::lhs"
                 },
                 {
-                    "entity": "scalar",
-                    "function": "aws_array_eq_harness",
-                    "name": "aws_array_eq_harness::1::rhs_len"
-                },
-                {
-                    "entity": "scalar",
+                    "entity": "length",
                     "function": "aws_array_eq_harness",
                     "name": "aws_array_eq_harness::1::lhs_len"
                 }

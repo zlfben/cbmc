@@ -239,6 +239,9 @@ exprt abstract_expr_read(
   goto_programt::instructionst &insts_after,
   std::vector<symbolt> &new_symbs);
 
+// add the assumption len=$clen for all length variables
+void add_length_assumptions(goto_modelt &goto_model, const abstraction_spect &abst_spec);
+
 // define concrete indices globally
 void define_concrete_indices(goto_modelt &goto_model, const abstraction_spect &abst_spec);
 
