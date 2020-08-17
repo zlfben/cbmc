@@ -118,7 +118,7 @@ size_t sub_conc_from_abs_1(size_t abs_ind, size_t num, size_t a1){
 //Cases +c+c*, c+c*, +cc*, c+c*, cc+ can all be 
 //handled by the same function as long as we are careful with concretization, increment and other funcs.
 //If model checking time is affected then we can split into finer cases.
-int two_abs(int index, int a1, int a2) {
+size_t two_abs(size_t index, size_t a1, size_t a2) {
     if (index < a1) return 0;
     else if (index == a1) return 1;
     else if (index > a1 && index < a2) return 2;
@@ -129,7 +129,7 @@ int two_abs(int index, int a1, int a2) {
 
 //Get the concretization of an index. We assume all args are >= 0
 //Shape *c*c*
-int concretize_2(int abs_ind, int a1, int a2) {
+size_t concretize_2(size_t abs_ind, size_t a1, size_t a2) {
     assert(abs_ind >= 0);
     assert(a1 >= 0);
     assert(a2 > a1);
@@ -155,18 +155,18 @@ int concretize_2(int abs_ind, int a1, int a2) {
     else return(nndt_above(a2));
 }
 
-int is_precise_2(int abs_ind){
+int is_precise_2(size_t abs_ind){
     if (abs_ind == 1 || abs_ind == 3) return(1);
     else return(0);
 }
 
-int is_abstract_2(int abs_ind){
+int is_abstract_2(size_t abs_ind){
     int pre = is_precise_2(abs_ind);
     return(1-pre);
 }
 
 // Add a number to an abs_ind
-int add_abs_to_conc_2(int abs_ind, int num, int a1, int a2){
+size_t add_abs_to_conc_2(size_t abs_ind, size_t num, size_t a1, size_t a2){
     if (num == 1){
         if(abs_ind == 0 || abs_ind == 2) {
             if (nndt_bool() > 0) return(abs_ind);
@@ -190,7 +190,7 @@ int add_abs_to_conc_2(int abs_ind, int num, int a1, int a2){
 
 }
 
-int sub_conc_from_abs_2(int abs_ind, int num, int a1, int a2){
+size_t sub_conc_from_abs_2(size_t abs_ind, size_t num, size_t a1, size_t a2){
     if (num == 1){
         if(abs_ind == 4 || abs_ind == 2) {
             if (nndt_bool() > 0) return(abs_ind);

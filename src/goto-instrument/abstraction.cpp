@@ -294,10 +294,10 @@ void complete_abst_spec(const goto_functiont& goto_function, abstraction_spect &
       std::tuple<std::unordered_set<irep_idt>, std::unordered_set<irep_idt>> abst_entities = find_index_symbols(goto_function, ent.first);
       for(irep_idt index_name: std::get<0>(abst_entities))
         if(spec.get_abst_arrays().find(index_name) == spec.get_abst_arrays().end())
-          spec.insert_entity(index_name, false);
+          spec.insert_entity(index_name, "array");
       for(irep_idt index_name: std::get<1>(abst_entities))
         if(spec.get_abst_indices().find(index_name) == spec.get_abst_indices().end())
-          spec.insert_entity(index_name, true);
+          spec.insert_entity(index_name, "scalar");
     }
   }
 }
@@ -1235,10 +1235,101 @@ void define_concrete_indices(goto_modelt &goto_model, const abstraction_spect &a
   }
 }
 
+void add_length_assumptions(goto_modelt &goto_model, const abstraction_spect &abst_spec)
+{
+  for(const auto &spec: abst_spec.get_specs())
+  {
+    for(const auto &lp: spec.get_abst_lengths())
+    {
+      const irep_idt func_name = abst_spec.get_func_name();
+
+      // TODO: currently we are assuming every entities in the 
+      // json file belong to the same function. That may not be the case.
+      auto &function = goto_model.goto_functions.function_map.at(func_name);
+      // if this variable is a local varible
+      bool is_local = false;
+
+      // go through each instruction in the function to find the declare
+      Forall_goto_program_instructions(it, function.body)
+      {
+        if(it->is_decl())
+        {
+          const code_declt &decl = it->get_decl();
+          // check if this declares the length variable
+          if(decl.get_identifier() == lp.first)
+          {
+            is_local = true;
+            // need to add an assumption after this inst
+            INVARIANT(
+              goto_model.get_symbol_table().has_symbol(decl.get_identifier()),
+              "Symbol " + std::string(decl.get_identifier().c_str()) +
+                " not defined");
+            INVARIANT(
+              goto_model.get_symbol_table().has_symbol(
+                spec.get_length_index_name()),
+              "Symbol " + std::string(spec.get_length_index_name().c_str()) +
+                " not defined");
+
+            // define the assumption instruction
+            const symbolt symb1 = goto_model.get_symbol_table().lookup_ref(decl.get_identifier());
+            const symbolt symb2 = goto_model.get_symbol_table().lookup_ref(spec.get_length_index_name());
+            equal_exprt assumption_expr(symb1.symbol_expr(), symb2.symbol_expr());
+            auto new_assumption = goto_programt::make_assumption(assumption_expr);
+
+            // insert it
+            function.body.insert_after(it, new_assumption);
+            std::cout << "Added length assumption after the decl: ";
+            format_rec(std::cout, assumption_expr) << std::endl;
+            it++;
+          }
+        }
+      }
+
+      // if it is not a local variable, the assumption should be added at 
+      // the end of the global INITIAL function
+      if(!is_local)
+      {
+        // find the CPROVER_INITIAL function
+        goto_functionst::function_mapt::iterator fct_entry =
+          goto_model.goto_functions.function_map.find(INITIALIZE_FUNCTION);
+        CHECK_RETURN(fct_entry != goto_model.goto_functions.function_map.end());
+        goto_programt &init_function = fct_entry->second.body;
+        auto last_instruction = std::prev(init_function.instructions.end());
+        DATA_INVARIANT(
+          last_instruction->is_end_function(),
+          "last instruction in function should be END_FUNCTION");
+        
+        // define the assumption instruction
+        INVARIANT(
+          goto_model.get_symbol_table().has_symbol(lp.first),
+          "Symbol " + std::string(lp.first.c_str()) +
+            " not defined");
+        INVARIANT(
+          goto_model.get_symbol_table().has_symbol(
+            spec.get_length_index_name()),
+          "Symbol " + std::string(spec.get_length_index_name().c_str()) +
+            " not defined");
+        const symbolt symb1 = goto_model.get_symbol_table().lookup_ref(lp.first);
+        const symbolt symb2 = goto_model.get_symbol_table().lookup_ref(spec.get_length_index_name());
+        equal_exprt assumption_expr(symb1.symbol_expr(), symb2.symbol_expr());
+        auto new_assumption = goto_programt::make_assumption(assumption_expr);
+
+        // insert it
+        std::cout << "Added length assumption in the beginning of the function: ";
+        format_rec(std::cout, assumption_expr);
+        init_function.insert_before_swap(last_instruction, new_assumption);
+      }
+    }
+  }
+}
+
 void abstract_goto_program(goto_modelt &goto_model, abstraction_spect &abst_spec)
 {
   // Define the global concrete indices to be used
   define_concrete_indices(goto_model, abst_spec);
+
+  // Add the assumption for len==$clen
+  add_length_assumptions(goto_model, abst_spec);
 
   // A couple of spects are initialized from the json file. We should go from there and insert spects to other functions
   std::unordered_map<irep_idt, abstraction_spect> function_spec_map =

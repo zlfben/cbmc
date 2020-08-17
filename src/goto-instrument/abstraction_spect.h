@@ -85,6 +85,11 @@ public:
       {
         return indices;
       }
+      const irep_idt get_length_index_name() const
+      {
+        INVARIANT(indices.size()>0, "shape should have at least a length concrete variable");
+        return *(indices.end()-1);
+      }
     };
 
     struct entityt
@@ -126,11 +131,12 @@ public:
 
     //Arrays to be abstracted
     std::unordered_map<irep_idt, entityt> abst_arrays;
-    // std::vector<entityt> abst_arrays;
 
     //Index vars to be abstracted
     std::unordered_map<irep_idt, entityt> abst_indices;
-    // std::vector<entityt> abst_indices;
+    
+    //Length vars to be abstracted
+    std::unordered_map<irep_idt, entityt> abst_lengths;
 
     // Shape of the abstraction
     abst_shapet shape;
@@ -156,6 +162,7 @@ public:
       : abst_func_file(_spec.abst_func_file),
         abst_arrays(_spec.abst_arrays),
         abst_indices(_spec.abst_indices),
+        abst_lengths(_spec.abst_lengths),
         shape(_spec.shape), 
         is_precise_func(_spec.is_precise_func),
         compare_indices_func(_spec.compare_indices_func),
@@ -166,14 +173,18 @@ public:
     }
 
     //We will have functions for accessing and modifying the above data.
-    //array_or_index: false-array, true-index
-    void insert_entity(const irep_idt &_name, bool array_or_index)
+    //_type: "array", "scalar", "length"
+    void insert_entity(const irep_idt &_name, const std::string &_type)
     {
       entityt new_entity(_name);
-      if(!array_or_index)
+      if(_type == "array")
         abst_arrays.insert({_name, new_entity});
-      else
+      else if(_type == "scalar")
         abst_indices.insert({_name, new_entity});
+      else if(_type == "length")
+        abst_lengths.insert({_name, new_entity});
+      else
+        throw "Unknown entity type: " + _type;
     }
 
     const std::unordered_map<irep_idt, entityt> &get_abst_arrays() const
@@ -184,6 +195,11 @@ public:
     const std::unordered_map<irep_idt, entityt> &get_abst_indices() const
     {
       return abst_indices;
+    }
+
+    const std::unordered_map<irep_idt, entityt> &get_abst_lengths() const
+    {
+      return abst_lengths;
     }
 
     const bool has_entity(const irep_idt &entity_name) const
@@ -200,6 +216,11 @@ public:
     const bool has_index_entity(const irep_idt &entity_name) const
     {
       return (abst_indices.find(entity_name) != abst_indices.end());
+    }
+
+    const irep_idt get_length_index_name() const
+    {
+      return shape.get_length_index_name();
     }
 
     //set abst func file path
