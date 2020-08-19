@@ -266,7 +266,7 @@ std::vector<exprt> abstraction_spect::spect::abst_shapet::get_assumption_exprs(c
   {
     exprt expr;
     if(shape_assumption_to_expr(assumption, module, expr, ns))
-      expr = nil_exprt();
+      throw "Cannot parse assumption statements in the json file: " + assumption;
     result.push_back(expr);
   }
   
