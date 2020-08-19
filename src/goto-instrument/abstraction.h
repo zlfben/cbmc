@@ -245,6 +245,9 @@ void add_length_assumptions(goto_modelt &goto_model, const abstraction_spect &ab
 // define concrete indices globally
 void define_concrete_indices(goto_modelt &goto_model, const abstraction_spect &abst_spec);
 
+// insert the assumptions about the shape's concrete indices
+void insert_shape_assumptions(goto_modelt &goto_model, const abstraction_spect &abst_spec);
+
 // abstract goto programs
 void abstract_goto_program(goto_modelt &goto_model, abstraction_spect &abst_spec);
 

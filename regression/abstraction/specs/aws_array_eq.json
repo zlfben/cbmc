@@ -7,6 +7,7 @@
             "shape": {
                 "indices": ["cncrt", "length"],
                 "assumptions": [
+                    "cncrt<length"
                 ],
                 "shape-type": "*c*l"
             },
@@ -30,6 +31,11 @@
                     "entity": "length",
                     "function": "aws_array_eq_harness",
                     "name": "aws_array_eq_harness::1::lhs_len"
+                },
+                {
+                    "entity": "scalar",
+                    "function": "aws_array_eq_harness",
+                    "name": "aws_array_eq_harness::1::rhs_len"
                 }
             ]
 

@@ -90,6 +90,7 @@ public:
         INVARIANT(indices.size()>0, "shape should have at least a length concrete variable");
         return *(indices.end()-1);
       }
+      std::vector<exprt> get_assumption_exprs(const namespacet &ns, const size_t &spec_index) const;
     };
 
     struct entityt
@@ -156,6 +157,9 @@ public:
     //Translate a concrete index to an abst index
     irep_idt abstract_func;
 
+    // the index of this spect in the abstraction_spect
+    size_t spect_index;
+
   public:
     spect() {}
     spect(const spect &_spec)
@@ -182,7 +186,10 @@ public:
       else if(_type == "scalar")
         abst_indices.insert({_name, new_entity});
       else if(_type == "length")
+      {
         abst_lengths.insert({_name, new_entity});
+        abst_indices.insert({_name, new_entity});
+      }
       else
         throw "Unknown entity type: " + _type;
     }
@@ -287,15 +294,16 @@ public:
     void set_shape(
       const std::vector<irep_idt> &indices,
       const std::vector<std::string> &assumptions,
-      const std::string &shape_type,
-      const size_t &spec_index)
+      const std::string &shape_type)
     {
       std::vector<irep_idt> new_indices(indices);
       for(auto &index: new_indices)
-        index = abst_shapet::get_index_name(index, spec_index);
+        index = abst_shapet::get_index_name(index, spect_index);
       shape = abst_shapet(new_indices, assumptions, shape_type);
     }
 
+    std::vector<exprt> get_assumption_exprs(const namespacet &ns) const;
+    
     // compare if two spect have the same abst shape
     bool compare_shape(const spect &other) const
     {
@@ -322,6 +330,10 @@ public:
       return shape.get_indices();
     }
 
+    void set_spect_index(const size_t &_index)
+    {
+      spect_index = _index;
+    }
     //We need to update the abstracted array/list/var names as we cross the function boundary.
     //For example, if function Foo has two arrays f1 and f2 that are abstracted.
     //Function Bar is defined as void Bar(array b1, array b2) and suppose Foo calls Bar(f1,f2).
