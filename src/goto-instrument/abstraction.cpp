@@ -17,6 +17,7 @@ Author: Lefan Zhang, lefanz@amazon.com
 #include <util/std_expr.h>
 #include <util/expr_util.h>
 #include <util/format_expr.h>
+#include <util/c_types.h>
 #include <goto-programs/initialize_goto_model.h>
 #include <goto-programs/link_goto_model.h>
 #include <linking/static_lifetime_init.h>
@@ -771,6 +772,7 @@ symbolt create_function_call(
     to_code_type(goto_model.get_symbol_table().lookup_ref(func_name).type)
       .return_type();
   new_symb.name = temp_symb_name;
+  new_symb.mode = ID_C;
   symbol_exprt new_symb_expr = new_symb.symbol_expr();
   new_symbs.push_back(new_symb);
 
@@ -1205,13 +1207,15 @@ void define_concrete_indices(goto_modelt &goto_model, const abstraction_spect &a
     {
       // define the "index" in the global scope
       // Step 0: Define the symbolt. what is the type/location of this variable?
-      // TODO: currently let's assume all index are 32-bit. In the future we should infer the width from the arch
-      unsignedbv_typet index_type(32);
+      // The type should be size_t, which is unsigned_long_int_type
+      // mode should be C
+      unsignedbv_typet index_type = unsigned_long_int_type();
       source_locationt src_loc;
       symbolt symb;
       symb.type = index_type;
       symb.location = src_loc;
       symb.name = index;
+      symb.mode = ID_C;
       symbol_exprt symb_expr = symb.symbol_expr();
 
       // Step 1: put it into the symbol table
@@ -1230,6 +1234,32 @@ void define_concrete_indices(goto_modelt &goto_model, const abstraction_spect &a
         "last instruction in function should be END_FUNCTION");
       goto_programt::instructiont new_inst = goto_programt::make_assignment(
         code_assignt(symb_expr, side_effect_expr_nondett(index_type, src_loc)));
+      init_function.insert_before_swap(last_instruction, new_inst);
+    }
+  }
+}
+
+void insert_shape_assumptions(goto_modelt &goto_model, const abstraction_spect &abst_spec)
+{
+
+
+  namespacet ns(goto_model.get_symbol_table());
+  for(const auto &spec: abst_spec.get_specs())
+  {
+    for(const exprt &expr: spec.get_assumption_exprs(ns))
+    {
+      // put the assumption expr into __CPROVER_initialize 
+      // which is the entry function for each goto program
+      goto_functionst::function_mapt::iterator fct_entry =
+        goto_model.goto_functions.function_map.find(INITIALIZE_FUNCTION);
+      CHECK_RETURN(fct_entry != goto_model.goto_functions.function_map.end());
+      goto_programt &init_function = fct_entry->second.body;
+      auto last_instruction = std::prev(init_function.instructions.end());
+      DATA_INVARIANT(
+        last_instruction->is_end_function(),
+        "last instruction in function should be END_FUNCTION");
+
+      goto_programt::instructiont new_inst = goto_programt::make_assumption(expr);
       init_function.insert_before_swap(last_instruction, new_inst);
     }
   }
@@ -1327,6 +1357,9 @@ void abstract_goto_program(goto_modelt &goto_model, abstraction_spect &abst_spec
 {
   // Define the global concrete indices to be used
   define_concrete_indices(goto_model, abst_spec);
+
+  // Insert the assumptions about concrete indices
+  insert_shape_assumptions(goto_model, abst_spec);
 
   // Add the assumption for len==$clen
   add_length_assumptions(goto_model, abst_spec);
