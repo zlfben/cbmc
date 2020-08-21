@@ -733,6 +733,30 @@ bool check_if_exprt_eval_to_abst_index(
       throw "Direct computation on two abstracted indices are prohibited";
     }
   }
+  else if(expr.id() == ID_pointer_offset || expr.id() == ID_object_size)
+  {
+    // if we are trying to get the offset of a pointer or the size is a pointer, 
+    // expr will be evaluated to abst index if the pointer is an abst array
+    INVARIANT(expr.operands().size() == 1, "pointer offset or object size exprs should only have one operand");
+    const exprt &pointer = *expr.operands().begin();
+    if(pointer.id() == ID_symbol)
+    {
+      if(abst_spec.has_array_entity(to_symbol_expr(pointer).get_identifier()))
+      {
+        // if the pointer is an abstracted array, we should use the same spec of this array
+        spec = abst_spec.get_spec_for_array_entity(to_symbol_expr(pointer).get_identifier());
+        return true;
+      }
+      else
+      {
+        return false;
+      }
+    }
+    else
+    {
+      throw "Size or offset checking on complex pointers are not supported in abstraction right now";
+    }
+  }
   else
   {
     return false;
@@ -901,8 +925,22 @@ exprt abstract_expr_read_comparator(
 
   abstraction_spect::spect spec0;
   abstraction_spect::spect spec1;
-  bool abs0 = check_if_exprt_eval_to_abst_index(expr.operands()[0], abst_spec, spec0);
-  bool abs1 = check_if_exprt_eval_to_abst_index(expr.operands()[1], abst_spec, spec1);
+
+  bool abs0 = false;
+  bool abs1 = false;
+  if(expr.operands()[0].id() == ID_pointer_offset || expr.operands()[1].id() == ID_object_size)
+  {
+    // this is the case when we are checking out of bound access to arrays, 
+    // we shouldn't treat the comparison as abstract
+    abs0 = false;
+    abs1 = false;
+  }
+  else
+  {
+    abs0 = check_if_exprt_eval_to_abst_index(expr.operands()[0], abst_spec, spec0);
+    abs1 = check_if_exprt_eval_to_abst_index(expr.operands()[1], abst_spec, spec1);
+  }
+  
   if(!abs0 && !abs1)
   {
     // if none of op0 and op1 is abstract index, just do plain comparision.
@@ -919,6 +957,11 @@ exprt abstract_expr_read_comparator(
       throw "two operands of a comparator is not of the same spect";
     new_expr.operands()[0] = abstract_expr_read(expr.operands()[0], abst_spec, goto_model, current_func, insts_before, insts_after, new_symbs);
     new_expr.operands()[1] = abstract_expr_read(expr.operands()[1], abst_spec, goto_model, current_func, insts_before, insts_after, new_symbs);
+    if(new_expr.operands()[0].type().id() != new_expr.operands()[1].type().id())
+    {
+      // this can happen in the pointer_offset > 0 case because pointer_offset is not size_t
+      new_expr.operands()[1] = typecast_exprt(new_expr.operands()[1], new_expr.operands()[0].type());
+    }
     return create_comparator_expr_abs_abs(new_expr, spec0, goto_model, current_func, insts_before, insts_after, new_symbs);
   }
   else if(abs0 && !abs1)
@@ -941,6 +984,11 @@ exprt abstract_expr_read_comparator(
       insts_before, insts_after, new_symbs);
     new_expr.operands()[0] = abstract_expr_read(expr.operands()[0], abst_spec, goto_model, current_func, insts_before, insts_after, new_symbs);
     new_expr.operands()[1] = op1_abst_symb.symbol_expr();
+    if(new_expr.operands()[0].type().id() != new_expr.operands()[1].type().id())
+    {
+      // this can happen in the pointer_offset > 0 case because pointer_offset is not size_t
+      new_expr.operands()[1] = typecast_exprt(new_expr.operands()[1], new_expr.operands()[0].type());
+    }
     return create_comparator_expr_abs_abs(new_expr, spec0, goto_model, current_func, insts_before, insts_after, new_symbs);
   }
   else  // !abs0 && abs1
@@ -962,8 +1010,31 @@ exprt abstract_expr_read_comparator(
       abst_func, operands, current_func, goto_model, 
       insts_before, insts_after, new_symbs);
     new_expr.operands()[0] = op0_abst_symb.symbol_expr();
+    if(new_expr.operands()[0].type().id() != new_expr.operands()[1].type().id())
+    {
+      // this can happen in the pointer_offset > 0 case because pointer_offset is not size_t
+      new_expr.operands()[0] = typecast_exprt(new_expr.operands()[0], new_expr.operands()[1].type());
+    }
     new_expr.operands()[1] = abstract_expr_read(expr.operands()[1], abst_spec, goto_model, current_func, insts_before, insts_after, new_symbs);
     return create_comparator_expr_abs_abs(new_expr, spec1, goto_model, current_func, insts_before, insts_after, new_symbs);
+  }
+}
+
+// check whether an expr is a pointer offset
+bool is_pointer_offset(const exprt &expr)
+{
+  if(expr.id() == ID_pointer_offset)
+  {
+    return true;
+  }
+  else if(expr.id() == ID_typecast)
+  {
+    INVARIANT(expr.operands().size() == 1, "typecast should only have one operand");
+    return is_pointer_offset(expr.operands()[0]);
+  }
+  else
+  {
+    return false;
   }
 }
 
@@ -1024,8 +1095,18 @@ exprt abstract_expr_read_plusminus(
   }
   else
   {
-    // this is an error
-    throw "Direct computation on two abstracted indices are prohibited";
+    // this happens when we are doing pointer_offset + n$abst, we can simply do the original addition
+    if(is_pointer_offset(expr.operands()[0]))
+    {
+      exprt new_expr(expr);
+      new_expr.operands()[0] = abstract_expr_read(expr.operands()[0], abst_spec, goto_model, current_func, insts_before, insts_after, new_symbs);
+      new_expr.operands()[1] = abstract_expr_read(expr.operands()[1], abst_spec, goto_model, current_func, insts_before, insts_after, new_symbs);
+      return new_expr;
+    }
+    else  // otherwise this is an error
+    {
+      throw "Direct computation on two abstracted indices are prohibited";
+    }
   }
 }
 
