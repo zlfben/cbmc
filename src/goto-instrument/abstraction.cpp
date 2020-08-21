@@ -932,6 +932,7 @@ exprt abstract_expr_read_comparator(
   {
     // this is the case when we are checking out of bound access to arrays, 
     // we shouldn't treat the comparison as abstract
+    // TODO: this is an adhoc pattern matching fix for the built in CBMC readable assertions
     abs0 = false;
     abs1 = false;
   }
