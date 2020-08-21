@@ -202,6 +202,9 @@ exprt abstract_expr_read_comparator(
   goto_programt::instructionst &insts_after,
   std::vector<symbolt> &new_symbs);
 
+// check whether an expr is a pointer offset
+bool is_pointer_offset(const exprt &expr);
+
 // abst_read for plus/minus
 exprt abstract_expr_read_plusminus(
   const exprt &expr,
