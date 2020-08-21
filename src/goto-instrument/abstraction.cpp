@@ -629,7 +629,19 @@ void declare_abst_variables_for_func(
   for(auto &param: function.parameter_identifiers)
     if(abst_spec.has_entity(param))
       param = std::string(param.c_str()) + "$abst";
-  
+  INVARIANT(
+    goto_model.get_symbol_table().has_symbol(func_name),
+    "The function " + std::string(func_name.c_str()) + " is not found");
+  symbolt &function_symb = goto_model.symbol_table.get_writeable_ref(func_name);
+  code_typet &function_type = to_code_type(function_symb.type);
+  for(auto &param: function_type.parameters())
+  {
+    const irep_idt param_id = param.get_identifier();
+    if(abst_spec.has_entity(param_id))
+      param.set_identifier(std::string(param_id.c_str()) + "$abst");
+  }
+    
+
   // Step 3: if it is declared within the function, change DECLARE and DEAD
   Forall_goto_program_instructions(it, function.body)
   {
