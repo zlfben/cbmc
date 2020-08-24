@@ -262,13 +262,16 @@ size_t sub_conc_from_abs_2(size_t abs_ind, size_t num, size_t a1, size_t a2){
 }
 
 // helper function
+// translate an index from *c*c*c* to the real one depending on value of a1, a2, a3
+// e.g. when a1=0, a1+1==a2, *c*c*c* becomes cc*c*
+// index 4 in *c*c*c* will be translated into 2 by this function
 size_t raw_to_real_3(size_t raw_index, size_t a1, size_t a2, size_t a3)
 {
   return raw_index - (raw_index >= 1 && a1 == 0) -
          (raw_index >= 3 && a1 + 1 == a2) - (raw_index >= 5 && a2 + 1 == a3);
 }
 
-// helper function
+// helper function, the reversed version of raw_to_real
 // *c*c*c*
 // c1: 1-(a1==0)
 // c2: 3-(a1==0)-(a1+1==a2)
@@ -308,10 +311,7 @@ size_t three_abs(size_t index, size_t a1, size_t a2, size_t a3) {
 }
 
 // Three indices: *c*c*c*
-// *1: exist if a1>0
-// *2: exist if a1+1!=a2
-// *3: exist if a2+1!=a3
-// concretize an abs index
+// Return the concrete index corresponding to abs_ind
 size_t concretize_3(size_t abs_ind, size_t a1, size_t a2, size_t a3)
 {
     size_t raw_index = real_to_raw_3(abs_ind, a1, a2, a3);
