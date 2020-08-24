@@ -231,7 +231,7 @@ size_t add_abs_to_conc_2(size_t abs_ind, size_t num, size_t a1, size_t a2){
     //     int conc = concretize_2(abs_ind, a1, a2);
     //     return(two_abs(conc+num, a1, a2));
     // }
-    int conc = concretize_2(abs_ind, a1, a2);
+    size_t conc = concretize_2(abs_ind, a1, a2);
     return two_abs(conc+num, a1, a2);
 
 }
@@ -256,21 +256,96 @@ size_t sub_conc_from_abs_2(size_t abs_ind, size_t num, size_t a1, size_t a2){
     //     int conc = concretize_2(abs_ind, a1, a2);
     //     return(two_abs(conc-num, a1, a2));
     // }
-    int conc = concretize_2(abs_ind, a1, a2);
+    size_t conc = concretize_2(abs_ind, a1, a2);
     assert(conc >= num);
     return two_abs(conc-num, a1, a2);
 }
 
-// Three indices: *c*c*c. Not used currently.
-int three_abs(int index, int a1, int a2, int a3) {
+// helper function
+// translate an index from *c*c*c* to the real one depending on value of a1, a2, a3
+// e.g. when a1=0, a1+1==a2, *c*c*c* becomes cc*c*
+// index 4 in *c*c*c* will be translated into 2 by this function
+size_t raw_to_real_3(size_t raw_index, size_t a1, size_t a2, size_t a3)
+{
+  return raw_index - (raw_index >= 1 && a1 == 0) -
+         (raw_index >= 3 && a1 + 1 == a2) - (raw_index >= 5 && a2 + 1 == a3);
+}
 
-    if (index < a1) return 0;
-    else if (index == a1) return 1;
-    else if (index > a1 && index < a2) return 2;
-    else if (index == a2) return 3;
-    else if (index > a2 && index < a3) return 4;
-    else if (index == a3) return 5;
-    else return 6;
+// helper function, the reversed version of raw_to_real
+// *c*c*c*
+// c1: 1-(a1==0)
+// c2: 3-(a1==0)-(a1+1==a2)
+// c3: 5-(a1==0)-(a1+1==a2)-(a2+1==a3)
+size_t real_to_raw_3(size_t real_index, size_t a1, size_t a2, size_t a3)
+{
+    if (real_index < 1-(a1==0))
+        return 0;
+    else if (real_index == 1-(a1==0))
+        return 1;
+    else if (real_index < 3-(a1==0)-(a1+1==a2))
+        return 2;
+    else if (real_index == 3-(a1==0)-(a1+1==a2))
+        return 3;
+    else if (real_index < 5-(a1==0)-(a1+1==a2)-(a2+1==a3))
+        return 4;
+    else if (real_index == 5-(a1==0)-(a1+1==a2)-(a2+1==a3))
+        return 5;
+    else
+        return 6;
+}
+
+// Three indices: *c*c*c*
+// *1: exist if a1>0
+// *2: exist if a1+1!=a2
+// *3: exist if a2+1!=a3
+size_t three_abs(size_t index, size_t a1, size_t a2, size_t a3) {
+    size_t raw_index = 0;
+    if (index < a1) raw_index = 0;
+    else if (index == a1) raw_index = 1;
+    else if (index > a1 && index < a2) raw_index = 2;
+    else if (index == a2) raw_index = 3;
+    else if (index > a2 && index < a3) raw_index = 4;
+    else if (index == a3) raw_index = 5;
+    else raw_index = 6;
+    return raw_to_real_3(raw_index, a1, a2, a3);
+}
+
+// Three indices: *c*c*c*
+// Return the concrete index corresponding to abs_ind
+size_t concretize_3(size_t abs_ind, size_t a1, size_t a2, size_t a3)
+{
+    size_t raw_index = real_to_raw_3(abs_ind, a1, a2, a3);
+    if (raw_index == 0)
+        return nndt_under(a1);
+    else if (raw_index == 1)
+        return a1;
+    else if (raw_index == 2)
+        return nndt_between(a1, a2);
+    else if (raw_index == 3)
+        return a2;
+    else if (raw_index == 4)
+        return nndt_between(a2, a3);
+    else if (raw_index == 5)
+        return a3;
+    else
+        return nndt_above(a3);
+}
+
+int is_precise_3(size_t abs_ind, size_t a1, size_t a2, size_t a3){
+    size_t raw_ind = real_to_raw_3(abs_ind, a1, a2, a3);
+    return (raw_ind == 1) || (raw_ind == 3) || (raw_ind == 5);
+}
+
+// Add a number to an abs_ind
+size_t add_abs_to_conc_3(size_t abs_ind, size_t num, size_t a1, size_t a2, size_t a3){
+    size_t conc = concretize_3(abs_ind, a1, a2, a3);
+    return three_abs(conc+num, a1, a2, a3);
+}
+
+size_t sub_conc_from_abs_3(size_t abs_ind, size_t num, size_t a1, size_t a2, size_t a3){
+    size_t conc = concretize_3(abs_ind, a1, a2, a3);
+    assert(conc >= num);
+    return three_abs(conc-num, a1, a2, a3);
 }
 
 //Get the abstraction of an index for shape *cc*cc*.

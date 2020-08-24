@@ -172,7 +172,8 @@ public:
         compare_indices_func(_spec.compare_indices_func),
         addition_func(_spec.addition_func),
         minus_func(_spec.minus_func),
-        abstract_func(_spec.abstract_func)
+        abstract_func(_spec.abstract_func),
+        spect_index(_spec.spect_index)
     {
     }
 
