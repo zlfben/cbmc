@@ -290,12 +290,30 @@ void am_abstractiont::complete_abst_spec(const goto_functiont& goto_function, ab
 {
   for(auto &spec: abst_spec.get_specs())
   {
+    std::queue<irep_idt> todo;
+    std::unordered_set<irep_idt> todo_set;
     for(const auto &ent: spec.get_abst_arrays())
     {
-      std::tuple<std::unordered_set<irep_idt>, std::unordered_set<irep_idt>> abst_entities = find_index_symbols(goto_function, ent.first);
+      todo.push(ent.first);
+      todo_set.insert(ent.first);
+    }
+    
+    while (!todo.empty())
+    {
+      irep_idt current = todo.front();
+      todo.pop();
+      todo_set.erase(current);
+      std::tuple<std::unordered_set<irep_idt>, std::unordered_set<irep_idt>> abst_entities = find_index_symbols(goto_function, current);
       for(irep_idt index_name: std::get<0>(abst_entities))
         if(spec.get_abst_arrays().find(index_name) == spec.get_abst_arrays().end())
+        {
           spec.insert_entity(index_name, "array");
+          if(todo_set.find(index_name) == todo_set.end())
+          {
+            todo.push(index_name);
+            todo_set.insert(index_name);
+          }
+        }
       for(irep_idt index_name: std::get<1>(abst_entities))
         if(spec.get_abst_indices().find(index_name) == spec.get_abst_indices().end())
           spec.insert_entity(index_name, "scalar");
