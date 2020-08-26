@@ -23,19 +23,19 @@ Author: Lefan Zhang, lefanz@amazon.com
 #include <linking/static_lifetime_init.h>
 #include "abstraction.h"
 
-void expr_type_relation::link(size_t i1, size_t i2)
+void data_type_reductiont::expr_type_relation::link(size_t i1, size_t i2)
 {
   edges[i1].push_back(i2);
   edges[i2].push_back(i1);
 }
 
-void expr_type_relation::link_array(size_t i1, size_t i2)
+void data_type_reductiont::expr_type_relation::link_array(size_t i1, size_t i2)
 {
   edges_array[i1].push_back(i2);
   edges_array[i2].push_back(i1);
 }
 
-size_t expr_type_relation::add_expr(const exprt &expr)
+size_t data_type_reductiont::expr_type_relation::add_expr(const exprt &expr)
 {
   size_t index = expr_list.size();
   expr_list.push_back(expr);
@@ -110,7 +110,7 @@ size_t expr_type_relation::add_expr(const exprt &expr)
   return index;
 }
 
-void expr_type_relation::solve()
+void data_type_reductiont::expr_type_relation::solve()
 {
   while(!todo.empty())
   {
@@ -141,7 +141,7 @@ void expr_type_relation::solve()
   }
 }
 
-void expr_type_relation::solve_array()
+void data_type_reductiont::expr_type_relation::solve_array()
 {
   while(!todo_array.empty())
   {
@@ -172,7 +172,7 @@ void expr_type_relation::solve_array()
   }
 }
 
-void link_abst_functions(goto_modelt &goto_model, const abstraction_spect &abst_spec, ui_message_handlert &msg_handler, const optionst &options)
+void data_type_reductiont::link_abst_functions(goto_modelt &goto_model, const abstraction_spect &abst_spec, ui_message_handlert &msg_handler, const optionst &options)
 {
   std::vector<std::string> abstfiles = abst_spec.get_abstraction_function_files();  // get abst function file names
   goto_modelt goto_model_for_abst_fns = initialize_goto_model(abstfiles, msg_handler, options);  // read files
@@ -180,7 +180,7 @@ void link_abst_functions(goto_modelt &goto_model, const abstraction_spect &abst_
 }
 
 const std::tuple<std::unordered_set<irep_idt>, std::unordered_set<irep_idt>>
-find_index_symbols(
+data_type_reductiont::find_index_symbols(
   const goto_functiont &goto_function,
   const irep_idt &array_name)
 {
@@ -286,7 +286,7 @@ find_index_symbols(
   return result;
 }
 
-void complete_abst_spec(const goto_functiont& goto_function, abstraction_spect &abst_spec)
+void data_type_reductiont::complete_abst_spec(const goto_functiont& goto_function, abstraction_spect &abst_spec)
 {
   for(auto &spec: abst_spec.get_specs())
   {
@@ -327,7 +327,7 @@ irep_idt check_expr_is_symbol(const exprt &expr)
 
 // go into a function to find all function calls we'll need to abstract
 std::vector<std::tuple<irep_idt, std::unordered_map<irep_idt, irep_idt>>>
-find_function_calls(irep_idt func_name, goto_modelt &goto_model, const abstraction_spect &abst_spec)
+data_type_reductiont::find_function_calls(irep_idt func_name, goto_modelt &goto_model, const abstraction_spect &abst_spec)
 {
   std::vector<std::tuple<irep_idt, std::unordered_map<irep_idt, irep_idt>>> result;
   
@@ -359,7 +359,7 @@ find_function_calls(irep_idt func_name, goto_modelt &goto_model, const abstracti
 }
 
 std::unordered_map<irep_idt, abstraction_spect> 
-calculate_complete_abst_specs_for_funcs(goto_modelt &goto_model, abstraction_spect &abst_spec)
+data_type_reductiont::calculate_complete_abst_specs_for_funcs(goto_modelt &goto_model, abstraction_spect &abst_spec)
 {
   std::unordered_map<irep_idt, abstraction_spect> function_spec_map;  // map from function to its abst_spec
   const goto_functiont &init_function = goto_model.get_goto_function(abst_spec.get_func_name());
@@ -423,7 +423,7 @@ calculate_complete_abst_specs_for_funcs(goto_modelt &goto_model, abstraction_spe
   return function_spec_map;
 }
 
-bool contains_an_entity_to_be_abstracted(const exprt &expr, const abstraction_spect &abst_spec)
+bool data_type_reductiont::contains_an_entity_to_be_abstracted(const exprt &expr, const abstraction_spect &abst_spec)
 {
   struct match_abst_symbolt
   {
@@ -444,12 +444,12 @@ bool contains_an_entity_to_be_abstracted(const exprt &expr, const abstraction_sp
 
 }
 
-irep_idt get_abstract_name(const irep_idt &old_name)
+irep_idt data_type_reductiont::get_abstract_name(const irep_idt &old_name)
 {
   return irep_idt(std::string(old_name.c_str())+"$abst");
 }
 
-bool contains_a_function_call(const exprt &expr)
+bool data_type_reductiont::contains_a_function_call(const exprt &expr)
 {
   class find_functiont : public const_expr_visitort
   {
@@ -473,7 +473,7 @@ bool contains_a_function_call(const exprt &expr)
   return ff.found;
 }
 
-std::vector<exprt> get_direct_access_exprs(const exprt &expr, const abstraction_spect::spect &spec)
+std::vector<exprt> data_type_reductiont::get_direct_access_exprs(const exprt &expr, const abstraction_spect::spect &spec)
 {
   class find_direct_accesst : public const_expr_visitort
   {
@@ -518,7 +518,7 @@ std::vector<exprt> get_direct_access_exprs(const exprt &expr, const abstraction_
   return result;
 }
 
-exprt add_guard_expression_to_assert(
+exprt data_type_reductiont::add_guard_expression_to_assert(
   const exprt &expr,
   const exprt &expr_before_abst,
   const abstraction_spect &abst_spec,
@@ -581,7 +581,7 @@ exprt add_guard_expression_to_assert(
   }
 }
 
-void declare_abst_variables_for_func(
+void data_type_reductiont::declare_abst_variables_for_func(
   goto_modelt &goto_model,
   const irep_idt &func_name,
   const abstraction_spect &abst_spec,
@@ -676,7 +676,7 @@ void declare_abst_variables_for_func(
   }
 }
 
-bool check_if_exprt_eval_to_abst_index(
+bool data_type_reductiont::check_if_exprt_eval_to_abst_index(
   const exprt &expr,
   const abstraction_spect &abst_spec,
   abstraction_spect::spect &spec)
@@ -763,7 +763,7 @@ bool check_if_exprt_eval_to_abst_index(
   }
 }
 
-symbolt create_function_call(
+symbolt data_type_reductiont::create_function_call(
   const irep_idt &func_name,
   const exprt::operandst operands,
   const irep_idt &caller, 
@@ -830,7 +830,7 @@ symbolt create_function_call(
   return new_symb;
 }
 
-exprt abstract_expr_write(
+exprt data_type_reductiont::abstract_expr_write(
   const exprt &expr,
   const abstraction_spect &abst_spec,
   const goto_modelt &goto_model,
@@ -871,7 +871,7 @@ exprt abstract_expr_write(
   }
 }
 
-exprt create_comparator_expr_abs_abs(
+exprt data_type_reductiont::create_comparator_expr_abs_abs(
   const exprt &orig_expr,
   const abstraction_spect::spect &spec,
   const goto_modelt &goto_model,
@@ -906,7 +906,7 @@ exprt create_comparator_expr_abs_abs(
   return std::move(result_expr);
 }
 
-exprt abstract_expr_read_comparator(
+exprt data_type_reductiont::abstract_expr_read_comparator(
   const exprt &expr,
   const abstraction_spect &abst_spec,
   const goto_modelt &goto_model,
@@ -1022,7 +1022,7 @@ exprt abstract_expr_read_comparator(
 }
 
 // check whether an expr is a pointer offset
-bool is_pointer_offset(const exprt &expr)
+bool data_type_reductiont::is_pointer_offset(const exprt &expr)
 {
   if(expr.id() == ID_pointer_offset)
   {
@@ -1039,7 +1039,7 @@ bool is_pointer_offset(const exprt &expr)
   }
 }
 
-exprt abstract_expr_read_plusminus(
+exprt data_type_reductiont::abstract_expr_read_plusminus(
   const exprt &expr,
   const abstraction_spect &abst_spec,
   const goto_modelt &goto_model,
@@ -1111,7 +1111,7 @@ exprt abstract_expr_read_plusminus(
   }
 }
 
-exprt abstract_expr_read_dereference(
+exprt data_type_reductiont::abstract_expr_read_dereference(
   const exprt &expr,
   const abstraction_spect &abst_spec,
   const goto_modelt &goto_model,
@@ -1215,7 +1215,7 @@ exprt abstract_expr_read_dereference(
   }
 }
 
-exprt abstract_expr_read(
+exprt data_type_reductiont::abstract_expr_read(
   const exprt &expr,
   const abstraction_spect &abst_spec,
   const goto_modelt &goto_model,
@@ -1293,7 +1293,7 @@ exprt abstract_expr_read(
   }
 }
 
-void define_concrete_indices(goto_modelt &goto_model, const abstraction_spect &abst_spec)
+void data_type_reductiont::define_concrete_indices(goto_modelt &goto_model, const abstraction_spect &abst_spec)
 {
   for(const auto &spec: abst_spec.get_specs())
   {
@@ -1333,10 +1333,8 @@ void define_concrete_indices(goto_modelt &goto_model, const abstraction_spect &a
   }
 }
 
-void insert_shape_assumptions(goto_modelt &goto_model, const abstraction_spect &abst_spec)
+void data_type_reductiont::insert_shape_assumptions(goto_modelt &goto_model, const abstraction_spect &abst_spec)
 {
-
-
   namespacet ns(goto_model.get_symbol_table());
   for(const auto &spec: abst_spec.get_specs())
   {
@@ -1359,7 +1357,7 @@ void insert_shape_assumptions(goto_modelt &goto_model, const abstraction_spect &
   }
 }
 
-void add_length_assumptions(goto_modelt &goto_model, const abstraction_spect &abst_spec)
+void data_type_reductiont::add_length_assumptions(goto_modelt &goto_model, const abstraction_spect &abst_spec)
 {
   for(const auto &spec: abst_spec.get_specs())
   {
@@ -1447,7 +1445,7 @@ void add_length_assumptions(goto_modelt &goto_model, const abstraction_spect &ab
   }
 }
 
-void abstract_goto_program(goto_modelt &goto_model, abstraction_spect &abst_spec)
+void data_type_reductiont::abstract_goto_program(goto_modelt &goto_model, abstraction_spect &abst_spec)
 {
   // Define the global concrete indices to be used
   define_concrete_indices(goto_model, abst_spec);
@@ -1559,6 +1557,7 @@ void abstract_goto_program(goto_modelt &goto_model, abstraction_spect &abst_spec
           new_rhs = as.rhs();
         }
 
+        // TODO: when lhs and rhs are not both abstracted, we should do the translation.
         code_assignt new_as(new_lhs, new_rhs);
         it->set_assign(new_as);
       }
