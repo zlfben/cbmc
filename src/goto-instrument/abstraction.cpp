@@ -23,19 +23,19 @@ Author: Lefan Zhang, lefanz@amazon.com
 #include <linking/static_lifetime_init.h>
 #include "abstraction.h"
 
-void data_type_reductiont::expr_type_relation::link(size_t i1, size_t i2)
+void am_abstractiont::expr_type_relation::link(size_t i1, size_t i2)
 {
   edges[i1].push_back(i2);
   edges[i2].push_back(i1);
 }
 
-void data_type_reductiont::expr_type_relation::link_array(size_t i1, size_t i2)
+void am_abstractiont::expr_type_relation::link_array(size_t i1, size_t i2)
 {
   edges_array[i1].push_back(i2);
   edges_array[i2].push_back(i1);
 }
 
-size_t data_type_reductiont::expr_type_relation::add_expr(const exprt &expr)
+size_t am_abstractiont::expr_type_relation::add_expr(const exprt &expr)
 {
   size_t index = expr_list.size();
   expr_list.push_back(expr);
@@ -110,7 +110,7 @@ size_t data_type_reductiont::expr_type_relation::add_expr(const exprt &expr)
   return index;
 }
 
-void data_type_reductiont::expr_type_relation::solve()
+void am_abstractiont::expr_type_relation::solve()
 {
   while(!todo.empty())
   {
@@ -141,7 +141,7 @@ void data_type_reductiont::expr_type_relation::solve()
   }
 }
 
-void data_type_reductiont::expr_type_relation::solve_array()
+void am_abstractiont::expr_type_relation::solve_array()
 {
   while(!todo_array.empty())
   {
@@ -172,7 +172,7 @@ void data_type_reductiont::expr_type_relation::solve_array()
   }
 }
 
-void data_type_reductiont::link_abst_functions(goto_modelt &goto_model, const abstraction_spect &abst_spec, ui_message_handlert &msg_handler, const optionst &options)
+void am_abstractiont::link_abst_functions(goto_modelt &goto_model, const abstraction_spect &abst_spec, ui_message_handlert &msg_handler, const optionst &options)
 {
   std::vector<std::string> abstfiles = abst_spec.get_abstraction_function_files();  // get abst function file names
   goto_modelt goto_model_for_abst_fns = initialize_goto_model(abstfiles, msg_handler, options);  // read files
@@ -180,7 +180,7 @@ void data_type_reductiont::link_abst_functions(goto_modelt &goto_model, const ab
 }
 
 const std::tuple<std::unordered_set<irep_idt>, std::unordered_set<irep_idt>>
-data_type_reductiont::find_index_symbols(
+am_abstractiont::find_index_symbols(
   const goto_functiont &goto_function,
   const irep_idt &array_name)
 {
@@ -286,7 +286,7 @@ data_type_reductiont::find_index_symbols(
   return result;
 }
 
-void data_type_reductiont::complete_abst_spec(const goto_functiont& goto_function, abstraction_spect &abst_spec)
+void am_abstractiont::complete_abst_spec(const goto_functiont& goto_function, abstraction_spect &abst_spec)
 {
   for(auto &spec: abst_spec.get_specs())
   {
@@ -327,7 +327,7 @@ irep_idt check_expr_is_symbol(const exprt &expr)
 
 // go into a function to find all function calls we'll need to abstract
 std::vector<std::tuple<irep_idt, std::unordered_map<irep_idt, irep_idt>>>
-data_type_reductiont::find_function_calls(irep_idt func_name, goto_modelt &goto_model, const abstraction_spect &abst_spec)
+am_abstractiont::find_function_calls(irep_idt func_name, goto_modelt &goto_model, const abstraction_spect &abst_spec)
 {
   std::vector<std::tuple<irep_idt, std::unordered_map<irep_idt, irep_idt>>> result;
   
@@ -359,7 +359,7 @@ data_type_reductiont::find_function_calls(irep_idt func_name, goto_modelt &goto_
 }
 
 std::unordered_map<irep_idt, abstraction_spect> 
-data_type_reductiont::calculate_complete_abst_specs_for_funcs(goto_modelt &goto_model, abstraction_spect &abst_spec)
+am_abstractiont::calculate_complete_abst_specs_for_funcs(goto_modelt &goto_model, abstraction_spect &abst_spec)
 {
   std::unordered_map<irep_idt, abstraction_spect> function_spec_map;  // map from function to its abst_spec
   const goto_functiont &init_function = goto_model.get_goto_function(abst_spec.get_func_name());
@@ -423,7 +423,7 @@ data_type_reductiont::calculate_complete_abst_specs_for_funcs(goto_modelt &goto_
   return function_spec_map;
 }
 
-bool data_type_reductiont::contains_an_entity_to_be_abstracted(const exprt &expr, const abstraction_spect &abst_spec)
+bool am_abstractiont::contains_an_entity_to_be_abstracted(const exprt &expr, const abstraction_spect &abst_spec)
 {
   struct match_abst_symbolt
   {
@@ -444,12 +444,12 @@ bool data_type_reductiont::contains_an_entity_to_be_abstracted(const exprt &expr
 
 }
 
-irep_idt data_type_reductiont::get_abstract_name(const irep_idt &old_name)
+irep_idt am_abstractiont::get_abstract_name(const irep_idt &old_name)
 {
   return irep_idt(std::string(old_name.c_str())+"$abst");
 }
 
-bool data_type_reductiont::contains_a_function_call(const exprt &expr)
+bool am_abstractiont::contains_a_function_call(const exprt &expr)
 {
   class find_functiont : public const_expr_visitort
   {
@@ -473,7 +473,7 @@ bool data_type_reductiont::contains_a_function_call(const exprt &expr)
   return ff.found;
 }
 
-std::vector<exprt> data_type_reductiont::get_direct_access_exprs(const exprt &expr, const abstraction_spect::spect &spec)
+std::vector<exprt> am_abstractiont::get_direct_access_exprs(const exprt &expr, const abstraction_spect::spect &spec)
 {
   class find_direct_accesst : public const_expr_visitort
   {
@@ -518,7 +518,7 @@ std::vector<exprt> data_type_reductiont::get_direct_access_exprs(const exprt &ex
   return result;
 }
 
-exprt data_type_reductiont::add_guard_expression_to_assert(
+exprt am_abstractiont::add_guard_expression_to_assert(
   const exprt &expr,
   const exprt &expr_before_abst,
   const abstraction_spect &abst_spec,
@@ -581,7 +581,7 @@ exprt data_type_reductiont::add_guard_expression_to_assert(
   }
 }
 
-void data_type_reductiont::declare_abst_variables_for_func(
+void am_abstractiont::declare_abst_variables_for_func(
   goto_modelt &goto_model,
   const irep_idt &func_name,
   const abstraction_spect &abst_spec,
@@ -676,7 +676,7 @@ void data_type_reductiont::declare_abst_variables_for_func(
   }
 }
 
-bool data_type_reductiont::check_if_exprt_eval_to_abst_index(
+bool am_abstractiont::check_if_exprt_eval_to_abst_index(
   const exprt &expr,
   const abstraction_spect &abst_spec,
   abstraction_spect::spect &spec)
@@ -763,7 +763,7 @@ bool data_type_reductiont::check_if_exprt_eval_to_abst_index(
   }
 }
 
-symbolt data_type_reductiont::create_function_call(
+symbolt am_abstractiont::create_function_call(
   const irep_idt &func_name,
   const exprt::operandst operands,
   const irep_idt &caller, 
@@ -830,7 +830,7 @@ symbolt data_type_reductiont::create_function_call(
   return new_symb;
 }
 
-exprt data_type_reductiont::abstract_expr_write(
+exprt am_abstractiont::abstract_expr_write(
   const exprt &expr,
   const abstraction_spect &abst_spec,
   const goto_modelt &goto_model,
@@ -871,7 +871,7 @@ exprt data_type_reductiont::abstract_expr_write(
   }
 }
 
-exprt data_type_reductiont::create_comparator_expr_abs_abs(
+exprt am_abstractiont::create_comparator_expr_abs_abs(
   const exprt &orig_expr,
   const abstraction_spect::spect &spec,
   const goto_modelt &goto_model,
@@ -906,7 +906,7 @@ exprt data_type_reductiont::create_comparator_expr_abs_abs(
   return std::move(result_expr);
 }
 
-exprt data_type_reductiont::abstract_expr_read_comparator(
+exprt am_abstractiont::abstract_expr_read_comparator(
   const exprt &expr,
   const abstraction_spect &abst_spec,
   const goto_modelt &goto_model,
@@ -1022,7 +1022,7 @@ exprt data_type_reductiont::abstract_expr_read_comparator(
 }
 
 // check whether an expr is a pointer offset
-bool data_type_reductiont::is_pointer_offset(const exprt &expr)
+bool am_abstractiont::is_pointer_offset(const exprt &expr)
 {
   if(expr.id() == ID_pointer_offset)
   {
@@ -1039,7 +1039,7 @@ bool data_type_reductiont::is_pointer_offset(const exprt &expr)
   }
 }
 
-exprt data_type_reductiont::abstract_expr_read_plusminus(
+exprt am_abstractiont::abstract_expr_read_plusminus(
   const exprt &expr,
   const abstraction_spect &abst_spec,
   const goto_modelt &goto_model,
@@ -1111,7 +1111,7 @@ exprt data_type_reductiont::abstract_expr_read_plusminus(
   }
 }
 
-exprt data_type_reductiont::abstract_expr_read_dereference(
+exprt am_abstractiont::abstract_expr_read_dereference(
   const exprt &expr,
   const abstraction_spect &abst_spec,
   const goto_modelt &goto_model,
@@ -1215,7 +1215,7 @@ exprt data_type_reductiont::abstract_expr_read_dereference(
   }
 }
 
-exprt data_type_reductiont::abstract_expr_read(
+exprt am_abstractiont::abstract_expr_read(
   const exprt &expr,
   const abstraction_spect &abst_spec,
   const goto_modelt &goto_model,
@@ -1293,7 +1293,7 @@ exprt data_type_reductiont::abstract_expr_read(
   }
 }
 
-void data_type_reductiont::define_concrete_indices(goto_modelt &goto_model, const abstraction_spect &abst_spec)
+void am_abstractiont::define_concrete_indices(goto_modelt &goto_model, const abstraction_spect &abst_spec)
 {
   for(const auto &spec: abst_spec.get_specs())
   {
@@ -1333,7 +1333,7 @@ void data_type_reductiont::define_concrete_indices(goto_modelt &goto_model, cons
   }
 }
 
-void data_type_reductiont::insert_shape_assumptions(goto_modelt &goto_model, const abstraction_spect &abst_spec)
+void am_abstractiont::insert_shape_assumptions(goto_modelt &goto_model, const abstraction_spect &abst_spec)
 {
   namespacet ns(goto_model.get_symbol_table());
   for(const auto &spec: abst_spec.get_specs())
@@ -1357,7 +1357,7 @@ void data_type_reductiont::insert_shape_assumptions(goto_modelt &goto_model, con
   }
 }
 
-void data_type_reductiont::add_length_assumptions(goto_modelt &goto_model, const abstraction_spect &abst_spec)
+void am_abstractiont::add_length_assumptions(goto_modelt &goto_model, const abstraction_spect &abst_spec)
 {
   for(const auto &spec: abst_spec.get_specs())
   {
@@ -1445,7 +1445,7 @@ void data_type_reductiont::add_length_assumptions(goto_modelt &goto_model, const
   }
 }
 
-void data_type_reductiont::abstract_goto_program(goto_modelt &goto_model, abstraction_spect &abst_spec)
+void am_abstractiont::abstract_goto_program(goto_modelt &goto_model, abstraction_spect &abst_spec)
 {
   // Define the global concrete indices to be used
   define_concrete_indices(goto_model, abst_spec);
@@ -1576,7 +1576,7 @@ void data_type_reductiont::abstract_goto_program(goto_modelt &goto_model, abstra
       if(
         !it->is_decl() && !it->is_end_function() && !it->is_goto() &&
         !it->is_return() && !it->is_function_call() && !it->is_assert() &&
-        !it->is_assign() && !it->is_assume() && !it->is_dead())
+        !it->is_assign() && !it->is_assume() && !it->is_dead() && !it->is_skip())
         throw "Unknown instruction type " + std::to_string(it->type);
       
       // insert new instructions before it

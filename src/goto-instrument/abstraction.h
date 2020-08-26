@@ -23,7 +23,7 @@ Author: Lefan Zhang, lefanz@amazon.com
 
 #include "abstraction_spect.h"
 
-class data_type_reductiont
+class am_abstractiont
 {
 protected:
   // class to find out type relations between exprs
