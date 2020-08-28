@@ -360,7 +360,7 @@ size_t sub_conc_from_abs_3(size_t abs_ind, size_t num, size_t a1, size_t a2, siz
             if (abs_ind != 0)
                 return abs_ind - 1;
             else
-                assert(0 != 0);
+                assert(0 != 0);  // this is to cover the overflow case 0-1
         } else {
             return (abs_ind == 0 || nndt_bool()) ? abs_ind: abs_ind - 1;
         }
