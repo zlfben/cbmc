@@ -156,6 +156,8 @@ public:
     irep_idt minus_func;
     //Translate a concrete index to an abst index
     irep_idt abstract_func;
+    //Translate a abst index to a concrete index
+    irep_idt concretize_func;
 
     // the index of this spect in the abstraction_spect
     size_t spect_index;
@@ -173,6 +175,7 @@ public:
         addition_func(_spec.addition_func),
         minus_func(_spec.minus_func),
         abstract_func(_spec.abstract_func),
+        concretize_func(_spec.concretize_func),
         spect_index(_spec.spect_index)
     {
     }
@@ -285,10 +288,22 @@ public:
       abstract_func = _func_name;
     }
 
-    // get is_precise func
+    // get abstract_func
     const irep_idt &get_abstract_func() const
     {
       return abstract_func;
+    }
+
+    // get concretize func
+    void set_concretize_func(const irep_idt &_func_name)
+    {
+      concretize_func = _func_name;
+    }
+
+    // get concretize func
+    const irep_idt &get_concretize_func() const
+    {
+      return concretize_func;
     }
     
     // set the shape

@@ -878,11 +878,104 @@ exprt am_abstractiont::abstract_expr_write(
       throw error_code;
     }
   }
+  else if(expr.id() == ID_dereference)
+  {
+    INVARIANT(expr.operands().size() == 1, "dereference should only have 1 operand");
+    const exprt &pointer_expr = expr.operands()[0];
+    if(pointer_expr.id() == ID_plus && pointer_expr.type().id() == ID_pointer)
+    {
+      INVARIANT(pointer_expr.operands().size() == 2, "plus should have 2 operands");
+      if(
+        pointer_expr.operands()[0].id() == ID_symbol &&
+        pointer_expr.operands()[0].type().id() == ID_pointer)
+      {
+        const symbol_exprt &a = to_symbol_expr(pointer_expr.operands()[0]);
+        const exprt &i = pointer_expr.operands()[1];
+        // we have 4 different cases: a$abst[i$abst], a[i$abst], a$abst[i], a[i]
+        abstraction_spect::spect a_spec;
+        bool a_abs = abst_spec.has_array_entity(a.get_identifier());
+        if(a_abs)
+          a_spec = abst_spec.get_spec_for_array_entity(a.get_identifier());
+        abstraction_spect::spect i_spec;
+        bool i_abs = check_if_exprt_eval_to_abst_index(i, abst_spec, i_spec);
+
+        auto new_a = abstract_expr_write(a, abst_spec, goto_model, current_func, insts_before, insts_after, new_symbs);
+        auto new_i = abstract_expr_read(i, abst_spec, goto_model, current_func, insts_before, insts_after, new_symbs);
+        exprt new_pointer_expr(pointer_expr);
+        exprt new_expr(expr);
+
+        if(a_abs && i_abs)
+        {
+          // a[i] ==> a$abst[i$abst]
+          // actually it should be is_precise(i$abst)?a$abst[i$abst]:null
+          // but writing to an abstract location doesn't matter
+          new_pointer_expr.operands()[0] = new_a;
+          new_pointer_expr.operands()[1] = new_i;
+          new_expr.operands()[0] = new_pointer_expr;
+          return new_expr;
+        }
+        else if(!a_abs && i_abs)
+        {
+          // a[i] ==> a[concretize(i)]
+          const irep_idt &conc_func = i_spec.get_concretize_func();
+          exprt::operandst operands{new_i};
+          // put the concrete indices into operands
+          for(const auto &c_ind: i_spec.get_shape_indices())
+          {
+            if(!goto_model.get_symbol_table().has_symbol(c_ind))
+              throw "Concrete index symbol " + std::string(c_ind.c_str()) + " not found";
+            const symbolt &c_ind_symb = goto_model.get_symbol_table().lookup_ref(c_ind);
+            operands.push_back(c_ind_symb.symbol_expr());
+          }
+          // make the function call
+          auto new_i_symb = create_function_call(conc_func, operands, current_func, goto_model, insts_before, insts_after, new_symbs);
+          new_pointer_expr.operands()[0] = new_a;
+          new_pointer_expr.operands()[1] = new_i_symb.symbol_expr();
+          new_expr.operands()[0] = new_pointer_expr;
+          return new_expr;
+        }
+        else if(a_abs && !i_abs)
+        {
+          // a[i] ==> a$abst[abst(i)]
+          const irep_idt &abst_func = i_spec.get_abstract_func();
+          exprt::operandst operands{new_i};
+          // put the concrete indices into operands
+          for(const auto &c_ind: i_spec.get_shape_indices())
+          {
+            if(!goto_model.get_symbol_table().has_symbol(c_ind))
+              throw "Concrete index symbol " + std::string(c_ind.c_str()) + " not found";
+            const symbolt &c_ind_symb = goto_model.get_symbol_table().lookup_ref(c_ind);
+            operands.push_back(c_ind_symb.symbol_expr());
+          }
+          // make the function call
+          auto new_i_symb = create_function_call(abst_func, operands, current_func, goto_model, insts_before, insts_after, new_symbs);
+          new_pointer_expr.operands()[0] = new_a;
+          new_pointer_expr.operands()[1] = new_i_symb.symbol_expr();
+          new_expr.operands()[0] = new_pointer_expr;
+          return new_expr;
+        }
+        else  // !a_abs && !i_abs
+        {
+          // a[i] ==> a[i]
+          new_pointer_expr.operands()[0] = new_a;
+          new_pointer_expr.operands()[1] = new_i;
+          new_expr.operands()[0] = new_pointer_expr;
+          return new_expr;
+        }
+      }
+      else
+      {
+        throw "Unknown plus expression as lhs";
+      }
+    }
+    else
+    {
+      throw "Unknown dereference expression as lhs";
+    }
+  }
   else
   {
-    // TODO: actually we also support abstracting array access as lhs
-    //       we haven't implemented it yet because there's no such case in our benchmarks
-    //       an error is thrown if we find this case
+    // This is an unknown lhs.
     std::string error_code = "";
     error_code += "Currently, " + std::string(expr.id().c_str()) + "cannot be abstracted as lhs.";
     throw error_code;
@@ -1164,6 +1257,7 @@ exprt am_abstractiont::abstract_expr_read_dereference(
   }
   else if(pointer_expr.id() == ID_plus)
   {
+    // TODO: we only handle the case for a$abst[i$abst]. There can be other cases: a[i$abst], a$abst[i], a[i].
     INVARIANT(pointer_expr.operands().size() == 2, "The number of operands should be 2 for plus/minus");
     const exprt &base_pointer = pointer_expr.operands()[0];
     const exprt &offset_expr = pointer_expr.operands()[1];
@@ -1465,6 +1559,10 @@ void am_abstractiont::add_length_assumptions(goto_modelt &goto_model, const abst
 
 void am_abstractiont::abstract_goto_program(goto_modelt &goto_model, abstraction_spect &abst_spec)
 {
+  // A couple of spects are initialized from the json file. We should go from there and insert spects to other functions
+  std::unordered_map<irep_idt, abstraction_spect> function_spec_map =
+    calculate_complete_abst_specs_for_funcs(goto_model, abst_spec);
+  
   // Define the global concrete indices to be used
   define_concrete_indices(goto_model, abst_spec);
 
@@ -1474,9 +1572,6 @@ void am_abstractiont::abstract_goto_program(goto_modelt &goto_model, abstraction
   // Add the assumption for len==$clen
   add_length_assumptions(goto_model, abst_spec);
 
-  // A couple of spects are initialized from the json file. We should go from there and insert spects to other functions
-  std::unordered_map<irep_idt, abstraction_spect> function_spec_map =
-    calculate_complete_abst_specs_for_funcs(goto_model, abst_spec);
   std::unordered_set<irep_idt> abst_symbol_set;
   for(auto &p: function_spec_map)
     declare_abst_variables_for_func(goto_model, p.first, p.second, abst_symbol_set);
@@ -1550,6 +1645,7 @@ void am_abstractiont::abstract_goto_program(goto_modelt &goto_model, abstraction
       }
       else if(it->is_assign())
       {
+        // TODO: we only handle when if_abs of lhs and rhs matches. What if one of them is abstracted?
         const code_assignt as = it->get_assign();
         exprt new_lhs;
         if(contains_an_entity_to_be_abstracted(as.lhs(), abst_spec))

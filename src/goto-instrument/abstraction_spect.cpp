@@ -53,6 +53,7 @@ abstraction_spect::abstraction_spect(
     spec.set_minus_func(to_json_object(entry_obj.find("abst-functions")->second).find("sub-abs-conc")->second.value);
     spec.set_precise_func(to_json_object(entry_obj.find("abst-functions")->second).find("precise-check")->second.value);
     spec.set_abstract_func(to_json_object(entry_obj.find("abst-functions")->second).find("abstract-index")->second.value);
+    spec.set_concretize_func(to_json_object(entry_obj.find("abst-functions")->second).find("concretize-index")->second.value);
     
     // initialize the shape of this spect
     const auto &json_shape_obj = to_json_object(entry_obj.find("shape")->second);
