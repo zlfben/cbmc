@@ -173,6 +173,29 @@ protected:
     goto_programt::instructionst &insts_after,
     std::vector<symbolt> &new_symbs);
 
+  /// \param real_lhs: the final lhs that is assigned
+  /// \param spec: the spect used for the abstraction
+  /// \param caller: the current function, used to generate temp var's name
+  /// \param goto_model: the goto_model
+  /// \param insts_before: It will put the instructions that declare the temp variable here.
+  /// \param insts_after: It will put the instructions that unclare the temp variable here.
+  /// \param new_symbs: The new introduced symbol will be stored here.
+  /// \return the temp variable used to call the abstracion function
+  /// This function creates an abst function wrap after the current function.
+  /// e.g. orig:
+  ///        a = func(xxx)
+  ///      new:
+  ///        tmp_a = func(xxx)
+  ///        a = abst(tmp_a)  <==== this function creates this inst and return tmp_a
+  static symbolt create_abstract_func_after(
+    const exprt &real_lhs,
+    const abstraction_spect::spect &spec,
+    const irep_idt &caller, 
+    const goto_modelt &goto_model,
+    goto_programt::instructionst &insts_before,
+    goto_programt::instructionst &insts_after,
+    std::vector<symbolt> &new_symbs);
+
   /// \param expr: the lhs expression to be written to
   /// \param abst_spec: the abstration information for the current function
   /// \param goto_model: the goto_model

@@ -792,7 +792,7 @@ symbolt am_abstractiont::create_function_call(
     new_symbs_name.insert(symb.name);
 
   auto get_name = [&caller, &func_name, &goto_model, &new_symbs_name]() {
-    // base name is "{caller}::$temp::return_value_{callee}"
+    // base name is "{caller}::$tmp::return_value_{callee}"
     std::string base_name = std::string(caller.c_str()) +
                             "::$tmp::return_value_" +
                             std::string(func_name.c_str());
@@ -842,6 +842,72 @@ symbolt am_abstractiont::create_function_call(
   insts_after.push_back(new_dead_inst);
 
   return new_symb;
+}
+
+symbolt am_abstractiont::create_abstract_func_after(
+  const exprt &real_lhs,
+  const abstraction_spect::spect &spec,
+  const irep_idt &caller, 
+  const goto_modelt &goto_model,
+  goto_programt::instructionst &insts_before,
+  goto_programt::instructionst &insts_after,
+  std::vector<symbolt> &new_symbs)
+{
+  // determine the temp lhs's name
+  std::unordered_set<irep_idt> new_symbs_name;
+  for(const auto &symb: new_symbs)
+    new_symbs_name.insert(symb.name);
+
+  const irep_idt &func_name = spec.get_abstract_func();
+  auto get_name = [&caller, &func_name, &goto_model, &new_symbs_name]() {
+    // base name is "{caller}::$tmp::before_{callee}"
+    std::string base_name = std::string(caller.c_str()) +
+                            "::$tmp::before_" +
+                            std::string(func_name.c_str());
+    // if base name is not defined yet, use the base name
+    if(
+      !goto_model.symbol_table.has_symbol(irep_idt(base_name)) &&
+      new_symbs_name.find(irep_idt(base_name)) == new_symbs_name.end())
+      return irep_idt(base_name);
+    
+    // otherwise use "{basename}$id" with the lowest id available
+    size_t id = 0;
+    while(goto_model.symbol_table.has_symbol(
+            irep_idt(base_name + "$" + std::to_string(id))) ||
+          new_symbs_name.find(irep_idt(base_name + "$" + std::to_string(id))) !=
+            new_symbs_name.end())
+      id++;
+    
+    return irep_idt(base_name + "$" + std::to_string(id));
+  };
+  irep_idt temp_symb_name = get_name();
+
+  // define the symbol
+  symbolt temp_lhs_symb;
+  temp_lhs_symb.type = real_lhs.type();
+  temp_lhs_symb.name = temp_symb_name;
+  temp_lhs_symb.mode = ID_C;
+  symbol_exprt temp_lhs_expr = temp_lhs_symb.symbol_expr();
+  new_symbs.push_back(temp_lhs_symb);
+
+  // instruction 1: DECLARE of the temp symbol
+  auto new_decl_inst = goto_programt::make_decl(code_declt(temp_lhs_expr));
+  insts_before.push_back(new_decl_inst);
+
+  // instruction 2: FUNCTION_CALL
+  symbol_exprt func_call_expr =
+    goto_model.get_symbol_table().lookup_ref(func_name).symbol_expr();
+  exprt::operandst operands{temp_lhs_expr};
+  push_concrete_indices_to_operands(operands, spec, goto_model);
+  auto new_func_call_inst = goto_programt::make_function_call(
+    code_function_callt(real_lhs, func_call_expr, operands));
+  insts_after.push_back(new_func_call_inst);
+
+  // instruction 3: DEAD for the temp symbol 
+  auto new_dead_inst = goto_programt::make_dead(temp_lhs_expr);
+  insts_after.push_back(new_dead_inst);
+
+  return temp_lhs_symb;
 }
 
 exprt am_abstractiont::abstract_expr_write(
@@ -1230,6 +1296,9 @@ exprt am_abstractiont::abstract_expr_read_dereference(
       {
         // a[i]  ==>   is_prec(i$abst) ? a$abst[i$abst] : nondet
 
+        // get the array's spec
+        const auto &spec = abst_spec.get_spec_for_array_entity(base_pointer_orig_name);
+
         // get the new base pointer a$abst
         const irep_idt base_pointer_new_name = get_abstract_name(base_pointer_orig_name);
         if(!goto_model.symbol_table.has_symbol(base_pointer_new_name))
@@ -1238,16 +1307,32 @@ exprt am_abstractiont::abstract_expr_read_dereference(
         const exprt new_base_pointer = abst_base_pointer_symb.symbol_expr();
 
         // get the new offset i$abst
-        const exprt new_offset = abstract_expr_read(
+        exprt new_offset = abstract_expr_read(
           offset_expr, abst_spec, goto_model, current_func,
           insts_before, insts_after, new_symbs);
+        abstraction_spect::spect i_spec;
+        bool i_abs = check_if_exprt_eval_to_abst_index(offset_expr, abst_spec, i_spec);
+        if(i_abs)
+        {
+          INVARIANT(spec.compare_shape(i_spec), "The shapes of the array and index in a[i] don't match");
+        }
+        else
+        {
+          // need to run abstract on i
+          const irep_idt abst_func = spec.get_abstract_func();
+          exprt::operandst operands{new_offset};
+          // put the concrete indices into operands
+          push_concrete_indices_to_operands(operands, spec, goto_model);
+          // make the function call
+          auto new_offset_symb = create_function_call(abst_func, operands, current_func, goto_model, insts_before, insts_after, new_symbs);
+          new_offset = new_offset_symb.symbol_expr();
+        }
 
         // the access a$abst[i$abst]
         plus_exprt new_plus_expr(abst_base_pointer_symb.symbol_expr(), new_offset);
         dereference_exprt new_access(new_plus_expr);
 
         // the function call is_prec(i$abst)
-        const auto &spec = abst_spec.get_spec_for_array_entity(base_pointer_orig_name);
         exprt::operandst operands{new_offset};
         push_concrete_indices_to_operands(operands, spec, goto_model);
         const symbolt is_prec_symb = create_function_call(
@@ -1264,9 +1349,25 @@ exprt am_abstractiont::abstract_expr_read_dereference(
       }
       else
       {
-        const exprt new_offset = abstract_expr_read(
+        exprt new_offset = abstract_expr_read(
           offset_expr, abst_spec, goto_model, current_func,
           insts_before, insts_after, new_symbs);
+        
+        abstraction_spect::spect i_spec;
+        bool i_abs = check_if_exprt_eval_to_abst_index(offset_expr, abst_spec, i_spec);
+        if(i_abs)
+        {
+          // need to run concretize on i
+          const irep_idt abst_func = i_spec.get_concretize_func();
+          exprt::operandst operands{new_offset};
+          // put the concrete indices into operands
+          push_concrete_indices_to_operands(operands, i_spec, goto_model);
+          // make the function call
+          auto new_offset_symb = create_function_call(abst_func, operands, current_func, goto_model, insts_before, insts_after, new_symbs);
+          new_offset = new_offset_symb.symbol_expr();
+        }
+        else {}  // don't need to do anything
+        
         plus_exprt new_plus_expr(base_pointer, new_offset);
         dereference_exprt new_expr(new_plus_expr);
         return std::move(new_expr);
@@ -1338,7 +1439,7 @@ exprt am_abstractiont::abstract_expr_read(
   }
   else if(expr.id() == ID_dereference)
   {
-    // TODO: handle dereference, need to check the structure of lower exprts
+    // handle dereference, need to check the structure of lower exprts
     return abstract_expr_read_dereference(
       expr,abst_spec, goto_model, current_func,
       insts_before, insts_after, new_symbs);
@@ -1352,9 +1453,7 @@ exprt am_abstractiont::abstract_expr_read(
   }
   else
   {
-    // TODO: actually we also support abstracting array access as lhs
-    //       we haven't implemented it yet because there's no such case in our benchmarks
-    //       an error is thrown if we find this case
+    // This type of exprt is unknown.
     std::string error_code = "";
     error_code += "Currently, " + std::string(expr.id().c_str()) + " cannot be abstracted in abst_read.";
     throw error_code;
@@ -1454,16 +1553,22 @@ void am_abstractiont::add_length_assumptions(goto_modelt &goto_model, const abst
               goto_model.get_symbol_table().has_symbol(decl.get_identifier()),
               "Symbol " + std::string(decl.get_identifier().c_str()) +
                 " not defined");
-            INVARIANT(
-              goto_model.get_symbol_table().has_symbol(
-                spec.get_length_index_name()),
-              "Symbol " + std::string(spec.get_length_index_name().c_str()) +
-                " not defined");
 
             // define the assumption instruction
             const symbolt symb1 = goto_model.get_symbol_table().lookup_ref(decl.get_identifier());
-            const symbolt symb2 = goto_model.get_symbol_table().lookup_ref(spec.get_length_index_name());
-            equal_exprt assumption_expr(symb1.symbol_expr(), symb2.symbol_expr());
+            exprt::operandst assumption_exprs;
+            for(const auto &conc: spec.get_shape_indices())
+            {
+              INVARIANT(
+                goto_model.get_symbol_table().has_symbol(conc),
+                "Symbol " + std::string(spec.get_length_index_name().c_str()) +
+                  " not defined");
+              const symbolt symb2 = goto_model.get_symbol_table().lookup_ref(conc);
+              assumption_exprs.push_back(equal_exprt(symb1.symbol_expr(), symb2.symbol_expr()));
+            }
+
+            // the value of the length variable should be one of the concrete indices
+            or_exprt assumption_expr(assumption_exprs);
             auto new_assumption = goto_programt::make_assumption(assumption_expr);
 
             // insert it
@@ -1596,12 +1701,22 @@ void am_abstractiont::abstract_goto_program(goto_modelt &goto_model, abstraction
           }
         }
 
-        code_function_callt new_fc(new_lhs, fc.function(), new_arguments);
-        it->set_function_call(new_fc);
+        abstraction_spect::spect lhs_spec;
+        bool abs_lhs = check_if_exprt_eval_to_abst_index(fc.lhs(), abst_spec, lhs_spec);
+        if(abs_lhs)
+        {
+          // in this case, we need to abstract the return value
+          symbolt tmp_lhs = create_abstract_func_after(new_lhs, lhs_spec, p.first, goto_model, inst_before, inst_after, new_symbs);
+          code_function_callt new_fc(tmp_lhs.symbol_expr(), fc.function(), new_arguments);
+        }
+        else
+        {
+          code_function_callt new_fc(new_lhs, fc.function(), new_arguments);
+          it->set_function_call(new_fc);
+        }
       }
       else if(it->is_assign())
       {
-        // TODO: we only handle when if_abs of lhs and rhs matches. What if one of them is abstracted?
         const code_assignt as = it->get_assign();
         exprt new_lhs;
         if(contains_an_entity_to_be_abstracted(as.lhs(), abst_spec))
@@ -1627,9 +1742,79 @@ void am_abstractiont::abstract_goto_program(goto_modelt &goto_model, abstraction
           new_rhs = as.rhs();
         }
 
-        // TODO: when lhs and rhs are not both abstracted, we should do the translation.
+        // When lhs and rhs are not both abstracted, we should do the translation.
+        abstraction_spect::spect lhs_spec;
+        abstraction_spect::spect rhs_spec;
+        bool lhs_abs = check_if_exprt_eval_to_abst_index(as.lhs(), abst_spec, lhs_spec);
+        bool rhs_abs = check_if_exprt_eval_to_abst_index(as.rhs(), abst_spec, rhs_spec);
+        if(lhs_abs && rhs_abs)
+        {
+          // don't need to do anything
+          // just check if those two specs match
+          INVARIANT(lhs_spec.compare_shape(rhs_spec), "The shapes used in lhs and rhs in assign don't match.");
+        }
+        else if(lhs_abs && !rhs_abs)
+        {
+          // a=b ===> a$abst = abstract(b)
+          const irep_idt abst_func = lhs_spec.get_abstract_func();
+          exprt::operandst operands{new_rhs};
+          // put the concrete indices into operands
+          push_concrete_indices_to_operands(operands, lhs_spec, goto_model);
+          // make the function call
+          auto new_rhs_symb = create_function_call(abst_func, operands, p.first, goto_model, inst_before, inst_after, new_symbs);
+          new_rhs = new_rhs_symb.symbol_expr();
+        }
+        else if(!lhs_abs && rhs_abs)
+        {
+          // a=b ===> a = concretize(b$abst)
+          const irep_idt conc_func = rhs_spec.get_concretize_func();
+          exprt::operandst operands{new_rhs};
+          // put the concrete indices into operands
+          push_concrete_indices_to_operands(operands, rhs_spec, goto_model);
+          // make the function call
+          auto new_rhs_symb = create_function_call(conc_func, operands, p.first, goto_model, inst_before, inst_after, new_symbs);
+          new_rhs = new_rhs_symb.symbol_expr();
+        }
+        else {}// don't need to do anything
+
         code_assignt new_as(new_lhs, new_rhs);
         it->set_assign(new_as);
+      }
+      else if(it->is_return())
+      {
+        // Function will always return concrete value. We need to convert them into abstract
+        // values in the caller if needed.
+        const code_returnt re = it->get_return();
+        if(re.has_return_value())
+        {
+          const exprt &re_val = re.return_value();
+          exprt new_re_val;
+          if(contains_an_entity_to_be_abstracted(re_val, abst_spec))
+          {
+            format_rec(std::cout, re_val) << " ==abst_read==> ";
+            new_re_val = abstract_expr_read(re_val, abst_spec, goto_model, p.first, inst_before, inst_after, new_symbs);
+            format_rec(std::cout, new_re_val) << std::endl;
+            abstraction_spect::spect spec;
+            if(check_if_exprt_eval_to_abst_index(re_val, abst_spec, spec))
+            {
+              // we assume the function will always return concrete value
+              // so we calculated a concrete value in this case
+              const irep_idt conc_func = spec.get_concretize_func();
+              exprt::operandst operands{new_re_val};
+              // put the concrete indices into operands
+              push_concrete_indices_to_operands(operands, spec, goto_model);
+              // make the function call
+              auto new_re_symb = create_function_call(conc_func, operands, p.first, goto_model, inst_before, inst_after, new_symbs);
+              new_re_val = new_re_symb.symbol_expr();
+            }
+          }
+          else
+          {
+            new_re_val = re_val;
+          }
+          code_returnt new_re(new_re_val);
+          it->set_return(new_re);
+        }
       }
       else if(it->is_assert())
       {
