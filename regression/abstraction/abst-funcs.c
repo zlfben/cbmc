@@ -338,14 +338,38 @@ int is_precise_3(size_t abs_ind, size_t a1, size_t a2, size_t a3){
 
 // Add a number to an abs_ind
 size_t add_abs_to_conc_3(size_t abs_ind, size_t num, size_t a1, size_t a2, size_t a3){
-    size_t conc = concretize_3(abs_ind, a1, a2, a3);
-    return three_abs(conc+num, a1, a2, a3);
+    if (num == 0) {
+        return abs_ind;
+    } else if (num == 1) {
+        if (is_precise_3(abs_ind, a1, a2, a3)) {
+            return abs_ind + 1;
+        } else {
+            return (abs_ind > 5-(a1==0)-(a1+1==a2)-(a2+1==a3) || nndt_bool()) ? abs_ind: abs_ind + 1;
+        }
+    } else {
+        size_t conc = concretize_3(abs_ind, a1, a2, a3);
+        return three_abs(conc+num, a1, a2, a3);
+    }
 }
 
 size_t sub_conc_from_abs_3(size_t abs_ind, size_t num, size_t a1, size_t a2, size_t a3){
-    size_t conc = concretize_3(abs_ind, a1, a2, a3);
-    assert(conc >= num);
-    return three_abs(conc-num, a1, a2, a3);
+    if (num == 0) {
+        return abs_ind;
+    } else if (num == 1) {
+        if (is_precise_3(abs_ind, a1, a2, a3)) {
+            if (abs_ind != 0)
+                return abs_ind - 1;
+            else
+                assert(0 != 0);  // this is to cover the overflow case 0-1
+        } else {
+            return (abs_ind == 0 || nndt_bool()) ? abs_ind: abs_ind - 1;
+        }
+    } else {
+        size_t conc = concretize_3(abs_ind, a1, a2, a3);
+        assert(conc >= num);
+        return three_abs(conc-num, a1, a2, a3);
+    }
+    
 }
 
 //Get the abstraction of an index for shape *cc*cc*.

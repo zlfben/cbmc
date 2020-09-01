@@ -148,6 +148,13 @@ protected:
     const abstraction_spect &abst_spec,
     abstraction_spect::spect &spec);
 
+  // push concrete index values in to function call's operands
+  static void push_concrete_indices_to_operands(
+    exprt::operandst &operands,
+    const abstraction_spect::spect &spec,
+    const goto_modelt &goto_model
+  );
+
   /// \param func_name: The name of the function call.
   /// \param operands: The operands for the function call.
   /// \param caller: the name of the caller function. this is used to create temp variable
