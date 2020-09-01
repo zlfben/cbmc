@@ -1384,6 +1384,109 @@ exprt am_abstractiont::abstract_expr_read_dereference(
   }
 }
 
+exprt am_abstractiont::abstract_expr_read_index(
+  const exprt &expr,
+  const abstraction_spect &abst_spec,
+  const goto_modelt &goto_model,
+  const irep_idt &current_func,
+  goto_programt::instructionst &insts_before,
+  goto_programt::instructionst &insts_after,
+  std::vector<symbolt> &new_symbs)
+{
+  INVARIANT(expr.id() == ID_index, "abstract_expr_read_index should get index exprs");
+  INVARIANT(expr.operands().size() == 2, "The number of operands should be 2 for index");
+
+
+  const exprt &array = expr.operands()[0];
+  const exprt &index = expr.operands()[1];
+  if(array.id() == ID_symbol && array.type().id() == ID_array)
+  {
+    const irep_idt array_orig_name = to_symbol_expr(array).get_identifier();
+    if(abst_spec.has_array_entity(array_orig_name))
+    {
+      // a[i]  ==>   is_prec(i$abst) ? a$abst[i$abst] : nondet
+
+      // get the array's spec
+      const auto &spec = abst_spec.get_spec_for_array_entity(array_orig_name);
+
+      // get the new base pointer a$abst
+      const irep_idt array_new_name = get_abstract_name(array_orig_name);
+      if(!goto_model.symbol_table.has_symbol(array_new_name))
+        throw "The abst symbol " + std::string(array_new_name.c_str()) + " is not added to the symbol table";
+      const symbolt &abst_array_symb = goto_model.symbol_table.lookup_ref(array_new_name);
+      const exprt new_array = abst_array_symb.symbol_expr();
+
+      // get the new offset i$abst
+      exprt new_index = abstract_expr_read(
+        index, abst_spec, goto_model, current_func,
+        insts_before, insts_after, new_symbs);
+      abstraction_spect::spect i_spec;
+      bool i_abs = check_if_exprt_eval_to_abst_index(index, abst_spec, i_spec);
+      if(i_abs)
+      {
+        INVARIANT(spec.compare_shape(i_spec), "The shapes of the array and index in a[i] don't match");
+      }
+      else
+      {
+        // need to run abstract on i
+        const irep_idt abst_func = spec.get_abstract_func();
+        exprt::operandst operands{new_index};
+        // put the concrete indices into operands
+        push_concrete_indices_to_operands(operands, spec, goto_model);
+        // make the function call
+        auto new_index_symb = create_function_call(abst_func, operands, current_func, goto_model, insts_before, insts_after, new_symbs);
+        new_index = new_index_symb.symbol_expr();
+      }
+
+      // the access a$abst[i$abst]
+      index_exprt new_access(new_array, new_index);
+
+      // the function call is_prec(i$abst)
+      exprt::operandst operands{new_index};
+      push_concrete_indices_to_operands(operands, spec, goto_model);
+      const symbolt is_prec_symb = create_function_call(
+        spec.get_precise_func(), operands, current_func,
+        goto_model, insts_before, insts_after, new_symbs);
+      const exprt is_prec = is_prec_symb.symbol_expr();
+      const typecast_exprt is_prec_bool(is_prec, bool_typet());
+
+      // the final expression is_prec(i$abst) ? a$abst[i$abst] : nondet
+      if_exprt final_expr(
+        is_prec_bool, new_access,
+        side_effect_expr_nondett(expr.type(), source_locationt()));
+      return std::move(final_expr);
+    }
+    else
+    {
+      exprt new_index = abstract_expr_read(
+        index, abst_spec, goto_model, current_func,
+        insts_before, insts_after, new_symbs);
+      
+      abstraction_spect::spect i_spec;
+      bool i_abs = check_if_exprt_eval_to_abst_index(index, abst_spec, i_spec);
+      if(i_abs)
+      {
+        // need to run concretize on i
+        const irep_idt abst_func = i_spec.get_concretize_func();
+        exprt::operandst operands{new_index};
+        // put the concrete indices into operands
+        push_concrete_indices_to_operands(operands, i_spec, goto_model);
+        // make the function call
+        auto new_index_symb = create_function_call(abst_func, operands, current_func, goto_model, insts_before, insts_after, new_symbs);
+        new_index = new_index_symb.symbol_expr();
+      }
+      else {}  // don't need to do anything
+
+      index_exprt new_expr(array, new_index);
+      return std::move(new_expr);
+    }
+  }
+  else
+  {
+    throw "The type of the array in an index expr is incorrect";
+  }
+}
+
 exprt am_abstractiont::abstract_expr_read(
   const exprt &expr,
   const abstraction_spect &abst_spec,
@@ -1434,20 +1537,27 @@ exprt am_abstractiont::abstract_expr_read(
     // handle comparators, need to call functions if 
     // needed based on whether each operands are abstract
     return abstract_expr_read_comparator(
-      expr,abst_spec, goto_model, current_func,
+      expr, abst_spec, goto_model, current_func,
       insts_before, insts_after, new_symbs);
   }
   else if(expr.id() == ID_dereference)
   {
     // handle dereference, need to check the structure of lower exprts
     return abstract_expr_read_dereference(
-      expr,abst_spec, goto_model, current_func,
+      expr, abst_spec, goto_model, current_func,
       insts_before, insts_after, new_symbs);
   }
   else if(expr.id() == ID_plus || expr.id() == ID_minus)
   {
     // handle plus/minus, should call plus/minus function if needed
     return abstract_expr_read_plusminus(
+      expr, abst_spec, goto_model, current_func,
+      insts_before, insts_after, new_symbs);
+  }
+  else if(expr.id() == ID_index)
+  {
+    // handle array access for static arrays
+    return abstract_expr_read_index(
       expr, abst_spec, goto_model, current_func,
       insts_before, insts_after, new_symbs);
   }
