@@ -26,6 +26,8 @@ Author: Lefan Zhang, lefanz@amazon.com
 class am_abstractiont
 {
 protected:
+  // TODO 0903: change logic given the target can be members in structs
+
   // class to find out type relations between exprs
   // this is used to identify symbols we need to abstract given a target array
   // call solve() after reading in all exprs and adding needed links
@@ -64,6 +66,13 @@ protected:
     }
   };
 
+  // get the string representation from a "symbol" exprt
+  // e.g.
+  // symbol: <expr's name>
+  // member: <ptr's name>->member or <obj's name>.member
+  static irep_idt get_string_id_from_exprt(const exprt &expr);
+
+  static irep_idt check_expr_is_symbol(const exprt &expr);
   // complete the abstraction spec for a goto function using static analysis
   static void complete_abst_spec(const goto_functiont& goto_function, abstraction_spect &abst_spec);
 

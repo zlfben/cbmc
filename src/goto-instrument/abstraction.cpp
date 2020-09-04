@@ -43,12 +43,12 @@ size_t am_abstractiont::expr_type_relation::add_expr(const exprt &expr)
   edges_array.push_back(std::vector<size_t>());
 
   // add symbol to symbol list
-  if(expr.id() == ID_symbol)
+  if(expr.id() == ID_symbol || expr.id() == ID_member)
   {
-    const symbol_exprt &symb = to_symbol_expr(expr);
-    if(symbols.find(symb.get_identifier()) == symbols.end())
-      symbols[symb.get_identifier()] = std::vector<size_t>();
-    symbols[symb.get_identifier()].push_back(index);
+    const irep_idt str_id = get_string_id_from_exprt(expr);
+    if(symbols.find(str_id) == symbols.end())
+      symbols[str_id] = std::vector<size_t>();
+    symbols[str_id].push_back(index);
   }
 
   // add operands also
@@ -73,7 +73,7 @@ size_t am_abstractiont::expr_type_relation::add_expr(const exprt &expr)
     }
     else if(expr.id() == ID_plus || expr.id() == ID_minus)
     {
-      if(expr.operands()[0].id() == ID_symbol)
+      if(expr.operands()[0].id() == ID_symbol || expr.operands()[0].id() == ID_member)
       {
         if(
           (expr.operands()[1].id() == ID_typecast && expr.operands()[1].operands()[0].id() == ID_constant) ||
@@ -86,22 +86,21 @@ size_t am_abstractiont::expr_type_relation::add_expr(const exprt &expr)
 
     // If this is an access to the array, put it into the set of exprs covered
     if(
-      expr.id() == ID_plus && expr.operands().front().id() == ID_symbol &&
+      expr.id() == ID_plus && 
+      (expr.operands().front().id() == ID_symbol || expr.operands().front().id() == ID_member) &&
       expr.operands().front().type().id() == ID_pointer)
     {
-      const symbol_exprt &symb = to_symbol_expr(expr.operands().front());
-      if(symb.get_identifier() == target_array)
-      {
+      const irep_idt str_id = get_string_id_from_exprt(expr.operands().front());
+      if(str_id == target_array)
         todo.insert(operands_index[1]);
-      }
     }
   }
 
   // If this is the array itself, put it into the set of array exprs
-  if(expr.id() == ID_symbol)
+  if(expr.id() == ID_symbol || expr.id() == ID_member)
   {
-    const symbol_exprt &symb = to_symbol_expr(expr);
-    if(symb.get_identifier() == target_array)
+    const irep_idt str_id = get_string_id_from_exprt(expr);
+    if(str_id == target_array)
     {
       todo_array.insert(index);
     }
@@ -127,10 +126,9 @@ void am_abstractiont::expr_type_relation::solve()
         todo.insert(neighbor);
       }
     }
-    if(expr_list[current_index].id() == ID_symbol)
+    if(expr_list[current_index].id() == ID_symbol || expr_list[current_index].id() == ID_member)
     {
-      const symbol_exprt &symb = to_symbol_expr(expr_list[current_index]);
-      const irep_idt symb_id = symb.get_identifier();
+      const irep_idt symb_id = get_string_id_from_exprt(expr_list[current_index]);
       for(size_t neighbor: symbols[symb_id])
       {
         if(todo.find(neighbor) == todo.end() && finished.find(neighbor) == finished.end())
@@ -158,10 +156,9 @@ void am_abstractiont::expr_type_relation::solve_array()
         todo_array.insert(neighbor);
       }
     }
-    if(expr_list[current_index].id() == ID_symbol)
+    if(expr_list[current_index].id() == ID_symbol || expr_list[current_index].id() == ID_member)
     {
-      const symbol_exprt &symb = to_symbol_expr(expr_list[current_index]);
-      const irep_idt symb_id = symb.get_identifier();
+      const irep_idt symb_id = get_string_id_from_exprt(expr_list[current_index]);
       for(size_t neighbor: symbols[symb_id])
       {
         if(todo_array.find(neighbor) == todo_array.end() && finished_array.find(neighbor) == finished_array.end())
@@ -169,6 +166,38 @@ void am_abstractiont::expr_type_relation::solve_array()
       }
       abst_arrays.insert(symb_id);
     }
+  }
+}
+
+irep_idt am_abstractiont::get_string_id_from_exprt(const exprt &expr)
+{
+  if(expr.id() == ID_symbol)
+  {
+    const symbol_exprt &symb_expr = to_symbol_expr(expr);
+    return symb_expr.get_identifier();
+  }
+  else if(expr.id() == ID_member)
+  {
+    INVARIANT(expr.operands().size() == 1, "member access should only have one operand");
+    const member_exprt &mem_expr = to_member_expr(expr);
+    const exprt &obj_expr = expr.operands()[0];
+    const irep_idt &comp_name = mem_expr.get_component_name();
+    if(obj_expr.id() == ID_dereference)
+    {
+      INVARIANT(obj_expr.operands().size() == 1, "dereference should only have one operand");
+      const exprt &pointer = obj_expr.operands()[0];
+      irep_idt pointer_str_id = get_string_id_from_exprt(pointer);
+      return std::string(pointer_str_id.c_str()) + "->" + std::string(comp_name.c_str());
+    }
+    else
+    {
+      irep_idt obj_str_id = get_string_id_from_exprt(obj_expr);
+      return std::string(obj_str_id.c_str()) + "." + std::string(comp_name.c_str());
+    }
+  }
+  else
+  {
+    throw "Cannot translate to string id for expression " + std::string(expr.id().c_str());
   }
 }
 
@@ -184,71 +213,67 @@ am_abstractiont::find_index_symbols(
   const goto_functiont &goto_function,
   const irep_idt &array_name)
 {
-  class show_index_exprt : public expr_visitort
-  {
-  private:
-    const irep_idt array_name;
+  // class show_index_exprt : public expr_visitort
+  // {
+  // private:
+  //   const irep_idt array_name;
 
-  public:
-    explicit show_index_exprt(const irep_idt &_array_name)
-      : array_name(_array_name)
-    {
-    }
+  // public:
+  //   explicit show_index_exprt(const irep_idt &_array_name)
+  //     : array_name(_array_name)
+  //   {
+  //   }
 
-    static void print_exprt(const exprt &expr)
-    {
-      std::cout << expr.id();
-      if(expr.has_operands())
-      {
-        std::cout << "[";
-        for(auto &op : expr.operands())
-        {
-          print_exprt(op);
-          std::cout << ",";
-        }
-        std::cout << "]";
-      }
-      if(expr.id() == ID_constant)
-      {
-        // print the constant
-        std::cout << "(" << to_constant_expr(expr).get_value() << ")";
-      }
-    }
+  //   static void print_exprt(const exprt &expr)
+  //   {
+  //     std::cout << expr.id();
+  //     if(expr.has_operands())
+  //     {
+  //       std::cout << "[";
+  //       for(auto &op : expr.operands())
+  //       {
+  //         print_exprt(op);
+  //         std::cout << ",";
+  //       }
+  //       std::cout << "]";
+  //     }
+  //     if(expr.id() == ID_constant)
+  //     {
+  //       // print the constant
+  //       std::cout << "(" << to_constant_expr(expr).get_value() << ")";
+  //     }
+  //   }
 
-    void operator()(exprt &expr) override
-    {
-      // if there is an operand of this expr that is "array_name", this is a ref
-      if(expr.has_operands())
-      {
-        exprt::operandst operands = expr.operands();
+  //   void operator()(exprt &expr) override
+  //   {
+  //     // if there is an operand of this expr that is "array_name", this is a ref
+  //     if(expr.has_operands())
+  //     {
+  //       exprt::operandst operands = expr.operands();
 
-        // tell if it's access to pointer
-        if(
-          expr.id() == ID_plus && operands.front().id() == ID_symbol &&
-          operands.front().type().id() == ID_pointer)
-        {
-          symbol_exprt &symb = to_symbol_expr(operands.front());
-          // tell if the pointer is the target one
-          if(symb.get_identifier() == array_name)
-          {
-            // get the index in array[index]
-            exprt &index = operands.at(1);
-            // std::cout << index.pretty() << std::endl;
-            print_exprt(index);
-            std::cout << std::endl;
-            // std::cout << index.pretty() << std::endl;
-          }
-        }
-      }
-    }
-  };
+  //       // tell if it's access to pointer
+  //       if(
+  //         expr.id() == ID_plus && operands.front().id() == ID_symbol &&
+  //         operands.front().type().id() == ID_pointer)
+  //       {
+  //         symbol_exprt &symb = to_symbol_expr(operands.front());
+  //         // tell if the pointer is the target one
+  //         if(symb.get_identifier() == array_name)
+  //         {
+  //           // get the index in array[index]
+  //           exprt &index = operands.at(1);
+  //           // std::cout << index.pretty() << std::endl;
+  //           print_exprt(index);
+  //           std::cout << std::endl;
+  //           // std::cout << index.pretty() << std::endl;
+  //         }
+  //       }
+  //     }
+  //   }
+  // };
 
-  irep_idt abst_array_id = array_name;
+  expr_type_relation etr(array_name);
 
-  expr_type_relation etr(abst_array_id);
-
-  // within the function, rename all references to that variable
-  // for each instruction, we change the referenced name of the target variable
   forall_goto_program_instructions(it, goto_function.body)
   {
     // go through conditions
@@ -323,13 +348,12 @@ void am_abstractiont::complete_abst_spec(const goto_functiont& goto_function, ab
 
 /// check if expr is a symbol (or typecast from a symbol)
 /// \return the symbol name, "" if expr is not a symbol
-irep_idt check_expr_is_symbol(const exprt &expr)
+irep_idt am_abstractiont::check_expr_is_symbol(const exprt &expr)
 {
-  if(expr.id() == ID_symbol)
+  if(expr.id() == ID_symbol || expr.id() == ID_member)
   {
     // if it is a symbol, return itself's name
-    const symbol_exprt &symb = to_symbol_expr(expr);
-    return symb.get_identifier();
+    return get_string_id_from_exprt(expr);
   }
   else if(expr.id() == ID_typecast)
   {
@@ -426,6 +450,7 @@ am_abstractiont::calculate_complete_abst_specs_for_funcs(goto_modelt &goto_model
       {
         // we need to compare if the structure is the same
         abstraction_spect new_func_abst = function_spec_map[current_func_name].update_abst_spec(current_func_name, new_func_name, name_pairs);
+        complete_abst_spec(goto_model.get_goto_function(new_func_name), new_func_abst);
         if(!new_func_abst.compare_shape(function_spec_map[new_func_name]))
         {
           std::string error_code = "Same function abstracted with different shape!\n";
@@ -493,6 +518,7 @@ bool am_abstractiont::contains_a_function_call(const exprt &expr)
 
 std::vector<exprt> am_abstractiont::get_direct_access_exprs(const exprt &expr, const abstraction_spect::spect &spec)
 {
+  // TODO 0904: change this function to support member
   class find_direct_accesst : public const_expr_visitort
   {
   protected:
@@ -618,9 +644,8 @@ void am_abstractiont::declare_abst_variables_for_func(
   // Step 1: insert abst variables into the symbol table
   for(const abstraction_spect::spect &spec: abst_spec.get_specs())
   {
-    for(const auto &ent_pair: spec.get_abst_arrays())
-      insert_abst_symbol(ent_pair.second);
-    for(const auto &ent_pair: spec.get_abst_indices())
+    // TODO 0903: this need to be changed. Adding structs is different
+    for(const auto &ent_pair: spec.get_top_level_entities())
       insert_abst_symbol(ent_pair.second);
   }
 
@@ -681,6 +706,7 @@ bool am_abstractiont::check_if_exprt_eval_to_abst_index(
   const abstraction_spect &abst_spec,
   abstraction_spect::spect &spec)
 {
+  // TODO 0904: change this to support member
   if(expr.id() == ID_symbol)
   {
     // if it is a symbol, check whether if it is in the entity list
@@ -940,6 +966,21 @@ exprt am_abstractiont::abstract_expr_write(
       throw error_code;
     }
   }
+  else if(expr.id() == ID_member)
+  {
+    // if it is a member access, we should run abst read on the object
+    INVARIANT(expr.operands().size() == 1, "member access should only have one operand");
+    const member_exprt &mem_expr = to_member_expr(expr);
+    const exprt &obj_expr = expr.operands()[0];
+    const irep_idt &comp_name = mem_expr.get_component_name();
+
+    exprt new_obj_expr = abstract_expr_write(
+      obj_expr, abst_spec, goto_model, current_func,
+      insts_before, insts_after, new_symbs);
+    
+    member_exprt new_mem_expr(new_obj_expr, comp_name, mem_expr.type());
+    return std::move(new_mem_expr);
+  }
   else if(expr.id() == ID_dereference)  // e.g. c_str[i] => *(c_str+i)
   {
     INVARIANT(expr.operands().size() == 1, "dereference should only have 1 operand");
@@ -1019,6 +1060,14 @@ exprt am_abstractiont::abstract_expr_write(
       {
         throw "Unknown plus expression as lhs";
       }
+    }
+    else if (pointer_expr.id() == ID_symbol || pointer_expr.id() == ID_member)
+    {
+      exprt new_pointer_expr = abstract_expr_write(
+        pointer_expr, abst_spec, goto_model, current_func,
+        insts_before, insts_after, new_symbs);
+      dereference_exprt new_expr(new_pointer_expr);
+      return std::move(new_expr);
     }
     else
     {
@@ -1269,7 +1318,7 @@ exprt am_abstractiont::abstract_expr_read_dereference(
   {
     const symbol_exprt pointer_symb_expr = to_symbol_expr(pointer_expr);
     const irep_idt orig_name = pointer_symb_expr.get_identifier();
-    if(abst_spec.has_array_entity(orig_name))
+    if(abst_spec.has_entity(orig_name))
     {
       const irep_idt new_name = get_abstract_name(orig_name);
       if(!goto_model.symbol_table.has_symbol(new_name))
@@ -1517,6 +1566,21 @@ exprt am_abstractiont::abstract_expr_read(
       throw error_code;
     }
   }
+  else if(expr.id() == ID_member)
+  {
+    // if it is a member access, we should run abst read on the object
+    INVARIANT(expr.operands().size() == 1, "member access should only have one operand");
+    const member_exprt &mem_expr = to_member_expr(expr);
+    const exprt &obj_expr = expr.operands()[0];
+    const irep_idt &comp_name = mem_expr.get_component_name();
+
+    exprt new_obj_expr = abstract_expr_read(
+      obj_expr, abst_spec, goto_model, current_func,
+      insts_before, insts_after, new_symbs);
+    
+    member_exprt new_mem_expr(new_obj_expr, comp_name, mem_expr.type());
+    return std::move(new_mem_expr);
+  }
   else if(
     expr.id() == ID_typecast || expr.id() == ID_and || expr.id() == ID_or ||
     expr.id() == ID_xor || expr.id() == ID_not || expr.id() == ID_implies ||
@@ -1636,6 +1700,7 @@ void am_abstractiont::insert_shape_assumptions(goto_modelt &goto_model, const ab
 
 void am_abstractiont::add_length_assumptions(goto_modelt &goto_model, const abstraction_spect &abst_spec)
 {
+  // TODO 0903: this logic of this function needs to be changed. length variable may be member in a struct
   for(const auto &spec: abst_spec.get_specs())
   {
     for(const auto &lp: spec.get_abst_lengths())

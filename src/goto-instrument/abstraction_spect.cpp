@@ -87,41 +87,28 @@ abstraction_spect::spect abstraction_spect::spect::update_abst_spec(
   irep_idt new_function,
   std::unordered_map<irep_idt, irep_idt> _name_pairs) const
 {
-  // copy the spec into a new one
+  // copy the spec into a new one, clear the entities
   spect new_spec(*this);
+  new_spec.abst_entities = std::move(std::unordered_map<irep_idt, std::unique_ptr<entityt>>());
 
-  // store the entity names in the original spect
-  std::vector<irep_idt> abst_array_ids;
-  std::vector<irep_idt> abst_index_ids;
-  for(const auto &p: abst_arrays)
-    abst_array_ids.push_back(p.first);
-  for(const auto &p: abst_indices)
-    abst_index_ids.push_back(p.first);
+  auto all_abst_entities = get_all_abst_entities();
+  const auto &top_layer_entities = abst_entities;
+
+  // step 1: insert all global entities
+  for(const auto &ent: top_layer_entities)
+    if(std::string(ent.first.c_str()).rfind(old_function.c_str(), 0))
+      new_spec.insert_entity(ent.first, *(ent.second));
   
-  for(const auto &name: abst_array_ids)
+  // step 2: insert all entities shown up in function call argument pairs
+  for(const auto &pair: _name_pairs)
   {
-    if(
-      std::string(abst_arrays.at(name).entity_name().c_str())
-        .rfind(old_function.c_str(), 0) ==
-      0) // erase the old entity if it's not a global variable
-      new_spec.abst_arrays.erase(name);
-    if(_name_pairs.find(name) != _name_pairs.end())
+    // only insert entity into the new one if the old name belongs to the spect
+    // we shouldn't insert entities that don't belong to this entity
+    if(all_abst_entities.find(pair.first) != all_abst_entities.end())
     {
-      // This array needs to be updated
-      new_spec.abst_arrays.insert({_name_pairs[name], entityt(_name_pairs[name])});
-    }
-  }
-  for(const auto &name: abst_index_ids)
-  {
-    if(
-        std::string(abst_indices.at(name).entity_name().c_str())
-          .rfind(old_function.c_str(), 0) ==
-        0) // erase the old entity if it's not a global variable
-        new_spec.abst_indices.erase(name);
-    if(_name_pairs.find(name) != _name_pairs.end())
-    {
-      // This index variable needs to be updated
-      new_spec.abst_indices.insert({_name_pairs[name], entityt(_name_pairs[name])});
+      auto orig_entity = all_abst_entities[pair.first];
+      orig_entity.name = pair.second;
+      new_spec.insert_entity(pair.second, orig_entity);
     }
   }
 
@@ -158,9 +145,9 @@ std::string abstraction_spect::get_entities_string() const
   for(const auto &spec: specs)
   {
     for(const auto &ent: spec.get_abst_arrays())
-      str += "array: " + std::string(ent.second.entity_name().c_str()) + "\n";
+      str += "array: " + std::string(ent.first.c_str()) + "\n";
     for(const auto &ent: spec.get_abst_indices())
-      str += "index: " + std::string(ent.second.entity_name().c_str()) + "\n";
+      str += "index: " + std::string(ent.first.c_str()) + "\n";
   }
   return str;
 }
@@ -168,6 +155,111 @@ std::string abstraction_spect::get_entities_string() const
 void abstraction_spect::print_entities() const
 {
   std::cout << get_entities_string();
+}
+
+void abstraction_spect::spect::insert_entity(const irep_idt &_name, const abstraction_spect::spect::entityt &entity)
+{
+  std::string name_str = _name.c_str();
+  std::unordered_map<irep_idt, std::unique_ptr<entityt>> *current_layer_entities = &abst_entities;
+  while(!name_str.empty())
+  {
+    size_t arrow_pos = name_str.find("->", 0);
+    size_t point_pos = name_str.find(".", 0);
+    if(arrow_pos != std::string::npos || point_pos != std::string::npos)
+    {
+      if(arrow_pos < point_pos)  // first layer is an "->"
+      {
+        std::string first_layer_name = name_str.substr(0, arrow_pos);
+        name_str = name_str.substr(arrow_pos+2);
+        if(current_layer_entities->find(first_layer_name) == current_layer_entities->end())
+          current_layer_entities->insert({first_layer_name, std::unique_ptr<entityt>(new struct_pointer_entityt(first_layer_name))});
+        if((*current_layer_entities)[first_layer_name]->type != entityt::STRUCT_POINTER)
+          throw "the entity " + first_layer_name + " doesn't seem to be a struct pointer";
+        current_layer_entities = &((*current_layer_entities)[first_layer_name]->sub_entities);
+      }
+      else  // first layer is an "."
+      {
+        std::string first_layer_name = name_str.substr(0, point_pos);
+        name_str = name_str.substr(point_pos+1);
+        if(current_layer_entities->find(first_layer_name) == current_layer_entities->end())
+          current_layer_entities->insert({first_layer_name, std::unique_ptr<entityt>(new struct_entityt(first_layer_name))});
+        if((*current_layer_entities)[first_layer_name]->type != entityt::STRUCT)
+          throw "the entity " + first_layer_name + " doesn't seem to be a struct";
+        current_layer_entities = &((*current_layer_entities)[first_layer_name]->sub_entities);
+      }
+    }
+    else  // "->" and "." are not found
+    {
+      // this is at the leaf
+      INVARIANT(name_str == std::string(entity.name.c_str()), "the full name and the entity name should match");
+      current_layer_entities->insert({name_str, std::unique_ptr<entityt>(new entityt(entity))});
+      name_str = "";
+    }
+  }
+}
+
+void abstraction_spect::spect::insert_entity(const irep_idt &_name, const std::string &_type)
+{
+  std::string name_str = _name.c_str();
+  std::unordered_map<irep_idt, std::unique_ptr<entityt>> *current_layer_entities = &abst_entities;
+  while(!name_str.empty())
+  {
+    size_t arrow_pos = name_str.find("->", 0);
+    size_t point_pos = name_str.find(".", 0);
+    if(arrow_pos != std::string::npos || point_pos != std::string::npos)
+    {
+      if(arrow_pos < point_pos)  // first layer is an "->"
+      {
+        std::string first_layer_name = name_str.substr(0, arrow_pos);
+        name_str = name_str.substr(arrow_pos+2);
+        if(current_layer_entities->find(first_layer_name) == current_layer_entities->end())
+          current_layer_entities->insert({first_layer_name, std::unique_ptr<entityt>(new struct_pointer_entityt(first_layer_name))});
+        if((*current_layer_entities)[first_layer_name]->type != entityt::STRUCT_POINTER)
+          throw "the entity " + first_layer_name + " doesn't seem to be a struct pointer";
+        current_layer_entities = &((*current_layer_entities)[first_layer_name]->sub_entities);
+      }
+      else  // first layer is an "."
+      {
+        std::string first_layer_name = name_str.substr(0, point_pos);
+        name_str = name_str.substr(point_pos+1);
+        if(current_layer_entities->find(first_layer_name) == current_layer_entities->end())
+          current_layer_entities->insert({first_layer_name, std::unique_ptr<entityt>(new struct_entityt(first_layer_name))});
+        if((*current_layer_entities)[first_layer_name]->type != entityt::STRUCT)
+          throw "the entity " + first_layer_name + " doesn't seem to be a struct";
+        current_layer_entities = &((*current_layer_entities)[first_layer_name]->sub_entities);
+      }
+    }
+    else  // "->" and "." are not found
+    {
+      // this is at the leaf
+      if(_type == "array")
+      {
+        if(current_layer_entities->find(name_str) == current_layer_entities->end())
+          current_layer_entities->insert({name_str, std::unique_ptr<entityt>(new array_entityt(name_str))});
+        else
+          throw "entity " + name_str + " already exists";
+      }
+      else if(_type == "scalar")
+      {
+        if(current_layer_entities->find(name_str) == current_layer_entities->end())
+          current_layer_entities->insert({name_str, std::unique_ptr<entityt>(new scalar_entityt(name_str))});
+        else
+          throw "entity " + name_str + " already exists";
+      }
+      else if(_type == "length")
+      {
+        if(current_layer_entities->find(name_str) == current_layer_entities->end())
+          current_layer_entities->insert({name_str, std::unique_ptr<entityt>(new length_entityt(name_str))});
+        else
+          throw "entity " + name_str + " already exists";
+      }
+      else
+      {
+        throw "Unknown entity type: " + _type;
+      }
+      name_str = "";
+    }
+  }
 }
 
 std::vector<exprt> abstraction_spect::spect::get_assumption_exprs(const namespacet &ns) const
@@ -271,5 +363,118 @@ std::vector<exprt> abstraction_spect::spect::abst_shapet::get_assumption_exprs(c
     result.push_back(expr);
   }
   
+  return result;
+}
+
+std::unordered_map<irep_idt, abstraction_spect::spect::entityt>
+abstraction_spect::spect::get_all_entities(
+  const abstraction_spect::spect::entityt &ent,
+  const irep_idt &prefix)
+{
+  std::unordered_map<irep_idt, entityt> result;
+  result.insert(
+    {irep_idt(std::string(prefix.c_str()) + std::string(ent.name.c_str())),
+     ent});
+  for(const auto &sub_ent : ent.sub_entities)
+  {
+    irep_idt new_prefix = std::string(prefix.c_str()) + std::string(ent.name.c_str());
+    if(ent.type == entityt::STRUCT)
+      new_prefix = std::string(new_prefix.c_str()) + ".";
+    else if(ent.type == entityt::STRUCT_POINTER)
+      new_prefix = std::string(new_prefix.c_str()) + "->";
+    else {}
+
+    auto sub_result = get_all_entities(*(sub_ent.second), new_prefix);
+    result.insert(sub_result.begin(), sub_result.end());
+  }
+  return result;
+}
+
+std::unordered_map<irep_idt, abstraction_spect::spect::entityt>
+abstraction_spect::spect::search_for_entities(
+  const abstraction_spect::spect::entityt &ent,
+  const abstraction_spect::spect::entityt::entityt_type &type,
+  const irep_idt &prefix)
+{
+  std::unordered_map<irep_idt, entityt> result;
+  if(ent.type == type)
+    result.insert(
+      {irep_idt(std::string(prefix.c_str()) + std::string(ent.name.c_str())),
+       ent});
+  for(const auto &sub_ent : ent.sub_entities)
+  {
+    irep_idt new_prefix = std::string(prefix.c_str()) + std::string(ent.name.c_str());
+    if(ent.type == entityt::STRUCT)
+      new_prefix = std::string(new_prefix.c_str()) + ".";
+    else if(ent.type == entityt::STRUCT_POINTER)
+      new_prefix = std::string(new_prefix.c_str()) + "->";
+    else {}
+
+    auto sub_result = search_for_entities(*(sub_ent.second), type, new_prefix);
+    result.insert(sub_result.begin(), sub_result.end());
+  }
+  return result;
+}
+
+std::unordered_map<irep_idt, abstraction_spect::spect::entityt>
+abstraction_spect::spect::get_top_level_entities() const
+{
+  std::unordered_map<irep_idt, entityt> result;
+  for(const auto &ent: abst_entities)
+    result.insert({ent.first, *(ent.second)});
+  return result;
+}
+
+std::unordered_map<irep_idt, abstraction_spect::spect::entityt>
+abstraction_spect::spect::get_all_abst_entities() const
+{
+  std::unordered_map<irep_idt, entityt> result;
+  for(const auto &ent: abst_entities)
+  {
+    std::unordered_map<irep_idt, entityt> sub_result = get_all_entities(*(ent.second), "");
+    result.insert(sub_result.begin(), sub_result.end());
+  }
+  return result;
+}
+
+std::unordered_map<irep_idt, abstraction_spect::spect::entityt>
+abstraction_spect::spect::get_abst_arrays() const
+{
+  std::unordered_map<irep_idt, entityt> result;
+  for(const auto &ent : abst_entities)
+  {
+    std::unordered_map<irep_idt, entityt> sub_result =
+      search_for_entities(*(ent.second), entityt::ARRAY, "");
+    result.insert(sub_result.begin(), sub_result.end());
+  }
+  return result;
+}
+
+std::unordered_map<irep_idt, abstraction_spect::spect::entityt>
+abstraction_spect::spect::get_abst_indices() const
+{
+  std::unordered_map<irep_idt, entityt> result;
+  for(const auto &ent : abst_entities)
+  {
+    std::unordered_map<irep_idt, entityt> sub_result_scalar =
+      search_for_entities(*(ent.second), entityt::SCALAR, "");
+    std::unordered_map<irep_idt, entityt> sub_result_length =
+      search_for_entities(*(ent.second), entityt::LENGTH, "");
+    result.insert(sub_result_scalar.begin(), sub_result_scalar.end());
+    result.insert(sub_result_length.begin(), sub_result_length.end());
+  }
+  return result;
+}
+
+std::unordered_map<irep_idt, abstraction_spect::spect::entityt>
+abstraction_spect::spect::get_abst_lengths() const
+{
+  std::unordered_map<irep_idt, entityt> result;
+  for(const auto &ent : abst_entities)
+  {
+    std::unordered_map<irep_idt, entityt> sub_result =
+      search_for_entities(*(ent.second), entityt::LENGTH, "");
+    result.insert(sub_result.begin(), sub_result.end());
+  }
   return result;
 }
