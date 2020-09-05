@@ -1,0 +1,46 @@
+{
+    "entries": [
+        {
+            "entity": "array",
+            "function": "aws_byte_buf_eq_harness",
+            "name": "aws_byte_buf_eq_harness::1::lhs.buffer",
+            "shape": {
+                "indices": ["cncrt0", "cncrt", "length"],
+                "assumptions": [
+                    "cncrt0==0",
+                    "cncrt0<cncrt",
+                    "cncrt<length"
+                ],
+                "shape-type": "c*c*l"
+            },
+            "abst-function-file": "../abst-funcs.c",
+            "abst-functions":{
+                "add-abs-conc": "add_abs_to_conc_3",
+                "sub-abs-conc": "sub_conc_from_abs_3",
+                "precise-check": "is_precise_3",
+                "abstract-index": "three_abs",
+                "concretize-index": "concretize_3",
+                "multiply-indices": null,
+                "mod-indices": null
+            },
+            "related-entities": [
+                {
+                    "entity": "array",
+                    "function": "aws_byte_buf_eq_harness",
+                    "name": "aws_byte_buf_eq_harness::1::rhs.buffer"
+                },
+                {
+                    "entity": "length",
+                    "function": "aws_byte_buf_eq_harness",
+                    "name": "aws_byte_buf_eq_harness::1::lhs.len"
+                },
+                {
+                    "entity": "scalar",
+                    "function": "aws_byte_buf_eq_harness",
+                    "name": "aws_byte_buf_eq_harness::1::rhs.len"
+                }
+            ]
+
+        }
+    ]
+}
