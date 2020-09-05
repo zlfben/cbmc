@@ -5,19 +5,21 @@
             "function": "aws_array_eq_c_str_ignore_case_harness",
             "name": "aws_array_eq_c_str_ignore_case_harness::1::c_str",
             "shape": {
-                "indices": ["cncrt", "clast"],
+                "indices": ["cncrt0", "cncrt", "length"],
                 "assumptions": [
-                    "cncrt < clast"
+                    "cncrt0==0",
+                    "cncrt0<cncrt",
+                    "cncrt<length"
                 ],
-                "shape-type": "*c*c*"
+                "shape-type": "c*c*l*"
             },
             "abst-function-file": "./abst-funcs.c",
             "abst-functions":{
-                "add-abs-conc": "add_abs_to_conc",
-                "sub-abs-conc": "sub_conc_from_abs",
-                "precise-check": "is_precise",
-                "abstract-index": "two_abs",
-                "concretize-index": "concretize",
+                "add-abs-conc": "add_abs_to_conc_3",
+                "sub-abs-conc": "sub_conc_from_abs_3",
+                "precise-check": "is_precise_3",
+                "abstract-index": "three_abs",
+                "concretize-index": "concretize_3",
                 "multiply-indices": null,
                 "mod-indices": null
             },
@@ -28,14 +30,19 @@
                     "name": "aws_array_eq_c_str_ignore_case_harness::1::array"
                 },
                 {
-                    "entity": "scalar",
+                    "entity": "length",
                     "function": "aws_array_eq_c_str_ignore_case_harness",
                     "name": "aws_array_eq_c_str_ignore_case_harness::1::array_len"
                 },
                 {
                     "entity": "scalar",
+                    "function": "",
+                    "name": "str_len"
+                },
+                {
+                    "entity": "length",
                     "function": "aws_array_eq_c_str_ignore_case_harness",
-                    "name": "aws_array_eq_c_str_ignore_case_harness::1::str_len"
+                    "name": "aws_array_eq_c_str_ignore_case_harness::1::allocated_str_len"
                 }
             ]
 

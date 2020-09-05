@@ -38,6 +38,11 @@
                     "entity": "scalar",
                     "function": "",
                     "name": "str_len"
+                },
+                {
+                    "entity": "length",
+                    "function": "aws_array_eq_c_str_harness",
+                    "name": "aws_array_eq_c_str_harness::1::allocated_str_len"
                 }
             ]
 
