@@ -346,6 +346,28 @@ void am_abstractiont::complete_abst_spec(const goto_functiont& goto_function, ab
   }
 }
 
+/// check if an expr is address_of or dereference
+/// \return flag: 0(none); 1(address_of) -1(dereference)
+int am_abstractiont::check_expr_is_address_or_deref(const exprt &expr, exprt &next_layer)
+{
+  if(expr.id() == ID_dereference)
+  {
+    INVARIANT(expr.operands().size() == 1, "dereference should only have one operand");
+    next_layer = expr.operands()[0];
+    return 1;
+  }
+  else if(expr.id() == ID_address_of)
+  {
+    INVARIANT(expr.operands().size() == 1, "address_of should only have one operand");
+    next_layer = expr.operands()[0];
+    return -1;
+  }
+  else
+  {
+    return 0;
+  }
+}
+
 /// check if expr is a symbol (or typecast from a symbol)
 /// \return the symbol name, "" if expr is not a symbol
 irep_idt am_abstractiont::check_expr_is_symbol(const exprt &expr)
@@ -368,10 +390,10 @@ irep_idt am_abstractiont::check_expr_is_symbol(const exprt &expr)
 }
 
 // go into a function to find all function calls we'll need to abstract
-std::vector<std::tuple<irep_idt, std::unordered_map<irep_idt, irep_idt>>>
+std::vector<std::tuple<irep_idt, std::unordered_map<irep_idt, std::pair<irep_idt, int>>>>
 am_abstractiont::find_function_calls(irep_idt func_name, goto_modelt &goto_model, const abstraction_spect &abst_spec)
 {
-  std::vector<std::tuple<irep_idt, std::unordered_map<irep_idt, irep_idt>>> result;
+  std::vector<std::tuple<irep_idt, std::unordered_map<irep_idt, std::pair<irep_idt, int>>>> result;
   
   const goto_functiont &goto_function = goto_model.get_goto_function(func_name);
   forall_goto_program_instructions(it, goto_function.body)
@@ -383,15 +405,17 @@ am_abstractiont::find_function_calls(irep_idt func_name, goto_modelt &goto_model
       const code_function_callt fc = it->get_function_call();
       const irep_idt &new_func_name = to_symbol_expr(fc.function()).get_identifier();
       const goto_functiont &new_function = goto_model.get_goto_function(new_func_name);
-      std::unordered_map<irep_idt, irep_idt> map;
+      std::unordered_map<irep_idt, std::pair<irep_idt, int>> map;
       for(size_t i=0; i<fc.arguments().size(); i++)
       {
         // for each argument, we check whether we need to abstract it.
         const exprt &arg = fc.arguments()[i];
-        irep_idt symbol_name = check_expr_is_symbol(arg);
+        exprt real_arg = arg;
+        int flag = check_expr_is_address_or_deref(arg, real_arg);
+        irep_idt symbol_name = check_expr_is_symbol(real_arg);
         if(symbol_name != "" && abst_spec.has_entity(symbol_name))
           // if so, we push it into the map
-          map.insert({symbol_name, new_function.parameter_identifiers[i]});
+          map.insert({symbol_name, std::make_pair(new_function.parameter_identifiers[i], flag)});
       }
       if(!map.empty())  //if map is not empty, we create a new entry in the result
         result.push_back(std::make_tuple(new_func_name, map));
@@ -426,7 +450,7 @@ am_abstractiont::calculate_complete_abst_specs_for_funcs(goto_modelt &goto_model
     todo.pop();
 
     // check it calls any other functions that we need to abstract
-    std::vector<std::tuple<irep_idt, std::unordered_map<irep_idt, irep_idt>>>
+    std::vector<std::tuple<irep_idt, std::unordered_map<irep_idt, std::pair<irep_idt, int>>>>
       func_tuples = find_function_calls(
         current_func_name, goto_model, function_spec_map[current_func_name]);
 
@@ -435,7 +459,7 @@ am_abstractiont::calculate_complete_abst_specs_for_funcs(goto_modelt &goto_model
     for(const auto &func_tuple: func_tuples)
     {
       irep_idt new_func_name = std::get<0>(func_tuple);
-      std::unordered_map<irep_idt, irep_idt> name_pairs = std::get<1>(func_tuple);
+      std::unordered_map<irep_idt, std::pair<irep_idt, int>> name_pairs = std::get<1>(func_tuple);
       if(function_spec_map.find(new_func_name) == function_spec_map.end())
       {
         // we need to abstract it and analyze it

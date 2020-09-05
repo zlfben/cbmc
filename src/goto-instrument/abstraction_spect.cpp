@@ -85,7 +85,7 @@ std::vector<std::string> abstraction_spect::get_abstraction_function_files() con
 abstraction_spect::spect abstraction_spect::spect::update_abst_spec(
   irep_idt old_function,
   irep_idt new_function,
-  std::unordered_map<irep_idt, irep_idt> _name_pairs) const
+  std::unordered_map<irep_idt, std::pair<irep_idt, int>> _name_pairs) const
 {
   // copy the spec into a new one, clear the entities
   spect new_spec(*this);
@@ -107,8 +107,30 @@ abstraction_spect::spect abstraction_spect::spect::update_abst_spec(
     if(all_abst_entities.find(pair.first) != all_abst_entities.end())
     {
       auto orig_entity = all_abst_entities[pair.first];
-      orig_entity.name = pair.second;
-      new_spec.insert_entity(pair.second, orig_entity);
+      int flag = pair.second.second;  // flag: 0(normal), 1(entity to pointer), -1(pointer to entity)
+      orig_entity.name = pair.second.first;
+      if(flag == 1)
+      {
+        if(orig_entity.type == entityt::STRUCT)
+          orig_entity.type = entityt::STRUCT_POINTER;
+        else
+          throw "The entity " + std::string(orig_entity.name.c_str()) +
+            " needs to be a struct to be translated into a pointer." +
+            " Currently we are not supporting other types of pointer "
+            "calculation as function args.";
+      }
+      else if(flag == -1)
+      {
+        if(orig_entity.type == entityt::STRUCT_POINTER)
+          orig_entity.type = entityt::STRUCT;
+        else
+          throw "The entity " + std::string(orig_entity.name.c_str()) +
+            " needs to be a struct pointer to be translated into a struct." +
+            " Currently we are not supporting other types of pointer "
+            "calculation as function args.";
+      }
+      else {}
+      new_spec.insert_entity(pair.second.first, orig_entity);
     }
   }
 
@@ -118,7 +140,7 @@ abstraction_spect::spect abstraction_spect::spect::update_abst_spec(
 abstraction_spect abstraction_spect::update_abst_spec(
   irep_idt old_function,
   irep_idt new_function,
-  std::unordered_map<irep_idt, irep_idt> _name_pairs) const
+  std::unordered_map<irep_idt, std::pair<irep_idt, int>> _name_pairs) const
 {
   if(function != old_function)
   {

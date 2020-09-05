@@ -519,7 +519,7 @@ public:
     spect update_abst_spec(
       irep_idt old_function,
       irep_idt new_function,
-      std::unordered_map<irep_idt, irep_idt> _name_pairs) const;
+      std::unordered_map<irep_idt, std::pair<irep_idt, int>> _name_pairs) const;
   };
 
   // gather specs
@@ -544,7 +544,7 @@ public:
   abstraction_spect update_abst_spec(
     irep_idt old_function,
     irep_idt new_function,
-    std::unordered_map<irep_idt, irep_idt> _name_pairs) const;
+    std::unordered_map<irep_idt, std::pair<irep_idt, int>> _name_pairs) const;
 
   // check if a variable is abstracted
   bool has_entity(const irep_idt &entity_name) const

@@ -72,12 +72,19 @@ protected:
   // member: <ptr's name>->member or <obj's name>.member
   static irep_idt get_string_id_from_exprt(const exprt &expr);
 
+  /// check if an expr is array_of or dereference
+  /// \return flag: 0(none); 1(array_of) -1(dereference)
+  static int check_expr_is_address_or_deref(const exprt &expr, exprt &next_layer);
+  
   static irep_idt check_expr_is_symbol(const exprt &expr);
   // complete the abstraction spec for a goto function using static analysis
   static void complete_abst_spec(const goto_functiont& goto_function, abstraction_spect &abst_spec);
 
-  // go into a function to find all function calls we'll need to abstract
-  static std::vector<std::tuple<irep_idt, std::unordered_map<irep_idt, irep_idt>>>
+  /// go into a function to find all function calls we'll need to abstract
+  /// \return a vector. each entry is a pair of [function_name, variable map]
+  /// variable map: key - original symbol name; value [new symbol name, flag]
+  /// flag: 0 - normal, 1 - entity to pointer, -1 - pointer to entity 
+  static std::vector<std::tuple<irep_idt, std::unordered_map<irep_idt, std::pair<irep_idt, int>>>>
   find_function_calls(irep_idt func_name, goto_modelt &goto_model, const abstraction_spect &abst_spec);
 
   /// \param goto_function: the function to be analyzed
