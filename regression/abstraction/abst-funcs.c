@@ -371,6 +371,17 @@ size_t sub_conc_from_abs_3(size_t abs_ind, size_t num, size_t a1, size_t a2, siz
     }
 }
 
+size_t multiply_abs_with_conc_3(size_t abs_ind, size_t num, size_t a1, size_t a2, size_t a3) {
+    if (num == 0) {
+        return 0;
+    } else if (num == 1) {
+        return abs_ind;
+    } else {
+        size_t conc = concretize_3(abs_ind, a1, a2, a3);
+        return three_abs(abs_ind*num, a1, a2, a3);
+    }
+}
+
 // helper function
 // translate an index from *c*c*c*c* to the real one depending on value of a1, a2, a3, a4
 // e.g. when a1=0, a1+1==a2, *c*c*c*c* becomes cc*c*c*
@@ -495,5 +506,13 @@ size_t sub_conc_from_abs_4(size_t abs_ind, size_t num, size_t a1, size_t a2, siz
     }
 }
 
-
-
+size_t multiply_abs_with_conc_4(size_t abs_ind, size_t num, size_t a1, size_t a2, size_t a3, size_t a4) {
+    if (num == 0) {
+        return 0;
+    } else if (num == 1) {
+        return abs_ind;
+    } else {
+        size_t conc = concretize_4(abs_ind, a1, a2, a3, a4);
+        return four_abs(abs_ind*num, a1, a2, a3, a4);
+    }
+}

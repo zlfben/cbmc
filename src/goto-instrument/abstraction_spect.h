@@ -290,6 +290,8 @@ public:
     irep_idt addition_func;
     //Subtraction over abstract indices
     irep_idt minus_func;
+    //Multiply abstract indices with concrete num
+    irep_idt multiply_func;
     //Translate a concrete index to an abst index
     irep_idt abstract_func;
     //Translate a abst index to a concrete index
@@ -318,6 +320,7 @@ public:
         compare_indices_func(_spec.compare_indices_func),
         addition_func(_spec.addition_func),
         minus_func(_spec.minus_func),
+        multiply_func(_spec.multiply_func),
         abstract_func(_spec.abstract_func),
         concretize_func(_spec.concretize_func),
         spect_index(_spec.spect_index)
@@ -335,6 +338,7 @@ public:
       compare_indices_func = other.compare_indices_func;
       addition_func = other.addition_func;
       minus_func = other.minus_func;
+      multiply_func = other.multiply_func;
       abstract_func = other.abstract_func;
       concretize_func = other.concretize_func;
       spect_index = other.spect_index;
@@ -368,6 +372,13 @@ public:
     std::unordered_map<irep_idt, entityt> get_abst_indices() const;
 
     std::unordered_map<irep_idt, entityt> get_abst_lengths() const;
+
+    static void search_all_lengths_and_generate_path(
+      std::vector<entityt> &current_path,
+      std::vector<std::vector<entityt>> &results);
+
+    std::unordered_map<irep_idt, exprt>
+    get_abst_lengths_with_expr(const namespacet &ns) const;
 
     const bool has_entity(const irep_idt &entity_name) const
     {
@@ -422,10 +433,22 @@ public:
       minus_func = _func_name;
     }
 
-    // get addition func
+    // get minus func
     const irep_idt &get_minus_func() const
     {
       return minus_func;
+    }
+
+    // set multiply func
+    void set_multiply_func(const irep_idt &_func_name)
+    {
+      multiply_func = _func_name;
+    }
+
+    // get multiply func
+    const irep_idt &get_multiply_func() const
+    {
+      return multiply_func;
     }
 
     // set is_precise func

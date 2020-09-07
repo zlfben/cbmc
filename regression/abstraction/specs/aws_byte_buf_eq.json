@@ -13,10 +13,11 @@
                 ],
                 "shape-type": "c*c*l"
             },
-            "abst-function-file": "../abst-funcs.c",
+            "abst-function-file": "./abst-funcs.c",
             "abst-functions":{
                 "add-abs-conc": "add_abs_to_conc_3",
                 "sub-abs-conc": "sub_conc_from_abs_3",
+                "multiply-abs-conc": "multiply_abs_with_conc_3",
                 "precise-check": "is_precise_3",
                 "abstract-index": "three_abs",
                 "concretize-index": "concretize_3",

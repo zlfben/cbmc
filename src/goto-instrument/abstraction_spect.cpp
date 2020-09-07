@@ -51,6 +51,7 @@ abstraction_spect::abstraction_spect(
     spec.set_abst_func_file(get_absolute_path(entry_obj.find("abst-function-file")->second.value));
     spec.set_addition_func(to_json_object(entry_obj.find("abst-functions")->second).find("add-abs-conc")->second.value);
     spec.set_minus_func(to_json_object(entry_obj.find("abst-functions")->second).find("sub-abs-conc")->second.value);
+    spec.set_multiply_func(to_json_object(entry_obj.find("abst-functions")->second).find("multiply-abs-conc")->second.value);
     spec.set_precise_func(to_json_object(entry_obj.find("abst-functions")->second).find("precise-check")->second.value);
     spec.set_abstract_func(to_json_object(entry_obj.find("abst-functions")->second).find("abstract-index")->second.value);
     spec.set_concretize_func(to_json_object(entry_obj.find("abst-functions")->second).find("concretize-index")->second.value);
@@ -498,5 +499,79 @@ abstraction_spect::spect::get_abst_lengths() const
       search_for_entities(*(ent.second), entityt::LENGTH, "");
     result.insert(sub_result.begin(), sub_result.end());
   }
+  return result;
+}
+
+void abstraction_spect::spect::search_all_lengths_and_generate_path(
+  std::vector<abstraction_spect::spect::entityt> &current_path,
+  std::vector<std::vector<abstraction_spect::spect::entityt>>
+    &results)
+{
+  INVARIANT(
+    !current_path.empty(),
+    "The current path should not be empty when calling "
+    "search_all_lengths_and_gererate_path");
+  const entityt &current_entity = *(current_path.end() - 1);
+  if(current_entity.type == entityt::LENGTH)
+    results.push_back(current_path);
+  for(const auto &ent : current_entity.sub_entities)
+  {
+    current_path.push_back(*ent.second);
+    search_all_lengths_and_generate_path(current_path, results);
+    current_path.pop_back();
+  }
+}
+
+std::unordered_map<irep_idt, exprt>
+abstraction_spect::spect::get_abst_lengths_with_expr(const namespacet &ns) const
+{
+  // helper function to translate a length variable entity path to exprt
+  auto generate_expr_from_path = [&ns](std::vector<entityt> path) {
+    const symbol_tablet &symbol_table = ns.get_symbol_table();
+    INVARIANT(path.size() > 0, "The length entity path should not be empty");
+    INVARIANT(
+      symbol_table.has_symbol(path[0].name),
+      "The symbol " + std::string(path[0].name.c_str()) + " should exist");
+    exprt current_expr = symbol_table.lookup_ref(path[0].name).symbol_expr();
+    for(size_t i = 1; i < path.size(); i++)
+    {
+      const typet full_type=ns.follow(current_expr.type());
+      const struct_typet &struct_type = to_struct_type(full_type);
+      struct_typet::componentt component;
+      bool component_found = false;
+      for(const auto &comp: struct_type.components())
+      {
+        if(comp.get_name() == path[i].name)
+        {
+          component = comp;
+          component_found = true;
+          break;
+        }
+      }
+      INVARIANT(component_found, std::string(path[i].name.c_str()) + " not found in the component list");
+      current_expr = member_exprt(current_expr, component);
+    }
+    return current_expr;
+  };
+
+  // find all length variables with their corresponding path
+  // path is the entities we need to visit to find the variable
+  // e.g. "buffer", "array", "len" in buffer->array.len
+  std::vector<std::vector<entityt>> all_length_paths;
+  std::vector<entityt> current_path;
+  for(const auto &ent: abst_entities)
+  {
+    current_path.push_back(*ent.second);
+    search_all_lengths_and_generate_path(current_path, all_length_paths);
+    current_path.pop_back();
+  }
+  
+  std::unordered_map<irep_idt, exprt> result;
+  for(const auto &path: all_length_paths)
+  {
+    INVARIANT(path.size() > 0, "The length entity path should not be empty");
+    result.insert({path[0].name, generate_expr_from_path(path)});
+  }
+
   return result;
 }

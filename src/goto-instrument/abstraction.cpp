@@ -182,17 +182,29 @@ irep_idt am_abstractiont::get_string_id_from_exprt(const exprt &expr)
     const member_exprt &mem_expr = to_member_expr(expr);
     const exprt &obj_expr = expr.operands()[0];
     const irep_idt &comp_name = mem_expr.get_component_name();
-    if(obj_expr.id() == ID_dereference)
+
+    // we need to get rid of dereference/address_of pairs
+    exprt current_obj_expr = obj_expr;
+    while((current_obj_expr.id() == ID_dereference &&
+           current_obj_expr.operands()[0].id() == ID_address_of) ||
+          (current_obj_expr.id() == ID_address_of &&
+           current_obj_expr.operands()[0].id() == ID_dereference))
+      current_obj_expr = current_obj_expr.operands()[0].operands()[0];
+    if(current_obj_expr.id() == ID_dereference)
     {
-      INVARIANT(obj_expr.operands().size() == 1, "dereference should only have one operand");
-      const exprt &pointer = obj_expr.operands()[0];
+      INVARIANT(
+        current_obj_expr.operands().size() == 1,
+        "dereference should only have one operand");
+      const exprt &pointer = current_obj_expr.operands()[0];
       irep_idt pointer_str_id = get_string_id_from_exprt(pointer);
-      return std::string(pointer_str_id.c_str()) + "->" + std::string(comp_name.c_str());
+      return std::string(pointer_str_id.c_str()) + "->" +
+              std::string(comp_name.c_str());
     }
     else
     {
-      irep_idt obj_str_id = get_string_id_from_exprt(obj_expr);
-      return std::string(obj_str_id.c_str()) + "." + std::string(comp_name.c_str());
+      irep_idt obj_str_id = get_string_id_from_exprt(current_obj_expr);
+      return std::string(obj_str_id.c_str()) + "." +
+              std::string(comp_name.c_str());
     }
   }
   else
@@ -213,65 +225,6 @@ am_abstractiont::find_index_symbols(
   const goto_functiont &goto_function,
   const irep_idt &array_name)
 {
-  // class show_index_exprt : public expr_visitort
-  // {
-  // private:
-  //   const irep_idt array_name;
-
-  // public:
-  //   explicit show_index_exprt(const irep_idt &_array_name)
-  //     : array_name(_array_name)
-  //   {
-  //   }
-
-  //   static void print_exprt(const exprt &expr)
-  //   {
-  //     std::cout << expr.id();
-  //     if(expr.has_operands())
-  //     {
-  //       std::cout << "[";
-  //       for(auto &op : expr.operands())
-  //       {
-  //         print_exprt(op);
-  //         std::cout << ",";
-  //       }
-  //       std::cout << "]";
-  //     }
-  //     if(expr.id() == ID_constant)
-  //     {
-  //       // print the constant
-  //       std::cout << "(" << to_constant_expr(expr).get_value() << ")";
-  //     }
-  //   }
-
-  //   void operator()(exprt &expr) override
-  //   {
-  //     // if there is an operand of this expr that is "array_name", this is a ref
-  //     if(expr.has_operands())
-  //     {
-  //       exprt::operandst operands = expr.operands();
-
-  //       // tell if it's access to pointer
-  //       if(
-  //         expr.id() == ID_plus && operands.front().id() == ID_symbol &&
-  //         operands.front().type().id() == ID_pointer)
-  //       {
-  //         symbol_exprt &symb = to_symbol_expr(operands.front());
-  //         // tell if the pointer is the target one
-  //         if(symb.get_identifier() == array_name)
-  //         {
-  //           // get the index in array[index]
-  //           exprt &index = operands.at(1);
-  //           // std::cout << index.pretty() << std::endl;
-  //           print_exprt(index);
-  //           std::cout << std::endl;
-  //           // std::cout << index.pretty() << std::endl;
-  //         }
-  //       }
-  //     }
-  //   }
-  // };
-
   expr_type_relation etr(array_name);
 
   forall_goto_program_instructions(it, goto_function.body)
@@ -311,7 +264,9 @@ am_abstractiont::find_index_symbols(
   return result;
 }
 
-void am_abstractiont::complete_abst_spec(const goto_functiont& goto_function, abstraction_spect &abst_spec)
+void am_abstractiont::complete_abst_spec(
+  const goto_functiont &goto_function,
+  abstraction_spect &abst_spec)
 {
   for(auto &spec: abst_spec.get_specs())
   {
@@ -354,13 +309,13 @@ int am_abstractiont::check_expr_is_address_or_deref(const exprt &expr, exprt &ne
   {
     INVARIANT(expr.operands().size() == 1, "dereference should only have one operand");
     next_layer = expr.operands()[0];
-    return 1;
+    return -1;
   }
   else if(expr.id() == ID_address_of)
   {
     INVARIANT(expr.operands().size() == 1, "address_of should only have one operand");
     next_layer = expr.operands()[0];
-    return -1;
+    return 1;
   }
   else
   {
@@ -1158,7 +1113,10 @@ exprt am_abstractiont::abstract_expr_read_comparator(
 
   bool abs0 = false;
   bool abs1 = false;
-  if(expr.operands()[0].id() == ID_pointer_offset || expr.operands()[1].id() == ID_object_size)
+  if(
+    expr.operands()[0].id() == ID_pointer_offset ||
+    expr.operands()[1].id() == ID_object_size ||
+    expr.operands()[0].id() == ID_object_size)
   {
     // this is the case when we are checking out of bound access to arrays, 
     // we shouldn't treat the comparison as abstract
@@ -1267,8 +1225,12 @@ exprt am_abstractiont::abstract_expr_read_plusminus(
   std::vector<symbolt> &new_symbs)
 {
   // handle plus/minus, should call plus/minus function if needed
-  INVARIANT(expr.id() == ID_plus || expr.id() == ID_minus, "abst_read_plus_minus should get + or - exprs");
-  INVARIANT(expr.operands().size() == 2, "The number of operands should be 2 for plus/minus");
+  INVARIANT(
+    expr.id() == ID_plus || expr.id() == ID_minus || expr.id() == ID_mult,
+    "abst_read_plus_minus should get +, - or * exprs");
+  INVARIANT(
+    expr.operands().size() == 2,
+    "The number of operands should be 2 for plus/minus/mult");
 
   abstraction_spect::spect spec0;
   abstraction_spect::spect spec1;
@@ -1289,8 +1251,11 @@ exprt am_abstractiont::abstract_expr_read_plusminus(
     
     // what is the spec we are using?
     const abstraction_spect::spect &spec = abs0 ? spec0 : spec1;
-    // find the func name of add_abs_to_conc
-    const irep_idt &calc_func_name = expr.id() == ID_plus ? spec.get_addition_func() : spec.get_minus_func();
+    // find the func name for the calculation
+    const irep_idt &calc_func_name =
+      expr.id() == ID_plus ? spec.get_addition_func()
+                           : (expr.id() == ID_minus ? spec.get_minus_func()
+                                                    : spec.get_multiply_func());
     // define the operands {abs, num}
     exprt op0 = abstract_expr_read(
       abs0 ? expr.operands()[0] : expr.operands()[1],
@@ -1309,7 +1274,7 @@ exprt am_abstractiont::abstract_expr_read_plusminus(
   else
   {
     // this happens when we are doing pointer_offset + n$abst, we can simply do the original addition
-    if(is_pointer_offset(expr.operands()[0]))
+    if(is_pointer_offset(expr.operands()[0]) || is_pointer_offset(expr.operands()[1]))
     {
       exprt new_expr(expr);
       new_expr.operands()[0] = abstract_expr_read(expr.operands()[0], abst_spec, goto_model, current_func, insts_before, insts_after, new_symbs);
@@ -1355,6 +1320,14 @@ exprt am_abstractiont::abstract_expr_read_dereference(
     {
       return expr;
     }
+  }
+  else if(pointer_expr.id() == ID_address_of)
+  {
+    // we should by pass the *& pair
+    INVARIANT(pointer_expr.operands().size() == 1, "address_of should only have one operand");
+    return abstract_expr_read(
+          pointer_expr.operands()[0], abst_spec, goto_model, current_func,
+          insts_before, insts_after, new_symbs);
   }
   else if(pointer_expr.id() == ID_plus)
   {
@@ -1560,6 +1533,34 @@ exprt am_abstractiont::abstract_expr_read_index(
   }
 }
 
+exprt am_abstractiont::abstract_expr_read_address_of(
+  const exprt &expr,
+  const abstraction_spect &abst_spec,
+  const goto_modelt &goto_model,
+  const irep_idt &current_func,
+  goto_programt::instructionst &insts_before,
+  goto_programt::instructionst &insts_after,
+  std::vector<symbolt> &new_symbs)
+{
+  INVARIANT(expr.id() == ID_address_of, "abstract_expr_read_address_of should get address_of exprs");
+  INVARIANT(expr.operands().size() == 1, "The number of operands should be 1 for address_of");
+
+  const exprt &entity = expr.operands()[0];
+  if(entity.id() == ID_symbol)
+  {
+    exprt new_entity = abstract_expr_read(
+      entity, abst_spec, goto_model, current_func,
+      insts_before, insts_after, new_symbs);
+    address_of_exprt new_expr(new_entity);
+    return std::move(new_expr);
+  }
+  else
+  {
+    throw "We are not supporting &(address_of) for non-symbol operands.";
+  }
+  
+}
+
 exprt am_abstractiont::abstract_expr_read(
   const exprt &expr,
   const abstraction_spect &abst_spec,
@@ -1610,7 +1611,7 @@ exprt am_abstractiont::abstract_expr_read(
     expr.id() == ID_xor || expr.id() == ID_not || expr.id() == ID_implies ||
     expr.id() == ID_is_invalid_pointer || expr.id() == ID_is_dynamic_object || 
     expr.id() == ID_pointer_object || expr.id() == ID_pointer_offset || 
-    expr.id() == ID_object_size)
+    expr.id() == ID_object_size || expr.id() == ID_if)
   {
     // those types of exprs should not be changed, just run abst_read on lower level
     exprt new_expr(expr);
@@ -1635,7 +1636,14 @@ exprt am_abstractiont::abstract_expr_read(
       expr, abst_spec, goto_model, current_func,
       insts_before, insts_after, new_symbs);
   }
-  else if(expr.id() == ID_plus || expr.id() == ID_minus)
+  else if(expr.id() == ID_address_of)
+  {
+    // handle address_of, currently we only support address of symbol
+    return abstract_expr_read_address_of(
+      expr, abst_spec, goto_model, current_func,
+      insts_before, insts_after, new_symbs);
+  }
+  else if(expr.id() == ID_plus || expr.id() == ID_minus || expr.id() == ID_mult)
   {
     // handle plus/minus, should call plus/minus function if needed
     return abstract_expr_read_plusminus(
@@ -1725,9 +1733,10 @@ void am_abstractiont::insert_shape_assumptions(goto_modelt &goto_model, const ab
 void am_abstractiont::add_length_assumptions(goto_modelt &goto_model, const abstraction_spect &abst_spec)
 {
   // TODO 0903: this logic of this function needs to be changed. length variable may be member in a struct
+  const namespacet ns(goto_model.get_symbol_table());
   for(const auto &spec: abst_spec.get_specs())
   {
-    for(const auto &lp: spec.get_abst_lengths())
+    for(const auto &lp: spec.get_abst_lengths_with_expr(ns))
     {
       const irep_idt func_name = abst_spec.get_func_name();
 
@@ -1743,7 +1752,9 @@ void am_abstractiont::add_length_assumptions(goto_modelt &goto_model, const abst
         if(it->is_decl())
         {
           const code_declt &decl = it->get_decl();
-          // check if this declares the length variable
+          // check if this declares the symbol containing the length
+          // note that this symbol can be the length variable itself 
+          // or a struct containing the length variable
           if(decl.get_identifier() == lp.first)
           {
             is_local = true;
@@ -1754,7 +1765,7 @@ void am_abstractiont::add_length_assumptions(goto_modelt &goto_model, const abst
                 " not defined");
 
             // define the assumption instruction
-            const symbolt symb1 = goto_model.get_symbol_table().lookup_ref(decl.get_identifier());
+            const exprt symb1_expr = lp.second;
             exprt::operandst assumption_exprs;
             for(const auto &conc: spec.get_shape_indices())
             {
@@ -1763,7 +1774,7 @@ void am_abstractiont::add_length_assumptions(goto_modelt &goto_model, const abst
                 "Symbol " + std::string(spec.get_length_index_name().c_str()) +
                   " not defined");
               const symbolt symb2 = goto_model.get_symbol_table().lookup_ref(conc);
-              assumption_exprs.push_back(equal_exprt(symb1.symbol_expr(), symb2.symbol_expr()));
+              assumption_exprs.push_back(equal_exprt(symb1_expr, symb2.symbol_expr()));
             }
 
             // the value of the length variable should be one of the concrete indices
@@ -1803,9 +1814,9 @@ void am_abstractiont::add_length_assumptions(goto_modelt &goto_model, const abst
             spec.get_length_index_name()),
           "Symbol " + std::string(spec.get_length_index_name().c_str()) +
             " not defined");
-        const symbolt symb1 = goto_model.get_symbol_table().lookup_ref(lp.first);
+        const exprt symb1_expr = lp.second;
         const symbolt symb2 = goto_model.get_symbol_table().lookup_ref(spec.get_length_index_name());
-        equal_exprt assumption_expr(symb1.symbol_expr(), symb2.symbol_expr());
+        equal_exprt assumption_expr(symb1_expr, symb2.symbol_expr());
         auto new_assumption = goto_programt::make_assumption(assumption_expr);
 
         // insert it

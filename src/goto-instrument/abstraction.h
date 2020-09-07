@@ -289,6 +289,16 @@ protected:
     goto_programt::instructionst &insts_before,
     goto_programt::instructionst &insts_after,
     std::vector<symbolt> &new_symbs);
+  
+  // abst_read for address_of
+  static exprt abstract_expr_read_address_of(
+    const exprt &expr,
+    const abstraction_spect &abst_spec,
+    const goto_modelt &goto_model,
+    const irep_idt &current_func,
+    goto_programt::instructionst &insts_before,
+    goto_programt::instructionst &insts_after,
+    std::vector<symbolt> &new_symbs);
 
   /// \param expr: the expression to be read 
   /// \param abst_spec: the abstration information for the current function
