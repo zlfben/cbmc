@@ -33,12 +33,12 @@
                 {
                     "entity": "length",
                     "function": "aws_byte_buf_eq_harness",
-                    "name": "aws_byte_buf_eq_harness::1::lhs.len"
+                    "name": "aws_byte_buf_eq_harness::1::lhs.capacity"
                 },
                 {
                     "entity": "scalar",
                     "function": "aws_byte_buf_eq_harness",
-                    "name": "aws_byte_buf_eq_harness::1::rhs.len"
+                    "name": "aws_byte_buf_eq_harness::1::rhs.capacity"
                 }
             ]
 
