@@ -86,8 +86,38 @@ std::vector<std::string> abstraction_spect::get_abstraction_function_files() con
 abstraction_spect::spect abstraction_spect::spect::update_abst_spec(
   irep_idt old_function,
   irep_idt new_function,
-  std::unordered_map<irep_idt, std::pair<irep_idt, int>> _name_pairs) const
+  std::unordered_map<irep_idt, func_call_arg_namet> _name_pairs) const
 {
+  // This function update the entity forest across function calls
+  // For example, if we have two functions
+  // struct list{
+  //   struct buf{
+  //       len
+  //   }
+  // };
+  // bar(list::buf *buffer)
+  // {
+  // }
+  // foo(){
+  //   list l;
+  //   bar(&(l.buf));
+  // }
+  // Foo forest:
+  // l  
+  // |
+  // |
+  // buf (STRUCT)
+  // |  
+  // |   
+  // len 
+  // (LENGTH) (ARRAY)
+  // Bar forest will be updated into:
+  // buffer (STRUCT_POINTER)
+  // |  
+  // |   
+  // len
+  // (LENGTH) (ARRAY)
+  
   // copy the spec into a new one, clear the entities
   spect new_spec(*this);
   new_spec.abst_entities = std::move(std::unordered_map<irep_idt, std::unique_ptr<entityt>>());
@@ -108,9 +138,10 @@ abstraction_spect::spect abstraction_spect::spect::update_abst_spec(
     if(all_abst_entities.find(pair.first) != all_abst_entities.end())
     {
       auto orig_entity = all_abst_entities[pair.first];
-      int flag = pair.second.second;  // flag: 0(normal), 1(entity to pointer), -1(pointer to entity)
-      orig_entity.name = pair.second.first;
-      if(flag == 1)
+      // flag: REGULAR / POINTER_TO_ENTITY / ENTITY_TO_POINTER
+      func_call_arg_namet::arg_translate_typet flag = pair.second.type;  
+      orig_entity.name = pair.second.name;
+      if(flag == func_call_arg_namet::ENTITY_TO_POINTER)
       {
         if(orig_entity.type == entityt::STRUCT)
           orig_entity.type = entityt::STRUCT_POINTER;
@@ -120,7 +151,7 @@ abstraction_spect::spect abstraction_spect::spect::update_abst_spec(
             " Currently we are not supporting other types of pointer "
             "calculation as function args.";
       }
-      else if(flag == -1)
+      else if(flag == func_call_arg_namet::POINTER_TO_ENTITY)
       {
         if(orig_entity.type == entityt::STRUCT_POINTER)
           orig_entity.type = entityt::STRUCT;
@@ -131,7 +162,7 @@ abstraction_spect::spect abstraction_spect::spect::update_abst_spec(
             "calculation as function args.";
       }
       else {}
-      new_spec.insert_entity(pair.second.first, orig_entity);
+      new_spec.insert_entity(pair.second.name, orig_entity);
     }
   }
 
@@ -141,7 +172,7 @@ abstraction_spect::spect abstraction_spect::spect::update_abst_spec(
 abstraction_spect abstraction_spect::update_abst_spec(
   irep_idt old_function,
   irep_idt new_function,
-  std::unordered_map<irep_idt, std::pair<irep_idt, int>> _name_pairs) const
+  std::unordered_map<irep_idt, spect::func_call_arg_namet> _name_pairs) const
 {
   if(function != old_function)
   {
@@ -197,7 +228,7 @@ void abstraction_spect::spect::insert_entity(const irep_idt &_name, const abstra
         if(current_layer_entities->find(first_layer_name) == current_layer_entities->end())
           current_layer_entities->insert({first_layer_name, std::unique_ptr<entityt>(new struct_pointer_entityt(first_layer_name))});
         if((*current_layer_entities)[first_layer_name]->type != entityt::STRUCT_POINTER)
-          throw "the entity " + first_layer_name + " doesn't seem to be a struct pointer";
+          throw "the entity " + first_layer_name + " doesn't seem to be a struct pointer. Most likely the json file is wrong.";
         current_layer_entities = &((*current_layer_entities)[first_layer_name]->sub_entities);
       }
       else  // first layer is an "."
@@ -207,14 +238,17 @@ void abstraction_spect::spect::insert_entity(const irep_idt &_name, const abstra
         if(current_layer_entities->find(first_layer_name) == current_layer_entities->end())
           current_layer_entities->insert({first_layer_name, std::unique_ptr<entityt>(new struct_entityt(first_layer_name))});
         if((*current_layer_entities)[first_layer_name]->type != entityt::STRUCT)
-          throw "the entity " + first_layer_name + " doesn't seem to be a struct";
+          throw "the entity " + first_layer_name + " doesn't seem to be a struct. Most likely the json file is wrong.";
         current_layer_entities = &((*current_layer_entities)[first_layer_name]->sub_entities);
       }
     }
     else  // "->" and "." are not found
     {
       // this is at the leaf
-      INVARIANT(name_str == std::string(entity.name.c_str()), "the full name and the entity name should match");
+      INVARIANT(name_str == std::string(entity.name.c_str()), "the full name and the entity name should match.");
+      INVARIANT(
+        current_layer_entities->find(name_str) == current_layer_entities->end(),
+        "the entity " + name_str + " already exists");
       current_layer_entities->insert({name_str, std::unique_ptr<entityt>(new entityt(entity))});
       name_str = "";
     }
@@ -238,7 +272,7 @@ void abstraction_spect::spect::insert_entity(const irep_idt &_name, const std::s
         if(current_layer_entities->find(first_layer_name) == current_layer_entities->end())
           current_layer_entities->insert({first_layer_name, std::unique_ptr<entityt>(new struct_pointer_entityt(first_layer_name))});
         if((*current_layer_entities)[first_layer_name]->type != entityt::STRUCT_POINTER)
-          throw "the entity " + first_layer_name + " doesn't seem to be a struct pointer";
+          throw "the entity " + first_layer_name + " doesn't seem to be a struct pointer. Most likely the json file is wrong.";
         current_layer_entities = &((*current_layer_entities)[first_layer_name]->sub_entities);
       }
       else  // first layer is an "."
@@ -248,7 +282,7 @@ void abstraction_spect::spect::insert_entity(const irep_idt &_name, const std::s
         if(current_layer_entities->find(first_layer_name) == current_layer_entities->end())
           current_layer_entities->insert({first_layer_name, std::unique_ptr<entityt>(new struct_entityt(first_layer_name))});
         if((*current_layer_entities)[first_layer_name]->type != entityt::STRUCT)
-          throw "the entity " + first_layer_name + " doesn't seem to be a struct";
+          throw "the entity " + first_layer_name + " doesn't seem to be a struct. Most likely the json file is wrong.";
         current_layer_entities = &((*current_layer_entities)[first_layer_name]->sub_entities);
       }
     }
@@ -526,6 +560,10 @@ std::unordered_map<irep_idt, exprt>
 abstraction_spect::spect::get_abst_lengths_with_expr(const namespacet &ns) const
 {
   // helper function to translate a length variable entity path to exprt
+  // say the path is [foo(entity), buf(entity), len(entity)]
+  // step 1: foo_expr: ID_symbol
+  // step 2: member_exprt(foo_expr, buf): ID_member
+  // step 3: member_exprt(member_exprt(foo_expr, buf), len)
   auto generate_expr_from_path = [&ns](std::vector<entityt> path) {
     const symbol_tablet &symbol_table = ns.get_symbol_table();
     INVARIANT(path.size() > 0, "The length entity path should not be empty");

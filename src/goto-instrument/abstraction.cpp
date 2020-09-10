@@ -184,25 +184,27 @@ irep_idt am_abstractiont::get_string_id_from_exprt(const exprt &expr)
     const irep_idt &comp_name = mem_expr.get_component_name();
 
     // we need to get rid of dereference/address_of pairs
+    // e.g. *&*&buf
     exprt current_obj_expr = obj_expr;
     while((current_obj_expr.id() == ID_dereference &&
            current_obj_expr.operands()[0].id() == ID_address_of) ||
           (current_obj_expr.id() == ID_address_of &&
            current_obj_expr.operands()[0].id() == ID_dereference))
       current_obj_expr = current_obj_expr.operands()[0].operands()[0];
+    // buf->a --translated--> (*buf).a
     if(current_obj_expr.id() == ID_dereference)
     {
       INVARIANT(
         current_obj_expr.operands().size() == 1,
         "dereference should only have one operand");
-      const exprt &pointer = current_obj_expr.operands()[0];
+      const exprt &pointer = current_obj_expr.operands()[0]; // buf
       irep_idt pointer_str_id = get_string_id_from_exprt(pointer);
       return std::string(pointer_str_id.c_str()) + "->" +
               std::string(comp_name.c_str());
     }
-    else
+    else  // buf.a
     {
-      irep_idt obj_str_id = get_string_id_from_exprt(current_obj_expr);
+      irep_idt obj_str_id = get_string_id_from_exprt(current_obj_expr); // buf
       return std::string(obj_str_id.c_str()) + "." +
               std::string(comp_name.c_str());
     }
@@ -303,23 +305,26 @@ void am_abstractiont::complete_abst_spec(
 
 /// check if an expr is address_of or dereference
 /// \return flag: 0(none); 1(address_of) -1(dereference)
-int am_abstractiont::check_expr_is_address_or_deref(const exprt &expr, exprt &next_layer)
+abstraction_spect::spect::func_call_arg_namet::arg_translate_typet
+am_abstractiont::check_expr_is_address_or_deref(
+  const exprt &expr,
+  exprt &next_layer)
 {
   if(expr.id() == ID_dereference)
   {
     INVARIANT(expr.operands().size() == 1, "dereference should only have one operand");
     next_layer = expr.operands()[0];
-    return -1;
+    return abstraction_spect::spect::func_call_arg_namet::POINTER_TO_ENTITY;
   }
   else if(expr.id() == ID_address_of)
   {
     INVARIANT(expr.operands().size() == 1, "address_of should only have one operand");
     next_layer = expr.operands()[0];
-    return 1;
+    return abstraction_spect::spect::func_call_arg_namet::ENTITY_TO_POINTER;
   }
   else
   {
-    return 0;
+    return abstraction_spect::spect::func_call_arg_namet::REGULAR;
   }
 }
 
@@ -335,6 +340,7 @@ irep_idt am_abstractiont::check_expr_is_symbol(const exprt &expr)
   else if(expr.id() == ID_typecast)
   {
     // if it is a typecast, check the next level
+    // typecast are something like (char *)lhs, (size_t)a
     return check_expr_is_symbol(expr.operands()[0]);
   }
   else
@@ -345,11 +351,14 @@ irep_idt am_abstractiont::check_expr_is_symbol(const exprt &expr)
 }
 
 // go into a function to find all function calls we'll need to abstract
-std::vector<std::tuple<irep_idt, std::unordered_map<irep_idt, std::pair<irep_idt, int>>>>
+std::vector<std::tuple<irep_idt, std::unordered_map<irep_idt, abstraction_spect::spect::func_call_arg_namet>>>
 am_abstractiont::find_function_calls(irep_idt func_name, goto_modelt &goto_model, const abstraction_spect &abst_spec)
 {
-  std::vector<std::tuple<irep_idt, std::unordered_map<irep_idt, std::pair<irep_idt, int>>>> result;
-  
+  std::vector<std::tuple<
+    irep_idt,
+    std::unordered_map<irep_idt, abstraction_spect::spect::func_call_arg_namet>>>
+    result;
+
   const goto_functiont &goto_function = goto_model.get_goto_function(func_name);
   forall_goto_program_instructions(it, goto_function.body)
   {
@@ -360,17 +369,23 @@ am_abstractiont::find_function_calls(irep_idt func_name, goto_modelt &goto_model
       const code_function_callt fc = it->get_function_call();
       const irep_idt &new_func_name = to_symbol_expr(fc.function()).get_identifier();
       const goto_functiont &new_function = goto_model.get_goto_function(new_func_name);
-      std::unordered_map<irep_idt, std::pair<irep_idt, int>> map;
+      std::unordered_map<irep_idt, abstraction_spect::spect::func_call_arg_namet> map;
+      // Consider we have a function call func(&lhs, &rhs)
+      // arg will be &lhs, &rhs
+      // real_arg will be lhs, rhs
       for(size_t i=0; i<fc.arguments().size(); i++)
       {
         // for each argument, we check whether we need to abstract it.
         const exprt &arg = fc.arguments()[i];
         exprt real_arg = arg;
-        int flag = check_expr_is_address_or_deref(arg, real_arg);
+        abstraction_spect::spect::func_call_arg_namet::arg_translate_typet
+          flag = check_expr_is_address_or_deref(arg, real_arg);
         irep_idt symbol_name = check_expr_is_symbol(real_arg);
         if(symbol_name != "" && abst_spec.has_entity(symbol_name))
           // if so, we push it into the map
-          map.insert({symbol_name, std::make_pair(new_function.parameter_identifiers[i], flag)});
+          map.insert({symbol_name,
+                      abstraction_spect::spect::func_call_arg_namet(
+                        new_function.parameter_identifiers[i], flag)});
       }
       if(!map.empty())  //if map is not empty, we create a new entry in the result
         result.push_back(std::make_tuple(new_func_name, map));
@@ -405,7 +420,9 @@ am_abstractiont::calculate_complete_abst_specs_for_funcs(goto_modelt &goto_model
     todo.pop();
 
     // check it calls any other functions that we need to abstract
-    std::vector<std::tuple<irep_idt, std::unordered_map<irep_idt, std::pair<irep_idt, int>>>>
+    std::vector<std::tuple<
+      irep_idt,
+      std::unordered_map<irep_idt, abstraction_spect::spect::func_call_arg_namet>>>
       func_tuples = find_function_calls(
         current_func_name, goto_model, function_spec_map[current_func_name]);
 
@@ -414,7 +431,9 @@ am_abstractiont::calculate_complete_abst_specs_for_funcs(goto_modelt &goto_model
     for(const auto &func_tuple: func_tuples)
     {
       irep_idt new_func_name = std::get<0>(func_tuple);
-      std::unordered_map<irep_idt, std::pair<irep_idt, int>> name_pairs = std::get<1>(func_tuple);
+      std::
+        unordered_map<irep_idt, abstraction_spect::spect::func_call_arg_namet>
+          name_pairs = std::get<1>(func_tuple);
       if(function_spec_map.find(new_func_name) == function_spec_map.end())
       {
         // we need to abstract it and analyze it
@@ -430,6 +449,10 @@ am_abstractiont::calculate_complete_abst_specs_for_funcs(goto_modelt &goto_model
         // we need to compare if the structure is the same
         abstraction_spect new_func_abst = function_spec_map[current_func_name].update_abst_spec(current_func_name, new_func_name, name_pairs);
         complete_abst_spec(goto_model.get_goto_function(new_func_name), new_func_abst);
+        
+        // Note that:
+        // compare_shape compares everything;
+        // compare_shape_only only compares the shape
         if(!new_func_abst.compare_shape(function_spec_map[new_func_name]))
         {
           std::string error_code = "Same function abstracted with different shape!\n";
@@ -497,7 +520,6 @@ bool am_abstractiont::contains_a_function_call(const exprt &expr)
 
 std::vector<exprt> am_abstractiont::get_direct_access_exprs(const exprt &expr, const abstraction_spect::spect &spec)
 {
-  // TODO 0904: change this function to support member
   class find_direct_accesst : public const_expr_visitort
   {
   protected:
@@ -623,7 +645,6 @@ void am_abstractiont::declare_abst_variables_for_func(
   // Step 1: insert abst variables into the symbol table
   for(const abstraction_spect::spect &spec: abst_spec.get_specs())
   {
-    // TODO 0903: this need to be changed. Adding structs is different
     for(const auto &ent_pair: spec.get_top_level_entities())
       insert_abst_symbol(ent_pair.second);
   }
@@ -685,7 +706,6 @@ bool am_abstractiont::check_if_exprt_eval_to_abst_index(
   const abstraction_spect &abst_spec,
   abstraction_spect::spect &spec)
 {
-  // TODO 0904: change this to support member
   if(expr.id() == ID_symbol)
   {
     // if it is a symbol, check whether if it is in the entity list
@@ -1335,22 +1355,19 @@ exprt am_abstractiont::abstract_expr_read_dereference(
     INVARIANT(pointer_expr.operands().size() == 2, "The number of operands should be 2 for plus/minus");
     const exprt &base_pointer = pointer_expr.operands()[0];
     const exprt &offset_expr = pointer_expr.operands()[1];
-    if(base_pointer.id() == ID_symbol && base_pointer.type().id() == ID_pointer)
+    if((base_pointer.id() == ID_symbol || base_pointer.id() == ID_member) &&
+       base_pointer.type().id() == ID_pointer)
     {
-      const irep_idt base_pointer_orig_name = to_symbol_expr(base_pointer).get_identifier();
+      const irep_idt base_pointer_orig_name = get_string_id_from_exprt(base_pointer);
+      const exprt new_base_pointer = abstract_expr_read(
+        base_pointer, abst_spec, goto_model, current_func,
+        insts_before, insts_after, new_symbs);
       if(abst_spec.has_array_entity(base_pointer_orig_name))
       {
         // a[i]  ==>   is_prec(i$abst) ? a$abst[i$abst] : nondet
 
         // get the array's spec
         const auto &spec = abst_spec.get_spec_for_array_entity(base_pointer_orig_name);
-
-        // get the new base pointer a$abst
-        const irep_idt base_pointer_new_name = get_abstract_name(base_pointer_orig_name);
-        if(!goto_model.symbol_table.has_symbol(base_pointer_new_name))
-          throw "The abst symbol " + std::string(base_pointer_new_name.c_str()) + " is not added to the symbol table";
-        const symbolt &abst_base_pointer_symb = goto_model.symbol_table.lookup_ref(base_pointer_new_name);
-        const exprt new_base_pointer = abst_base_pointer_symb.symbol_expr();
 
         // get the new offset i$abst
         exprt new_offset = abstract_expr_read(
@@ -1375,7 +1392,7 @@ exprt am_abstractiont::abstract_expr_read_dereference(
         }
 
         // the access a$abst[i$abst]
-        plus_exprt new_plus_expr(abst_base_pointer_symb.symbol_expr(), new_offset);
+        plus_exprt new_plus_expr(new_base_pointer, new_offset);
         dereference_exprt new_access(new_plus_expr);
 
         // the function call is_prec(i$abst)
@@ -1414,7 +1431,7 @@ exprt am_abstractiont::abstract_expr_read_dereference(
         }
         else {}  // don't need to do anything
         
-        plus_exprt new_plus_expr(base_pointer, new_offset);
+        plus_exprt new_plus_expr(new_base_pointer, new_offset);
         dereference_exprt new_expr(new_plus_expr);
         return std::move(new_expr);
       }
@@ -1445,22 +1462,18 @@ exprt am_abstractiont::abstract_expr_read_index(
 
   const exprt &array = expr.operands()[0];
   const exprt &index = expr.operands()[1];
-  if(array.id() == ID_symbol && array.type().id() == ID_array)
+  if((array.id() == ID_symbol || array.id() == ID_member) && array.type().id() == ID_array)
   {
-    const irep_idt array_orig_name = to_symbol_expr(array).get_identifier();
+    const irep_idt array_orig_name = get_string_id_from_exprt(array);
+    const exprt new_array = abstract_expr_read(
+        array, abst_spec, goto_model, current_func,
+        insts_before, insts_after, new_symbs);
     if(abst_spec.has_array_entity(array_orig_name))
     {
       // a[i]  ==>   is_prec(i$abst) ? a$abst[i$abst] : nondet
 
       // get the array's spec
       const auto &spec = abst_spec.get_spec_for_array_entity(array_orig_name);
-
-      // get the new base pointer a$abst
-      const irep_idt array_new_name = get_abstract_name(array_orig_name);
-      if(!goto_model.symbol_table.has_symbol(array_new_name))
-        throw "The abst symbol " + std::string(array_new_name.c_str()) + " is not added to the symbol table";
-      const symbolt &abst_array_symb = goto_model.symbol_table.lookup_ref(array_new_name);
-      const exprt new_array = abst_array_symb.symbol_expr();
 
       // get the new offset i$abst
       exprt new_index = abstract_expr_read(
@@ -1523,7 +1536,7 @@ exprt am_abstractiont::abstract_expr_read_index(
       }
       else {}  // don't need to do anything
 
-      index_exprt new_expr(array, new_index);
+      index_exprt new_expr(new_array, new_index);
       return std::move(new_expr);
     }
   }
@@ -1556,9 +1569,9 @@ exprt am_abstractiont::abstract_expr_read_address_of(
   }
   else
   {
-    throw "We are not supporting &(address_of) for non-symbol operands.";
+    throw "We are not supporting &(address_of) for " +
+      std::string(entity.id().c_str()) + " operands.";
   }
-  
 }
 
 exprt am_abstractiont::abstract_expr_read(
@@ -1594,6 +1607,8 @@ exprt am_abstractiont::abstract_expr_read(
   else if(expr.id() == ID_member)
   {
     // if it is a member access, we should run abst read on the object
+    // For example, in C: buf->length
+    // in goto: member(dereference(buf), length)
     INVARIANT(expr.operands().size() == 1, "member access should only have one operand");
     const member_exprt &mem_expr = to_member_expr(expr);
     const exprt &obj_expr = expr.operands()[0];
@@ -1732,7 +1747,6 @@ void am_abstractiont::insert_shape_assumptions(goto_modelt &goto_model, const ab
 
 void am_abstractiont::add_length_assumptions(goto_modelt &goto_model, const abstraction_spect &abst_spec)
 {
-  // TODO 0903: this logic of this function needs to be changed. length variable may be member in a struct
   const namespacet ns(goto_model.get_symbol_table());
   for(const auto &spec: abst_spec.get_specs())
   {
@@ -1765,7 +1779,7 @@ void am_abstractiont::add_length_assumptions(goto_modelt &goto_model, const abst
                 " not defined");
 
             // define the assumption instruction
-            const exprt symb1_expr = lp.second;
+            const exprt length_expr = lp.second;
             exprt::operandst assumption_exprs;
             for(const auto &conc: spec.get_shape_indices())
             {
@@ -1773,8 +1787,8 @@ void am_abstractiont::add_length_assumptions(goto_modelt &goto_model, const abst
                 goto_model.get_symbol_table().has_symbol(conc),
                 "Symbol " + std::string(spec.get_length_index_name().c_str()) +
                   " not defined");
-              const symbolt symb2 = goto_model.get_symbol_table().lookup_ref(conc);
-              assumption_exprs.push_back(equal_exprt(symb1_expr, symb2.symbol_expr()));
+              const symbolt conc_index_expr = goto_model.get_symbol_table().lookup_ref(conc);
+              assumption_exprs.push_back(equal_exprt(length_expr, conc_index_expr.symbol_expr()));
             }
 
             // the value of the length variable should be one of the concrete indices
@@ -1814,9 +1828,21 @@ void am_abstractiont::add_length_assumptions(goto_modelt &goto_model, const abst
             spec.get_length_index_name()),
           "Symbol " + std::string(spec.get_length_index_name().c_str()) +
             " not defined");
-        const exprt symb1_expr = lp.second;
-        const symbolt symb2 = goto_model.get_symbol_table().lookup_ref(spec.get_length_index_name());
-        equal_exprt assumption_expr(symb1_expr, symb2.symbol_expr());
+        // define the assumption instruction
+        const exprt length_expr = lp.second;
+        exprt::operandst assumption_exprs;
+        for(const auto &conc: spec.get_shape_indices())
+        {
+          INVARIANT(
+            goto_model.get_symbol_table().has_symbol(conc),
+            "Symbol " + std::string(spec.get_length_index_name().c_str()) +
+              " not defined");
+          const symbolt conc_index_expr = goto_model.get_symbol_table().lookup_ref(conc);
+          assumption_exprs.push_back(equal_exprt(length_expr, conc_index_expr.symbol_expr()));
+        }
+
+        // the value of the length variable should be one of the concrete indices
+        or_exprt assumption_expr(assumption_exprs);
         auto new_assumption = goto_programt::make_assumption(assumption_expr);
 
         // insert it

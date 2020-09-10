@@ -26,24 +26,36 @@ Author: Lefan Zhang, lefanz@amazon.com
 class am_abstractiont
 {
 protected:
-  // TODO 0903: change logic given the target can be members in structs
-
   // class to find out type relations between exprs
   // this is used to identify symbols we need to abstract given a target array
   // call solve() after reading in all exprs and adding needed links
+  // This expr-type_relation is a class that do graph analysis on expressions in the program
+  // Each expr is a node in the graph
+  // If two exprs should be abstracted in the same way (e.g. A is typecast of B; there is A=B; etc.), 
+  // there should be an edge between them.
+  // If the same expr appears twice in the program, there will be two nodes.
+  // The class analyze the program and construct this graph. Then it does closure analysis to 
+  // figure out which entities need to be abstracted.
+  // say if we have 
+  //     buf.a = buf_t.a
+  //     buf_t.a = len
+  // nodes: 0(buf.a), 1(buf_t.a), 2(buf_t.a), 3(len)
+  // edges: {0: [1], 1: [0], 2: [3], 3: [2]} 
+  //        ==implicitly added edges between the same symbol==> {0: [1], 1: [0, 2], 2: [3, 1], 3: [2]}
+  // symbols: {"buf.a": [0], "buf_t.a": [1,2], "len": [3]}
   class expr_type_relation
   {
   protected:
     irep_idt target_array;
-
-    std::vector<std::vector<size_t>> edges;
+    // we have two graphs. One for indices, another for arrays.
+    std::vector<std::vector<size_t>> edges;  // What are the neighbors of the i-th node
     std::vector<std::vector<size_t>> edges_array;
-    std::vector<exprt> expr_list;
-    std::unordered_set<size_t> finished;
+    std::vector<exprt> expr_list;  // Ordered list of expressions
+    std::unordered_set<size_t> finished;  // analyzed closure set
     std::unordered_set<size_t> finished_array;
-    std::unordered_set<size_t> todo;
+    std::unordered_set<size_t> todo;  // The node just put into the closure set. We need to put its neighbors as well.
     std::unordered_set<size_t> todo_array;
-    std::map<irep_idt, std::vector<size_t>> symbols;
+    std::map<irep_idt, std::vector<size_t>> symbols;  // Store information about which nodes are entities/symbols (var or member of struct)
     std::unordered_set<irep_idt> abst_variables;
     std::unordered_set<irep_idt> abst_arrays;
 
@@ -74,7 +86,7 @@ protected:
 
   /// check if an expr is array_of or dereference
   /// \return flag: 0(none); 1(array_of) -1(dereference)
-  static int check_expr_is_address_or_deref(const exprt &expr, exprt &next_layer);
+  static abstraction_spect::spect::func_call_arg_namet::arg_translate_typet check_expr_is_address_or_deref(const exprt &expr, exprt &next_layer);
   
   static irep_idt check_expr_is_symbol(const exprt &expr);
   // complete the abstraction spec for a goto function using static analysis
@@ -84,7 +96,7 @@ protected:
   /// \return a vector. each entry is a pair of [function_name, variable map]
   /// variable map: key - original symbol name; value [new symbol name, flag]
   /// flag: 0 - normal, 1 - entity to pointer, -1 - pointer to entity 
-  static std::vector<std::tuple<irep_idt, std::unordered_map<irep_idt, std::pair<irep_idt, int>>>>
+  static std::vector<std::tuple<irep_idt, std::unordered_map<irep_idt, abstraction_spect::spect::func_call_arg_namet>>>
   find_function_calls(irep_idt func_name, goto_modelt &goto_model, const abstraction_spect &abst_spec);
 
   /// \param goto_function: the function to be analyzed
@@ -281,6 +293,9 @@ protected:
     std::vector<symbolt> &new_symbs);
 
   // abst_read for index
+  // a[i]
+  // a is dynamic: dereference(a+i)
+  // a is static: index(a, i)
   static exprt abstract_expr_read_index(
     const exprt &expr,
     const abstraction_spect &abst_spec,

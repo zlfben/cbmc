@@ -93,6 +93,15 @@ public:
       std::vector<exprt> get_assumption_exprs(const namespacet &ns, const size_t &spec_index) const;
     };
 
+    struct func_call_arg_namet
+    {
+      irep_idt name;  // the name of the argument in the callee function
+      enum arg_translate_typet {REGULAR, ENTITY_TO_POINTER, POINTER_TO_ENTITY};
+      arg_translate_typet type;  // whether it is a translation between entity and pointer
+      func_call_arg_namet(const irep_idt &_name, const arg_translate_typet &_type)
+        : name(_name), type(_type) {}
+    };
+
     class entityt
     {
     public:
@@ -105,6 +114,7 @@ public:
     
       entityt(){}
       entityt(irep_idt _name) : name(_name) {}
+      entityt(irep_idt _name, entityt_type _type): name(_name), type(_type) {}
       entityt(const entityt &_entity)
         : name(_entity.name),
           type(_entity.type) {
@@ -359,18 +369,23 @@ public:
     // "entity" is the entity itself
     void insert_entity(const irep_idt &_name, const entityt &entity);
 
-    //We will have functions for accessing and modifying the above data.
-    //_type: "array", "scalar", "length", etc.
+    // We will have functions for accessing and modifying the above data.
+    // _type: "array", "scalar", "length", etc.
     void insert_entity(const irep_idt &_name, const std::string &_type);
 
+    // Return the top level entities, which are "roots" in the entity forest
     std::unordered_map<irep_idt, entityt> get_top_level_entities() const;
 
+    // Return all nodes in the entity forest
     std::unordered_map<irep_idt, entityt> get_all_abst_entities() const;
 
+    // Return all nodes with type "ARRAY" in the entity forest
     std::unordered_map<irep_idt, entityt> get_abst_arrays() const;
     
+    // Return all nodes with type "SCALAR" or "LENGTH" in the entity forest
     std::unordered_map<irep_idt, entityt> get_abst_indices() const;
 
+    // Return all nodes with type "LENGTH" in the entity forest
     std::unordered_map<irep_idt, entityt> get_abst_lengths() const;
 
     static void search_all_lengths_and_generate_path(
@@ -542,7 +557,7 @@ public:
     spect update_abst_spec(
       irep_idt old_function,
       irep_idt new_function,
-      std::unordered_map<irep_idt, std::pair<irep_idt, int>> _name_pairs) const;
+      std::unordered_map<irep_idt, func_call_arg_namet> _name_pairs) const;
   };
 
   // gather specs
@@ -567,7 +582,7 @@ public:
   abstraction_spect update_abst_spec(
     irep_idt old_function,
     irep_idt new_function,
-    std::unordered_map<irep_idt, std::pair<irep_idt, int>> _name_pairs) const;
+    std::unordered_map<irep_idt, spect::func_call_arg_namet> _name_pairs) const;
 
   // check if a variable is abstracted
   bool has_entity(const irep_idt &entity_name) const

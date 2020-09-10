@@ -440,6 +440,9 @@ size_t four_abs(size_t index, size_t a1, size_t a2, size_t a3, size_t a4) {
 //Get the concretization of an index. We assume all args are >= 0
 //Shape *c*c*c*c*
 size_t concretize_4(size_t abs_ind, size_t a1, size_t a2, size_t a3, size_t a4) {
+    assert(a1<a2);
+    assert(a2<a3);
+    assert(a3<a4);
     size_t raw_index = real_to_raw_4(abs_ind, a1, a2, a3, a4);
     if (raw_index == 0)
         return nndt_under(a1);
