@@ -31,6 +31,11 @@
                     "name": "aws_byte_buf_eq_c_str_harness::1::buf.capacity"
                 },
                 {
+                    "entity": "scalar",
+                    "function": "aws_byte_buf_eq_c_str_harness",
+                    "name": "aws_byte_buf_eq_c_str_harness::1::buf.len"
+                },
+                {
                     "entity": "array",
                     "function": "aws_byte_buf_eq_c_str_harness",
                     "name": "aws_byte_buf_eq_c_str_harness::1::c_str"

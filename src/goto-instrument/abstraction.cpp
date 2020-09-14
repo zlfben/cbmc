@@ -706,13 +706,13 @@ bool am_abstractiont::check_if_exprt_eval_to_abst_index(
   const abstraction_spect &abst_spec,
   abstraction_spect::spect &spec)
 {
-  if(expr.id() == ID_symbol)
+  if(expr.id() == ID_symbol || expr.id() == ID_member)
   {
     // if it is a symbol, check whether if it is in the entity list
-    const symbol_exprt &symb = to_symbol_expr(expr);
-    if(abst_spec.has_index_entity(symb.get_identifier()))
+    const irep_idt symb_id = get_string_id_from_exprt(expr);
+    if(abst_spec.has_index_entity(symb_id))
     {
-      spec = abst_spec.get_spec_for_index_entity(symb.get_identifier());
+      spec = abst_spec.get_spec_for_index_entity(symb_id);
       return true;
     }
     else

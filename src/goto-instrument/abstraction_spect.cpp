@@ -545,7 +545,7 @@ void abstraction_spect::spect::search_all_lengths_and_generate_path(
     !current_path.empty(),
     "The current path should not be empty when calling "
     "search_all_lengths_and_gererate_path");
-  const entityt &current_entity = *(current_path.end() - 1);
+  const entityt current_entity = *(current_path.end() - 1);
   if(current_entity.type == entityt::LENGTH)
     results.push_back(current_path);
   for(const auto &ent : current_entity.sub_entities)
