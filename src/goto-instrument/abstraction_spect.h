@@ -118,7 +118,7 @@ public:
       entityt(const entityt &_entity)
         : name(_entity.name),
           type(_entity.type) {
-        sub_entities = std::move(std::unordered_map<irep_idt, std::unique_ptr<entityt>>());
+        sub_entities = std::unordered_map<irep_idt, std::unique_ptr<entityt>>();
         for(const auto &k_v: _entity.sub_entities)
           sub_entities.insert({k_v.first, std::unique_ptr<entityt>(new entityt(*k_v.second))});
       }
@@ -131,7 +131,7 @@ public:
       {
         name = other.name;
         type = other.type;
-        sub_entities = std::move(std::unordered_map<irep_idt, std::unique_ptr<entityt>>());
+        sub_entities = std::unordered_map<irep_idt, std::unique_ptr<entityt>>();
         for(const auto &k_v: other.sub_entities)
           sub_entities.insert({k_v.first, std::unique_ptr<entityt>(new entityt(*k_v.second))});
         return *this;
@@ -335,7 +335,7 @@ public:
         concretize_func(_spec.concretize_func),
         spect_index(_spec.spect_index)
     {
-      abst_entities = std::move(std::unordered_map<irep_idt, std::unique_ptr<entityt>>());
+      abst_entities = std::unordered_map<irep_idt, std::unique_ptr<entityt>>();
       for(const auto &k_v: _spec.abst_entities)
         abst_entities.insert({k_v.first, std::unique_ptr<entityt>(new entityt(*k_v.second))});
     }
@@ -352,7 +352,7 @@ public:
       abstract_func = other.abstract_func;
       concretize_func = other.concretize_func;
       spect_index = other.spect_index;
-      abst_entities = std::move(std::unordered_map<irep_idt, std::unique_ptr<entityt>>());
+      abst_entities = std::unordered_map<irep_idt, std::unique_ptr<entityt>>();
       for(const auto &k_v: other.abst_entities)
         abst_entities.insert({k_v.first, std::unique_ptr<entityt>(new entityt(*k_v.second))});
       return *this;
