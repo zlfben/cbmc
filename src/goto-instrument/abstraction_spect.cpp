@@ -120,7 +120,7 @@ abstraction_spect::spect abstraction_spect::spect::update_abst_spec(
   
   // copy the spec into a new one, clear the entities
   spect new_spec(*this);
-  new_spec.abst_entities = std::move(std::unordered_map<irep_idt, std::unique_ptr<entityt>>());
+  new_spec.abst_entities = std::unordered_map<irep_idt, std::unique_ptr<entityt>>();
 
   auto all_abst_entities = get_all_abst_entities();
   const auto &top_layer_entities = abst_entities;
