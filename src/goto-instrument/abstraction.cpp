@@ -2067,7 +2067,8 @@ void am_abstractiont::abstract_goto_program(goto_modelt &goto_model, abstraction
       if(
         !it->is_decl() && !it->is_end_function() && !it->is_goto() &&
         !it->is_return() && !it->is_function_call() && !it->is_assert() &&
-        !it->is_assign() && !it->is_assume() && !it->is_dead() && !it->is_skip())
+        !it->is_assign() && !it->is_assume() && !it->is_dead() && !it->is_skip() && 
+        !it->is_other())
         throw "Unknown instruction type " + std::to_string(it->type);
       
       // insert new instructions before it

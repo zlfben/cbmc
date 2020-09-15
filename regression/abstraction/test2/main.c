@@ -4,10 +4,10 @@
 
 #define MAX_LEN 100
 
-bool foo(char* a1, int a1_len, char* a2, int a2_len){
+bool foo(char* a1, size_t a1_len, char* a2, size_t a2_len){
     bool res = true;
     if(a1_len == a2_len){
-        for(int i; i < a1_len; i++){
+        for(size_t i; i < a1_len; i++){
             if(a2[i] != a1[i] + 1) res &= false;
         }
         return res;
@@ -18,8 +18,8 @@ bool foo(char* a1, int a1_len, char* a2, int a2_len){
 
 }
 
-int bar(char * a1, int a1_len, char * a2, int a2_len) {
-    int i;
+int bar(char * a1, size_t a1_len, char * a2, size_t a2_len) {
+    size_t i;
     assert(a1_len == a2_len);
     __CPROVER_assume(i < a1_len);
     if(a2[i] == a1[i] + 1) return 1;
@@ -29,8 +29,8 @@ int bar(char * a1, int a1_len, char * a2, int a2_len) {
 void main(){
     char * a1;
     char * a2;
-    int a1_len;
-    int a2_len;
+    size_t a1_len;
+    size_t a2_len;
 
     __CPROVER_assume(a1_len < MAX_LEN);
     __CPROVER_assume(a2_len < MAX_LEN);
