@@ -2,8 +2,8 @@
     "entries": [
         {
             "entity": "array",
-            "function": "aws_array_eq_c_str_harness",
-            "name": "aws_array_eq_c_str_harness::1::array",
+            "function": "aws_byte_buf_eq_ignore_case_harness",
+            "name": "aws_byte_buf_eq_ignore_case_harness::1::lhs.buffer",
             "shape": {
                 "indices": ["cncrt0", "cncrt", "length"],
                 "assumptions": [
@@ -11,7 +11,7 @@
                     "cncrt0<cncrt",
                     "cncrt<length"
                 ],
-                "shape-type": "c*c*l*"
+                "shape-type": "c*c*l"
             },
             "abst-function-file": "./abst-funcs.c",
             "abst-functions":{
@@ -27,23 +27,18 @@
             "related-entities": [
                 {
                     "entity": "array",
-                    "function": "aws_array_eq_c_str_harness",
-                    "name": "aws_array_eq_c_str_harness::1::c_str"
+                    "function": "aws_byte_buf_eq_ignore_case_harness",
+                    "name": "aws_byte_buf_eq_ignore_case_harness::1::rhs.buffer"
                 },
                 {
                     "entity": "length",
-                    "function": "aws_array_eq_c_str_harness",
-                    "name": "aws_array_eq_c_str_harness::1::array_len"
+                    "function": "aws_byte_buf_eq_ignore_case_harness",
+                    "name": "aws_byte_buf_eq_ignore_case_harness::1::lhs.capacity"
                 },
                 {
                     "entity": "scalar",
-                    "function": "",
-                    "name": "str_len"
-                },
-                {
-                    "entity": "length",
-                    "function": "aws_array_eq_c_str_harness",
-                    "name": "aws_array_eq_c_str_harness::1::allocated_str_len"
+                    "function": "aws_byte_buf_eq_ignore_case_harness",
+                    "name": "aws_byte_buf_eq_ignore_case_harness::1::rhs.capacity"
                 }
             ]
 

@@ -5,10 +5,10 @@
 #define MAX_LEN 100
 
 // Compares if two arrays are the same (sort of)
-bool foo(char* a1, int a1_len, char* a2, int a2_len){
+bool foo(char* a1, size_t a1_len, char* a2, size_t a2_len){
     bool res = true;
     if(a1_len == a2_len){
-        for(int i; i < a1_len; i++){
+        for(size_t i=0; i < a1_len; i++){
             if(a2[i] != a1[i]) res &= false;
         }
         return res;
@@ -19,9 +19,9 @@ bool foo(char* a1, int a1_len, char* a2, int a2_len){
 
 }
 
-bool search(char* a, int a_len, char key){
+bool search(char* a, size_t a_len, char key){
     bool res = false;
-    for(int i =0; i < a_len; i++){
+    for(size_t i =0; i < a_len; i++){
         if(a[i] == key) res = true;
     }
     return res;
@@ -35,12 +35,12 @@ void copy(char ** a1, char** a2){
 bool main(){
     char * a1;
     char * a2;
-    int a1_len;
-    int a2_len;
+    size_t a1_len;
+    size_t a2_len;
     //Some char
     char key = 'a';
     //CBMC will choose i non-deterministically
-    int i;
+    size_t i;
 
     __CPROVER_assume(a1_len < MAX_LEN);
     __CPROVER_assume(a2_len <= a1_len);

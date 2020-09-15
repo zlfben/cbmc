@@ -29,19 +29,33 @@ protected:
   // class to find out type relations between exprs
   // this is used to identify symbols we need to abstract given a target array
   // call solve() after reading in all exprs and adding needed links
+  // This expr-type_relation is a class that do graph analysis on expressions in the program
+  // Each expr is a node in the graph
+  // If two exprs should be abstracted in the same way (e.g. A is typecast of B; there is A=B; etc.), 
+  // there should be an edge between them.
+  // If the same expr appears twice in the program, there will be two nodes.
+  // The class analyze the program and construct this graph. Then it does closure analysis to 
+  // figure out which entities need to be abstracted.
+  // say if we have 
+  //     buf.a = buf_t.a
+  //     buf_t.a = len
+  // nodes: 0(buf.a), 1(buf_t.a), 2(buf_t.a), 3(len)
+  // edges: {0: [1], 1: [0], 2: [3], 3: [2]} 
+  //        ==implicitly added edges between the same symbol==> {0: [1], 1: [0, 2], 2: [3, 1], 3: [2]}
+  // symbols: {"buf.a": [0], "buf_t.a": [1,2], "len": [3]}
   class expr_type_relation
   {
   protected:
     irep_idt target_array;
-
-    std::vector<std::vector<size_t>> edges;
+    // we have two graphs. One for indices, another for arrays.
+    std::vector<std::vector<size_t>> edges;  // What are the neighbors of the i-th node
     std::vector<std::vector<size_t>> edges_array;
-    std::vector<exprt> expr_list;
-    std::unordered_set<size_t> finished;
+    std::vector<exprt> expr_list;  // Ordered list of expressions
+    std::unordered_set<size_t> finished;  // analyzed closure set
     std::unordered_set<size_t> finished_array;
-    std::unordered_set<size_t> todo;
+    std::unordered_set<size_t> todo;  // The node just put into the closure set. We need to put its neighbors as well.
     std::unordered_set<size_t> todo_array;
-    std::map<irep_idt, std::vector<size_t>> symbols;
+    std::map<irep_idt, std::vector<size_t>> symbols;  // Store information about which nodes are entities/symbols (var or member of struct)
     std::unordered_set<irep_idt> abst_variables;
     std::unordered_set<irep_idt> abst_arrays;
 
@@ -64,11 +78,25 @@ protected:
     }
   };
 
+  // get the string representation from a "symbol" exprt
+  // e.g.
+  // symbol: <expr's name>
+  // member: <ptr's name>->member or <obj's name>.member
+  static irep_idt get_string_id_from_exprt(const exprt &expr);
+
+  /// check if an expr is array_of or dereference
+  /// \return flag: 0(none); 1(array_of) -1(dereference)
+  static abstraction_spect::spect::func_call_arg_namet::arg_translate_typet check_expr_is_address_or_deref(const exprt &expr, exprt &next_layer);
+  
+  static irep_idt check_expr_is_symbol(const exprt &expr);
   // complete the abstraction spec for a goto function using static analysis
   static void complete_abst_spec(const goto_functiont& goto_function, abstraction_spect &abst_spec);
 
-  // go into a function to find all function calls we'll need to abstract
-  static std::vector<std::tuple<irep_idt, std::unordered_map<irep_idt, irep_idt>>>
+  /// go into a function to find all function calls we'll need to abstract
+  /// \return a vector. each entry is a pair of [function_name, variable map]
+  /// variable map: key - original symbol name; value [new symbol name, flag]
+  /// flag: 0 - normal, 1 - entity to pointer, -1 - pointer to entity 
+  static std::vector<std::tuple<irep_idt, std::unordered_map<irep_idt, abstraction_spect::spect::func_call_arg_namet>>>
   find_function_calls(irep_idt func_name, goto_modelt &goto_model, const abstraction_spect &abst_spec);
 
   /// \param goto_function: the function to be analyzed
@@ -173,6 +201,29 @@ protected:
     goto_programt::instructionst &insts_after,
     std::vector<symbolt> &new_symbs);
 
+  /// \param real_lhs: the final lhs that is assigned
+  /// \param spec: the spect used for the abstraction
+  /// \param caller: the current function, used to generate temp var's name
+  /// \param goto_model: the goto_model
+  /// \param insts_before: It will put the instructions that declare the temp variable here.
+  /// \param insts_after: It will put the instructions that unclare the temp variable here.
+  /// \param new_symbs: The new introduced symbol will be stored here.
+  /// \return the temp variable used to call the abstracion function
+  /// This function creates an abst function wrap after the current function.
+  /// e.g. orig:
+  ///        a = func(xxx)
+  ///      new:
+  ///        tmp_a = func(xxx)
+  ///        a = abst(tmp_a)  <==== this function creates this inst and return tmp_a
+  static symbolt create_abstract_func_after(
+    const exprt &real_lhs,
+    const abstraction_spect::spect &spec,
+    const irep_idt &caller, 
+    const goto_modelt &goto_model,
+    goto_programt::instructionst &insts_before,
+    goto_programt::instructionst &insts_after,
+    std::vector<symbolt> &new_symbs);
+
   /// \param expr: the lhs expression to be written to
   /// \param abst_spec: the abstration information for the current function
   /// \param goto_model: the goto_model
@@ -233,6 +284,29 @@ protected:
 
   // abst_read for dereference
   static exprt abstract_expr_read_dereference(
+    const exprt &expr,
+    const abstraction_spect &abst_spec,
+    const goto_modelt &goto_model,
+    const irep_idt &current_func,
+    goto_programt::instructionst &insts_before,
+    goto_programt::instructionst &insts_after,
+    std::vector<symbolt> &new_symbs);
+
+  // abst_read for index
+  // a[i]
+  // a is dynamic: dereference(a+i)
+  // a is static: index(a, i)
+  static exprt abstract_expr_read_index(
+    const exprt &expr,
+    const abstraction_spect &abst_spec,
+    const goto_modelt &goto_model,
+    const irep_idt &current_func,
+    goto_programt::instructionst &insts_before,
+    goto_programt::instructionst &insts_after,
+    std::vector<symbolt> &new_symbs);
+  
+  // abst_read for address_of
+  static exprt abstract_expr_read_address_of(
     const exprt &expr,
     const abstraction_spect &abst_spec,
     const goto_modelt &goto_model,

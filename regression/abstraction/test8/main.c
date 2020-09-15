@@ -6,10 +6,10 @@
 void main(){
     char * a1;
     char * a2;
-    int a1_len;
-    int a2_len;
-    int i = 0;
-    int sum;
+    size_t a1_len;
+    size_t a2_len;
+    size_t i = 0;
+    size_t sum;
 
     __CPROVER_assume(a1_len < MAX_LEN);
     __CPROVER_assume(a2_len < MAX_LEN);

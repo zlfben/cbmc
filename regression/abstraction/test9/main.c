@@ -4,9 +4,9 @@
 
 #define MAX_LEN 100
 
-bool search(char* a, int a_len, char key){
+bool search(char* a, size_t a_len, char key){
     bool res = false;
-    for(int i =0; i < a_len; i++){
+    for(size_t i =0; i < a_len; i++){
         if(a[i] == key) res = true;
     }
     return res;
@@ -16,12 +16,12 @@ bool main(){
     const char * a1;
     const char * a2;
     const char * a3;
-    int a1_len;
-    int a2_len;
+    size_t a1_len;
+    size_t a2_len;
     //Some char
     char key = 'a';
     //CBMC will choose i non-deterministically
-    int i;
+    size_t i;
 
     __CPROVER_assume(a1_len < MAX_LEN);
     __CPROVER_assume(a2_len <= a1_len);

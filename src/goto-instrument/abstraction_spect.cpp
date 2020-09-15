@@ -51,6 +51,7 @@ abstraction_spect::abstraction_spect(
     spec.set_abst_func_file(get_absolute_path(entry_obj.find("abst-function-file")->second.value));
     spec.set_addition_func(to_json_object(entry_obj.find("abst-functions")->second).find("add-abs-conc")->second.value);
     spec.set_minus_func(to_json_object(entry_obj.find("abst-functions")->second).find("sub-abs-conc")->second.value);
+    spec.set_multiply_func(to_json_object(entry_obj.find("abst-functions")->second).find("multiply-abs-conc")->second.value);
     spec.set_precise_func(to_json_object(entry_obj.find("abst-functions")->second).find("precise-check")->second.value);
     spec.set_abstract_func(to_json_object(entry_obj.find("abst-functions")->second).find("abstract-index")->second.value);
     spec.set_concretize_func(to_json_object(entry_obj.find("abst-functions")->second).find("concretize-index")->second.value);
@@ -85,43 +86,83 @@ std::vector<std::string> abstraction_spect::get_abstraction_function_files() con
 abstraction_spect::spect abstraction_spect::spect::update_abst_spec(
   irep_idt old_function,
   irep_idt new_function,
-  std::unordered_map<irep_idt, irep_idt> _name_pairs) const
+  std::unordered_map<irep_idt, func_call_arg_namet> _name_pairs) const
 {
-  // copy the spec into a new one
-  spect new_spec(*this);
-
-  // store the entity names in the original spect
-  std::vector<irep_idt> abst_array_ids;
-  std::vector<irep_idt> abst_index_ids;
-  for(const auto &p: abst_arrays)
-    abst_array_ids.push_back(p.first);
-  for(const auto &p: abst_indices)
-    abst_index_ids.push_back(p.first);
+  // This function update the entity forest across function calls
+  // For example, if we have two functions
+  // struct list{
+  //   struct buf{
+  //       len
+  //   }
+  // };
+  // bar(list::buf *buffer)
+  // {
+  // }
+  // foo(){
+  //   list l;
+  //   bar(&(l.buf));
+  // }
+  // Foo forest:
+  // l  
+  // |
+  // |
+  // buf (STRUCT)
+  // |  
+  // |   
+  // len 
+  // (LENGTH) (ARRAY)
+  // Bar forest will be updated into:
+  // buffer (STRUCT_POINTER)
+  // |  
+  // |   
+  // len
+  // (LENGTH) (ARRAY)
   
-  for(const auto &name: abst_array_ids)
+  // copy the spec into a new one, clear the entities
+  spect new_spec(*this);
+  new_spec.abst_entities = std::move(std::unordered_map<irep_idt, std::unique_ptr<entityt>>());
+
+  auto all_abst_entities = get_all_abst_entities();
+  const auto &top_layer_entities = abst_entities;
+
+  // step 1: insert all global entities
+  for(const auto &ent: top_layer_entities)
+    if(std::string(ent.first.c_str()).rfind(old_function.c_str(), 0))
+      new_spec.insert_entity(ent.first, *(ent.second));
+  
+  // step 2: insert all entities shown up in function call argument pairs
+  for(const auto &pair: _name_pairs)
   {
-    if(
-      std::string(abst_arrays.at(name).entity_name().c_str())
-        .rfind(old_function.c_str(), 0) ==
-      0) // erase the old entity if it's not a global variable
-      new_spec.abst_arrays.erase(name);
-    if(_name_pairs.find(name) != _name_pairs.end())
+    // only insert entity into the new one if the old name belongs to the spect
+    // we shouldn't insert entities that don't belong to this entity
+    if(all_abst_entities.find(pair.first) != all_abst_entities.end())
     {
-      // This array needs to be updated
-      new_spec.abst_arrays.insert({_name_pairs[name], entityt(_name_pairs[name])});
-    }
-  }
-  for(const auto &name: abst_index_ids)
-  {
-    if(
-        std::string(abst_indices.at(name).entity_name().c_str())
-          .rfind(old_function.c_str(), 0) ==
-        0) // erase the old entity if it's not a global variable
-        new_spec.abst_indices.erase(name);
-    if(_name_pairs.find(name) != _name_pairs.end())
-    {
-      // This index variable needs to be updated
-      new_spec.abst_indices.insert({_name_pairs[name], entityt(_name_pairs[name])});
+      auto orig_entity = all_abst_entities[pair.first];
+      // flag: REGULAR / POINTER_TO_ENTITY / ENTITY_TO_POINTER
+      func_call_arg_namet::arg_translate_typet flag = pair.second.type;  
+      orig_entity.name = pair.second.name;
+      if(flag == func_call_arg_namet::ENTITY_TO_POINTER)
+      {
+        if(orig_entity.type == entityt::STRUCT)
+          orig_entity.type = entityt::STRUCT_POINTER;
+        else
+          throw "The entity " + std::string(orig_entity.name.c_str()) +
+            " needs to be a struct to be translated into a pointer." +
+            " Currently we are not supporting other types of pointer "
+            "calculation as function args.";
+      }
+      else if(flag == func_call_arg_namet::POINTER_TO_ENTITY)
+      {
+        if(orig_entity.type == entityt::STRUCT_POINTER)
+          orig_entity.type = entityt::STRUCT;
+        else
+          throw "The entity " + std::string(orig_entity.name.c_str()) +
+            " needs to be a struct pointer to be translated into a struct." +
+            " Currently we are not supporting other types of pointer "
+            "calculation as function args.";
+      }
+      else {}
+      new_spec.insert_entity(pair.second.name, orig_entity);
     }
   }
 
@@ -131,7 +172,7 @@ abstraction_spect::spect abstraction_spect::spect::update_abst_spec(
 abstraction_spect abstraction_spect::update_abst_spec(
   irep_idt old_function,
   irep_idt new_function,
-  std::unordered_map<irep_idt, irep_idt> _name_pairs) const
+  std::unordered_map<irep_idt, spect::func_call_arg_namet> _name_pairs) const
 {
   if(function != old_function)
   {
@@ -158,9 +199,9 @@ std::string abstraction_spect::get_entities_string() const
   for(const auto &spec: specs)
   {
     for(const auto &ent: spec.get_abst_arrays())
-      str += "array: " + std::string(ent.second.entity_name().c_str()) + "\n";
+      str += "array: " + std::string(ent.first.c_str()) + "\n";
     for(const auto &ent: spec.get_abst_indices())
-      str += "index: " + std::string(ent.second.entity_name().c_str()) + "\n";
+      str += "index: " + std::string(ent.first.c_str()) + "\n";
   }
   return str;
 }
@@ -168,6 +209,114 @@ std::string abstraction_spect::get_entities_string() const
 void abstraction_spect::print_entities() const
 {
   std::cout << get_entities_string();
+}
+
+void abstraction_spect::spect::insert_entity(const irep_idt &_name, const abstraction_spect::spect::entityt &entity)
+{
+  std::string name_str = _name.c_str();
+  std::unordered_map<irep_idt, std::unique_ptr<entityt>> *current_layer_entities = &abst_entities;
+  while(!name_str.empty())
+  {
+    size_t arrow_pos = name_str.find("->", 0);
+    size_t point_pos = name_str.find(".", 0);
+    if(arrow_pos != std::string::npos || point_pos != std::string::npos)
+    {
+      if(arrow_pos < point_pos)  // first layer is an "->"
+      {
+        std::string first_layer_name = name_str.substr(0, arrow_pos);
+        name_str = name_str.substr(arrow_pos+2);
+        if(current_layer_entities->find(first_layer_name) == current_layer_entities->end())
+          current_layer_entities->insert({first_layer_name, std::unique_ptr<entityt>(new struct_pointer_entityt(first_layer_name))});
+        if((*current_layer_entities)[first_layer_name]->type != entityt::STRUCT_POINTER)
+          throw "the entity " + first_layer_name + " doesn't seem to be a struct pointer. Most likely the json file is wrong.";
+        current_layer_entities = &((*current_layer_entities)[first_layer_name]->sub_entities);
+      }
+      else  // first layer is an "."
+      {
+        std::string first_layer_name = name_str.substr(0, point_pos);
+        name_str = name_str.substr(point_pos+1);
+        if(current_layer_entities->find(first_layer_name) == current_layer_entities->end())
+          current_layer_entities->insert({first_layer_name, std::unique_ptr<entityt>(new struct_entityt(first_layer_name))});
+        if((*current_layer_entities)[first_layer_name]->type != entityt::STRUCT)
+          throw "the entity " + first_layer_name + " doesn't seem to be a struct. Most likely the json file is wrong.";
+        current_layer_entities = &((*current_layer_entities)[first_layer_name]->sub_entities);
+      }
+    }
+    else  // "->" and "." are not found
+    {
+      // this is at the leaf
+      INVARIANT(name_str == std::string(entity.name.c_str()), "the full name and the entity name should match.");
+      INVARIANT(
+        current_layer_entities->find(name_str) == current_layer_entities->end(),
+        "the entity " + name_str + " already exists");
+      current_layer_entities->insert({name_str, std::unique_ptr<entityt>(new entityt(entity))});
+      name_str = "";
+    }
+  }
+}
+
+void abstraction_spect::spect::insert_entity(const irep_idt &_name, const std::string &_type)
+{
+  std::string name_str = _name.c_str();
+  std::unordered_map<irep_idt, std::unique_ptr<entityt>> *current_layer_entities = &abst_entities;
+  while(!name_str.empty())
+  {
+    size_t arrow_pos = name_str.find("->", 0);
+    size_t point_pos = name_str.find(".", 0);
+    if(arrow_pos != std::string::npos || point_pos != std::string::npos)
+    {
+      if(arrow_pos < point_pos)  // first layer is an "->"
+      {
+        std::string first_layer_name = name_str.substr(0, arrow_pos);
+        name_str = name_str.substr(arrow_pos+2);
+        if(current_layer_entities->find(first_layer_name) == current_layer_entities->end())
+          current_layer_entities->insert({first_layer_name, std::unique_ptr<entityt>(new struct_pointer_entityt(first_layer_name))});
+        if((*current_layer_entities)[first_layer_name]->type != entityt::STRUCT_POINTER)
+          throw "the entity " + first_layer_name + " doesn't seem to be a struct pointer. Most likely the json file is wrong.";
+        current_layer_entities = &((*current_layer_entities)[first_layer_name]->sub_entities);
+      }
+      else  // first layer is an "."
+      {
+        std::string first_layer_name = name_str.substr(0, point_pos);
+        name_str = name_str.substr(point_pos+1);
+        if(current_layer_entities->find(first_layer_name) == current_layer_entities->end())
+          current_layer_entities->insert({first_layer_name, std::unique_ptr<entityt>(new struct_entityt(first_layer_name))});
+        if((*current_layer_entities)[first_layer_name]->type != entityt::STRUCT)
+          throw "the entity " + first_layer_name + " doesn't seem to be a struct. Most likely the json file is wrong.";
+        current_layer_entities = &((*current_layer_entities)[first_layer_name]->sub_entities);
+      }
+    }
+    else  // "->" and "." are not found
+    {
+      // this is at the leaf
+      if(_type == "array")
+      {
+        if(current_layer_entities->find(name_str) == current_layer_entities->end())
+          current_layer_entities->insert({name_str, std::unique_ptr<entityt>(new array_entityt(name_str))});
+        else
+          throw "entity " + name_str + " already exists";
+      }
+      else if(_type == "scalar")
+      {
+        if(current_layer_entities->find(name_str) == current_layer_entities->end())
+          current_layer_entities->insert({name_str, std::unique_ptr<entityt>(new scalar_entityt(name_str))});
+        else
+          throw "entity " + name_str + " already exists";
+      }
+      else if(_type == "length")
+      {
+        if(current_layer_entities->find(name_str) == current_layer_entities->end())
+          current_layer_entities->insert({name_str, std::unique_ptr<entityt>(new length_entityt(name_str))});
+        else
+          throw "entity " + name_str + " already exists";
+      }
+      else
+      {
+        throw "Unknown entity type: " + _type;
+      }
+      name_str = "";
+    }
+  }
 }
 
 std::vector<exprt> abstraction_spect::spect::get_assumption_exprs(const namespacet &ns) const
@@ -271,5 +420,196 @@ std::vector<exprt> abstraction_spect::spect::abst_shapet::get_assumption_exprs(c
     result.push_back(expr);
   }
   
+  return result;
+}
+
+std::unordered_map<irep_idt, abstraction_spect::spect::entityt>
+abstraction_spect::spect::get_all_entities(
+  const abstraction_spect::spect::entityt &ent,
+  const irep_idt &prefix)
+{
+  std::unordered_map<irep_idt, entityt> result;
+  result.insert(
+    {irep_idt(std::string(prefix.c_str()) + std::string(ent.name.c_str())),
+     ent});
+  for(const auto &sub_ent : ent.sub_entities)
+  {
+    irep_idt new_prefix = std::string(prefix.c_str()) + std::string(ent.name.c_str());
+    if(ent.type == entityt::STRUCT)
+      new_prefix = std::string(new_prefix.c_str()) + ".";
+    else if(ent.type == entityt::STRUCT_POINTER)
+      new_prefix = std::string(new_prefix.c_str()) + "->";
+    else {}
+
+    auto sub_result = get_all_entities(*(sub_ent.second), new_prefix);
+    result.insert(sub_result.begin(), sub_result.end());
+  }
+  return result;
+}
+
+std::unordered_map<irep_idt, abstraction_spect::spect::entityt>
+abstraction_spect::spect::search_for_entities(
+  const abstraction_spect::spect::entityt &ent,
+  const abstraction_spect::spect::entityt::entityt_type &type,
+  const irep_idt &prefix)
+{
+  std::unordered_map<irep_idt, entityt> result;
+  if(ent.type == type)
+    result.insert(
+      {irep_idt(std::string(prefix.c_str()) + std::string(ent.name.c_str())),
+       ent});
+  for(const auto &sub_ent : ent.sub_entities)
+  {
+    irep_idt new_prefix = std::string(prefix.c_str()) + std::string(ent.name.c_str());
+    if(ent.type == entityt::STRUCT)
+      new_prefix = std::string(new_prefix.c_str()) + ".";
+    else if(ent.type == entityt::STRUCT_POINTER)
+      new_prefix = std::string(new_prefix.c_str()) + "->";
+    else {}
+
+    auto sub_result = search_for_entities(*(sub_ent.second), type, new_prefix);
+    result.insert(sub_result.begin(), sub_result.end());
+  }
+  return result;
+}
+
+std::unordered_map<irep_idt, abstraction_spect::spect::entityt>
+abstraction_spect::spect::get_top_level_entities() const
+{
+  std::unordered_map<irep_idt, entityt> result;
+  for(const auto &ent: abst_entities)
+    result.insert({ent.first, *(ent.second)});
+  return result;
+}
+
+std::unordered_map<irep_idt, abstraction_spect::spect::entityt>
+abstraction_spect::spect::get_all_abst_entities() const
+{
+  std::unordered_map<irep_idt, entityt> result;
+  for(const auto &ent: abst_entities)
+  {
+    std::unordered_map<irep_idt, entityt> sub_result = get_all_entities(*(ent.second), "");
+    result.insert(sub_result.begin(), sub_result.end());
+  }
+  return result;
+}
+
+std::unordered_map<irep_idt, abstraction_spect::spect::entityt>
+abstraction_spect::spect::get_abst_arrays() const
+{
+  std::unordered_map<irep_idt, entityt> result;
+  for(const auto &ent : abst_entities)
+  {
+    std::unordered_map<irep_idt, entityt> sub_result =
+      search_for_entities(*(ent.second), entityt::ARRAY, "");
+    result.insert(sub_result.begin(), sub_result.end());
+  }
+  return result;
+}
+
+std::unordered_map<irep_idt, abstraction_spect::spect::entityt>
+abstraction_spect::spect::get_abst_indices() const
+{
+  std::unordered_map<irep_idt, entityt> result;
+  for(const auto &ent : abst_entities)
+  {
+    std::unordered_map<irep_idt, entityt> sub_result_scalar =
+      search_for_entities(*(ent.second), entityt::SCALAR, "");
+    std::unordered_map<irep_idt, entityt> sub_result_length =
+      search_for_entities(*(ent.second), entityt::LENGTH, "");
+    result.insert(sub_result_scalar.begin(), sub_result_scalar.end());
+    result.insert(sub_result_length.begin(), sub_result_length.end());
+  }
+  return result;
+}
+
+std::unordered_map<irep_idt, abstraction_spect::spect::entityt>
+abstraction_spect::spect::get_abst_lengths() const
+{
+  std::unordered_map<irep_idt, entityt> result;
+  for(const auto &ent : abst_entities)
+  {
+    std::unordered_map<irep_idt, entityt> sub_result =
+      search_for_entities(*(ent.second), entityt::LENGTH, "");
+    result.insert(sub_result.begin(), sub_result.end());
+  }
+  return result;
+}
+
+void abstraction_spect::spect::search_all_lengths_and_generate_path(
+  std::vector<abstraction_spect::spect::entityt> &current_path,
+  std::vector<std::vector<abstraction_spect::spect::entityt>>
+    &results)
+{
+  INVARIANT(
+    !current_path.empty(),
+    "The current path should not be empty when calling "
+    "search_all_lengths_and_gererate_path");
+  const entityt &current_entity = *(current_path.end() - 1);
+  if(current_entity.type == entityt::LENGTH)
+    results.push_back(current_path);
+  for(const auto &ent : current_entity.sub_entities)
+  {
+    current_path.push_back(*ent.second);
+    search_all_lengths_and_generate_path(current_path, results);
+    current_path.pop_back();
+  }
+}
+
+std::unordered_map<irep_idt, exprt>
+abstraction_spect::spect::get_abst_lengths_with_expr(const namespacet &ns) const
+{
+  // helper function to translate a length variable entity path to exprt
+  // say the path is [foo(entity), buf(entity), len(entity)]
+  // step 1: foo_expr: ID_symbol
+  // step 2: member_exprt(foo_expr, buf): ID_member
+  // step 3: member_exprt(member_exprt(foo_expr, buf), len)
+  auto generate_expr_from_path = [&ns](std::vector<entityt> path) {
+    const symbol_tablet &symbol_table = ns.get_symbol_table();
+    INVARIANT(path.size() > 0, "The length entity path should not be empty");
+    INVARIANT(
+      symbol_table.has_symbol(path[0].name),
+      "The symbol " + std::string(path[0].name.c_str()) + " should exist");
+    exprt current_expr = symbol_table.lookup_ref(path[0].name).symbol_expr();
+    for(size_t i = 1; i < path.size(); i++)
+    {
+      const typet full_type=ns.follow(current_expr.type());
+      const struct_typet &struct_type = to_struct_type(full_type);
+      struct_typet::componentt component;
+      bool component_found = false;
+      for(const auto &comp: struct_type.components())
+      {
+        if(comp.get_name() == path[i].name)
+        {
+          component = comp;
+          component_found = true;
+          break;
+        }
+      }
+      INVARIANT(component_found, std::string(path[i].name.c_str()) + " not found in the component list");
+      current_expr = member_exprt(current_expr, component);
+    }
+    return current_expr;
+  };
+
+  // find all length variables with their corresponding path
+  // path is the entities we need to visit to find the variable
+  // e.g. "buffer", "array", "len" in buffer->array.len
+  std::vector<std::vector<entityt>> all_length_paths;
+  std::vector<entityt> current_path;
+  for(const auto &ent: abst_entities)
+  {
+    current_path.push_back(*ent.second);
+    search_all_lengths_and_generate_path(current_path, all_length_paths);
+    current_path.pop_back();
+  }
+  
+  std::unordered_map<irep_idt, exprt> result;
+  for(const auto &path: all_length_paths)
+  {
+    INVARIANT(path.size() > 0, "The length entity path should not be empty");
+    result.insert({path[0].name, generate_expr_from_path(path)});
+  }
+
   return result;
 }

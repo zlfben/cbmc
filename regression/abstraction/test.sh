@@ -23,7 +23,12 @@ CBMC_FLAGS="--unwind 4
             # --unsigned-overflow-check 
 
 AWS_C_COMMON_TESTS=(
-    "aws_array_eq"
+    "aws_array_eq" 
+    "aws_array_eq_c_str" 
+    "aws_array_eq_c_str_ignore_case" 
+    "aws_array_eq_ignore_case" 
+    "aws_byte_buf_eq" 
+    "aws_byte_buf_eq_ignore_case"
 )
 
 cwd=$(pwd)
