@@ -2,8 +2,8 @@
     "entries": [
         {
             "entity": "array",
-            "function": "aws_byte_buf_eq_harness",
-            "name": "aws_byte_buf_eq_harness::1::lhs.buffer",
+            "function": "aws_byte_buf_eq_c_str_ignore_case_harness",
+            "name": "aws_byte_buf_eq_c_str_ignore_case_harness::1::buf.buffer",
             "shape": {
                 "indices": ["cncrt0", "cncrt", "length"],
                 "assumptions": [
@@ -26,29 +26,29 @@
             },
             "related-entities": [
                 {
+                    "entity": "length",
+                    "function": "aws_byte_buf_eq_c_str_ignore_case_harness",
+                    "name": "aws_byte_buf_eq_c_str_ignore_case_harness::1::buf.capacity"
+                },
+                {
+                    "entity": "length",
+                    "function": "aws_byte_buf_eq_c_str_ignore_case_harness",
+                    "name": "aws_byte_buf_eq_c_str_ignore_case_harness::1::buf.len"
+                },
+                {
                     "entity": "array",
-                    "function": "aws_byte_buf_eq_harness",
-                    "name": "aws_byte_buf_eq_harness::1::rhs.buffer"
+                    "function": "aws_byte_buf_eq_c_str_ignore_case_harness",
+                    "name": "aws_byte_buf_eq_c_str_ignore_case_harness::1::c_str"
+                },
+                {
+                    "entity": "scalar",
+                    "function": "",
+                    "name": "str_len"
                 },
                 {
                     "entity": "length",
-                    "function": "aws_byte_buf_eq_harness",
-                    "name": "aws_byte_buf_eq_harness::1::lhs.len"
-                },
-                {
-                    "entity": "length",
-                    "function": "aws_byte_buf_eq_harness",
-                    "name": "aws_byte_buf_eq_harness::1::lhs.capacity"
-                },
-                {
-                    "entity": "length",
-                    "function": "aws_byte_buf_eq_harness",
-                    "name": "aws_byte_buf_eq_harness::1::rhs.len"
-                },
-                {
-                    "entity": "length",
-                    "function": "aws_byte_buf_eq_harness",
-                    "name": "aws_byte_buf_eq_harness::1::rhs.capacity"
+                    "function": "aws_byte_buf_eq_c_str_ignore_case_harness",
+                    "name": "aws_byte_buf_eq_c_str_ignore_case_harness::1::allocated_str_len"
                 }
             ]
 

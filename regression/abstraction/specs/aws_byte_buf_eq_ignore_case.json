@@ -33,10 +33,20 @@
                 {
                     "entity": "length",
                     "function": "aws_byte_buf_eq_ignore_case_harness",
+                    "name": "aws_byte_buf_eq_ignore_case_harness::1::lhs.len"
+                },
+                {
+                    "entity": "length",
+                    "function": "aws_byte_buf_eq_ignore_case_harness",
                     "name": "aws_byte_buf_eq_ignore_case_harness::1::lhs.capacity"
                 },
                 {
-                    "entity": "scalar",
+                    "entity": "length",
+                    "function": "aws_byte_buf_eq_ignore_case_harness",
+                    "name": "aws_byte_buf_eq_ignore_case_harness::1::rhs.len"
+                },
+                {
+                    "entity": "length",
                     "function": "aws_byte_buf_eq_ignore_case_harness",
                     "name": "aws_byte_buf_eq_ignore_case_harness::1::rhs.capacity"
                 }
