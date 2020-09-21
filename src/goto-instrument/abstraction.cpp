@@ -23,32 +23,77 @@ Author: Lefan Zhang, lefanz@amazon.com
 #include <linking/static_lifetime_init.h>
 #include "abstraction.h"
 
-void am_abstractiont::expr_type_relation::link(size_t i1, size_t i2)
+am_abstractiont::expr_type_relation::expr_type_relation(const abstraction_spect::spect &spec)
 {
-  edges[i1].push_back(i2);
-  edges[i2].push_back(i1);
+  for(const auto &array_p: spec.get_abst_arrays())
+    seeds.insert({array_p.first, abstraction_spect::spect::entityt::ARRAY});
+  for(const auto &index_p: spec.get_abst_indices())
+    seeds.insert({index_p.first, abstraction_spect::spect::entityt::SCALAR});
 }
 
-void am_abstractiont::expr_type_relation::link_array(size_t i1, size_t i2)
+void am_abstractiont::expr_type_relation::link_equiv(size_t i1, size_t i2)
 {
-  edges_array[i1].push_back(i2);
-  edges_array[i2].push_back(i1);
+  edges_equiv[i1].insert(i2);
+  edges_equiv[i2].insert(i1);
+
+  if(is_symbol_expr(expr_list[i1]) && is_symbol_expr(expr_list[i2]))
+  {
+    const irep_idt str_id1 = get_string_id_from_exprt(expr_list[i1]);
+    const irep_idt str_id2 = get_string_id_from_exprt(expr_list[i2]);
+    link_symb_equiv(str_id1, str_id2);
+  }
+  else if(is_symbol_expr(expr_list[i1]) && expr_list[i2].id() == ID_address_of && is_symbol_expr(expr_list[i2].operands()[0]))
+  {
+    const irep_idt str_id1 = get_string_id_from_exprt(expr_list[i1]);
+    const irep_idt str_id2 = get_string_id_from_exprt(expr_list[i2].operands()[0]);
+    link_symb_addr_of(str_id1, str_id2);
+  }
+  else if(is_symbol_expr(expr_list[i2]) && expr_list[i1].id() == ID_address_of && is_symbol_expr(expr_list[i1].operands()[0]))
+  {
+    const irep_idt str_id2 = get_string_id_from_exprt(expr_list[i2]);
+    const irep_idt str_id1 = get_string_id_from_exprt(expr_list[i1].operands()[0]);
+    link_symb_addr_of(str_id2, str_id1);
+  }
+  else {}
+}
+
+void am_abstractiont::expr_type_relation::link_access(size_t i1, size_t i2)
+{
+  edges_access[i1].insert(i2);
+}
+
+void am_abstractiont::expr_type_relation::link_symb_equiv(irep_idt symb1, irep_idt symb2)
+{
+  symbol_equiv_rel[symb1].insert(symb2);
+  symbol_equiv_rel[symb2].insert(symb1);
+}
+
+void am_abstractiont::expr_type_relation::link_symb_addr_of(irep_idt symb1, irep_idt symb2)
+{
+  symbol_address_of_rel[symb1].insert(symb2);
 }
 
 size_t am_abstractiont::expr_type_relation::add_expr(const exprt &expr)
 {
   size_t index = expr_list.size();
   expr_list.push_back(expr);
-  edges.push_back(std::vector<size_t>());
-  edges_array.push_back(std::vector<size_t>());
+  edges_equiv.push_back(std::unordered_set<size_t>());
+  edges_access.push_back(std::unordered_set<size_t>());
 
   // add symbol to symbol list
-  if(expr.id() == ID_symbol || expr.id() == ID_member)
+  if(is_symbol_expr(expr))
   {
     const irep_idt str_id = get_string_id_from_exprt(expr);
     if(symbols.find(str_id) == symbols.end())
-      symbols[str_id] = std::vector<size_t>();
-    symbols[str_id].push_back(index);
+      symbols[str_id] = std::unordered_set<size_t>();
+    if(symbol_equiv_rel.find(str_id) == symbol_equiv_rel.end())
+      symbol_equiv_rel[str_id] = std::unordered_set<irep_idt>();
+    if(symbol_address_of_rel.find(str_id) == symbol_address_of_rel.end())
+      symbol_address_of_rel[str_id] = std::unordered_set<irep_idt>();
+    symbols[str_id].insert(index);
+    // if the symbol is one of the seeds, put it into the todo list
+    if(seeds.find(str_id) != seeds.end())
+      todo.insert({index, seeds[str_id]});
   }
 
   // add operands also
@@ -62,14 +107,13 @@ size_t am_abstractiont::expr_type_relation::add_expr(const exprt &expr)
       expr.id() == ID_equal || expr.id() == ID_notequal || expr.id() == ID_ge ||
       expr.id() == ID_gt || expr.id() == ID_le || expr.id() == ID_lt)
     {
-      link(operands_index[0], operands_index[1]);
+      link_equiv(operands_index[0], operands_index[1]);
     }
     else if(
       expr.id() == ID_const_cast || expr.id() == ID_static_cast || expr.id() == ID_typecast || 
       expr.id() == ID_dynamic_cast || expr.id() == ID_reinterpret_cast)
     {
-      link(index, operands_index[0]);
-      link_array(index, operands_index[0]);
+      link_equiv(index, operands_index[0]);
     }
     else if(expr.id() == ID_plus || expr.id() == ID_minus)
     {
@@ -79,94 +123,227 @@ size_t am_abstractiont::expr_type_relation::add_expr(const exprt &expr)
           (expr.operands()[1].id() == ID_typecast && expr.operands()[1].operands()[0].id() == ID_constant) ||
           expr.operands()[1].id() == ID_constant)
         {
-          link(index, operands_index[0]);
+          link_equiv(index, operands_index[0]);
         }
       }
     }
 
-    // If this is an access to the array, put it into the set of exprs covered
+    // If this is an access to the array, insert that edge
     if(
       expr.id() == ID_plus && 
-      (expr.operands().front().id() == ID_symbol || expr.operands().front().id() == ID_member) &&
+      (is_symbol_expr(expr.operands().front())) &&
       expr.operands().front().type().id() == ID_pointer)
     {
-      const irep_idt str_id = get_string_id_from_exprt(expr.operands().front());
-      if(str_id == target_array)
-        todo.insert(operands_index[1]);
-    }
-  }
-
-  // If this is the array itself, put it into the set of array exprs
-  if(expr.id() == ID_symbol || expr.id() == ID_member)
-  {
-    const irep_idt str_id = get_string_id_from_exprt(expr);
-    if(str_id == target_array)
-    {
-      todo_array.insert(index);
+      link_access(operands_index[0], operands_index[1]);
     }
   }
 
   return index;
 }
 
+int am_abstractiont::expr_type_relation::get_equiv_symb_level(irep_idt symb1, irep_idt symb2)
+{
+  // this will get two symbol's relation if we have a path of symb1 to symb2
+  // the return value is how many addr_of edges we have in the path
+  // note that there might be cycles in the symb relation path, but we only count the shortest path
+  // e.g. a - b -addrof-> c      get_equiv_symb_level(a, c) = 1, get_equiv_symb_level(a, b) = 0
+  // if no path, return -1
+  std::unordered_map<irep_idt, int> finished;
+  std::queue<irep_idt> todo;
+
+  // the starting node should be 0 level
+  todo.push(symb1);
+  finished.insert({symb1, 0});
+
+  while(!todo.empty())
+  {
+    irep_idt current_symb = todo.front();
+    INVARIANT(
+      symbols.find(current_symb) != symbols.end(),
+      "the symbol " + std::string(current_symb.c_str()) +
+        " should be in the symbol list.");
+    INVARIANT(
+      symbol_equiv_rel.find(current_symb) != symbol_equiv_rel.end(),
+      "the symbol " + std::string(current_symb.c_str()) +
+        " should be in the symbol list.");
+    INVARIANT(
+      symbol_address_of_rel.find(current_symb) != symbol_address_of_rel.end(),
+      "the symbol " + std::string(current_symb.c_str()) +
+        " should be in the symbol list.");
+    todo.pop();
+
+    for(const auto &eq_ngbr: symbol_equiv_rel[current_symb])
+    {
+      if(finished.find(eq_ngbr) == finished.end())
+      {
+        todo.push(eq_ngbr);
+        finished.insert({eq_ngbr, finished[current_symb]});
+      }
+    }
+
+    for(const auto &addr_ngbr: symbol_address_of_rel[current_symb])
+    {
+      if(finished.find(addr_ngbr) == finished.end())
+      {
+        todo.push(addr_ngbr);
+        finished.insert({addr_ngbr, finished[current_symb]+1});
+      }
+    }
+  }
+
+  if(finished.find(symb2) != finished.end())
+    return finished[symb2];
+  else
+    return -1;
+}
+
+bool am_abstractiont::expr_type_relation::is_equiv_symb(irep_idt symb1, irep_idt symb2)
+{
+  INVARIANT(symbols.find(symb1) != symbols.end(), "Symbol " + std::string(symb1.c_str()) + " is not found");
+  INVARIANT(symbol_equiv_rel.find(symb1) != symbol_equiv_rel.end(), "Symbol " + std::string(symb1.c_str()) + " is not found");
+  INVARIANT(symbol_address_of_rel.find(symb1) != symbol_address_of_rel.end(), "Symbol " + std::string(symb1.c_str()) + " is not found");
+  INVARIANT(symbols.find(symb2) != symbols.end(), "Symbol " + std::string(symb2.c_str()) + " is not found");
+  INVARIANT(symbol_equiv_rel.find(symb2) != symbol_equiv_rel.end(), "Symbol " + std::string(symb2.c_str()) + " is not found");
+  INVARIANT(symbol_address_of_rel.find(symb2) != symbol_address_of_rel.end(), "Symbol " + std::string(symb2.c_str()) + " is not found");
+  
+  // are they just the same?
+  if(symb1 == symb2)
+    return true;
+  // do they have a direct equivalence?
+  if(symbol_equiv_rel[symb1].find(symb2) != symbol_equiv_rel[symb1].end())
+    return true;
+  // are they equivalent because of the equiv of their parent?
+  auto parent_p1 = get_parent_id(symb1);
+  auto parent_p2 = get_parent_id(symb2);
+  if(parent_p1.first != "" && parent_p2.first != "")
+  {
+    // e.g. a.len => (flag: ".", parent: "a", child: "len")
+    std::string flag1 = parent_p1.first;
+    std::string parent1 = parent_p1.second.c_str();
+    std::string child1 = std::string(symb1.c_str()).substr(parent1.size()+flag1.size());
+    std::string flag2 = parent_p2.first;
+    std::string parent2 = parent_p2.second.c_str();
+    std::string child2 = std::string(symb2.c_str()).substr(parent2.size()+flag2.size());
+    if(child1 != child2)
+    {
+      return false;
+    }
+    else
+    {
+      if(flag1 == flag2)
+      {
+        return get_equiv_symb_level(irep_idt(parent1), irep_idt(parent2)) == 0;
+      }
+      else
+      {
+        irep_idt p1_idt = parent1;
+        irep_idt p2_idt = parent2;
+        // is a->len and b.len equivalent? it depends on whether a = &b
+        if(flag1 == "->" && flag2 == ".")
+          return get_equiv_symb_level(p1_idt, p2_idt) == 1;
+        else if(flag1 == "." && flag2 == "->")
+          return get_equiv_symb_level(p2_idt, p1_idt) == 1;
+        else
+          throw "flag should be either -> or .";
+      }
+    }
+  }
+  else
+  {
+    return false;
+  }
+}
+
+std::vector<std::pair<size_t, abstraction_spect::spect::entityt::entityt_type>>
+    am_abstractiont::expr_type_relation::get_neighbors(
+      size_t index,
+      abstraction_spect::spect::entityt::entityt_type type)
+{
+  // step 1: get all neighbors related with direct edges
+  std::vector<std::pair<size_t, abstraction_spect::spect::entityt::entityt_type>> results;
+  if(type == abstraction_spect::spect::entityt::ARRAY)
+  {
+    // edge neighbors should consist of edge_equiv and edge_index
+    for(const size_t &ngbr_id: edges_equiv[index])
+      results.push_back(std::make_pair(ngbr_id, abstraction_spect::spect::entityt::ARRAY));
+    for(const size_t &ngbr_id: edges_access[index])
+      results.push_back(std::make_pair(ngbr_id, abstraction_spect::spect::entityt::SCALAR));
+  }
+  else if(
+    type == abstraction_spect::spect::entityt::SCALAR ||
+    type == abstraction_spect::spect::entityt::LENGTH)
+  {
+    // edge neighbors should consist of edge_equiv only
+    for(const size_t &ngbr_id: edges_equiv[index])
+      results.push_back(std::make_pair(ngbr_id, abstraction_spect::spect::entityt::SCALAR));
+  }
+  else
+  {
+    throw "seeds of type other than ARRAY, SCALAR and LENGTH shouldn't appear in closure analysis";
+  }
+
+  // step 2: get the equiv neighbors because of using the same symbol
+  if(is_symbol_expr(expr_list[index]))
+  {
+    irep_idt symb_name = get_string_id_from_exprt(expr_list[index]);
+    // step 2.1: put all exprs using the same symbol as neighbors
+    // e.g. the same symbol is referenced in different places as exprs. Those exprs should be neighbors
+    for(const size_t &ngbr_id: symbols[symb_name])
+      if(ngbr_id != index)
+        results.push_back(std::make_pair(ngbr_id, type));
+
+    // step 2.2: put all exprs refering to the same struct member as neighbors
+    // e.g. a = &b; then a->len and b.len should refer to the same symbol, and thus be neighbors
+    for(const auto &symb_p: symbols)
+    {
+      const irep_idt &ngbr_symb_name = symb_p.first;
+      if(ngbr_symb_name != symb_name && is_equiv_symb(ngbr_symb_name, symb_name))
+      {
+        for(const size_t &ngbr_id: symbols[ngbr_symb_name])
+          results.push_back(std::make_pair(ngbr_id, type));
+      }
+    }
+  }
+
+  return results;
+}
+
 void am_abstractiont::expr_type_relation::solve()
 {
   while(!todo.empty())
   {
-    std::unordered_set<size_t>::iterator current_it = todo.begin();
-    size_t current_index = *current_it;
-    todo.erase(current_it);
-    finished.insert(current_index);
+    auto current_it = todo.begin();
+    size_t current_index = current_it->first;
+    auto current_type = current_it->second;
 
-    for(size_t neighbor: edges[current_index])
+    // step 1: insert this into finished and remove it from the todo
+    INVARIANT(finished.find(current_index) == finished.end(), "an exprt node is analyzed twice in closure analysis");
+    finished.insert({current_index, current_type});
+    todo.erase(current_index);
+
+    // step 2: if this is a symbol, store it into the newly found entity list
+    if(is_symbol_expr(expr_list[current_index]))
     {
-      if(todo.find(neighbor) == todo.end() && finished.find(neighbor) == finished.end())
-      {
-        // this neighbor doesn't exist previously, should be put into todo
-        todo.insert(neighbor);
-      }
+      const irep_idt str_id = get_string_id_from_exprt(expr_list[current_index]);
+      if(seeds.find(str_id) == seeds.end() &&
+        new_entities.find(str_id) == new_entities.end())
+        new_entities.insert({str_id, current_type});
     }
-    if(expr_list[current_index].id() == ID_symbol || expr_list[current_index].id() == ID_member)
-    {
-      const irep_idt symb_id = get_string_id_from_exprt(expr_list[current_index]);
-      for(size_t neighbor: symbols[symb_id])
-      {
-        if(todo.find(neighbor) == todo.end() && finished.find(neighbor) == finished.end())
-          todo.insert(neighbor);
-      }
-      abst_variables.insert(symb_id);
-    }
+
+    // step 3: visit all neighbors, put them into the todo list if needed
+    std::vector<
+      std::pair<size_t, abstraction_spect::spect::entityt::entityt_type>>
+      neighbors = get_neighbors(current_index, current_type);
+    for(const auto &ngbr : neighbors)
+      if(todo.find(ngbr.first) == todo.end() && finished.find(ngbr.first) == finished.end())
+        todo.insert(ngbr);
   }
 }
 
-void am_abstractiont::expr_type_relation::solve_array()
+std::unordered_map<irep_idt, abstraction_spect::spect::entityt::entityt_type>
+am_abstractiont::expr_type_relation::get_new_entities()
 {
-  while(!todo_array.empty())
-  {
-    std::unordered_set<size_t>::iterator current_it = todo_array.begin();
-    size_t current_index = *current_it;
-    todo_array.erase(current_it);
-    finished_array.insert(current_index);
-
-    for(size_t neighbor: edges_array[current_index])
-    {
-      if(todo_array.find(neighbor) == todo_array.end() && finished_array.find(neighbor) == finished_array.end())
-      {
-        // this neighbor doesn't exist previously, should be put into todo
-        todo_array.insert(neighbor);
-      }
-    }
-    if(expr_list[current_index].id() == ID_symbol || expr_list[current_index].id() == ID_member)
-    {
-      const irep_idt symb_id = get_string_id_from_exprt(expr_list[current_index]);
-      for(size_t neighbor: symbols[symb_id])
-      {
-        if(todo_array.find(neighbor) == todo_array.end() && finished_array.find(neighbor) == finished_array.end())
-          todo_array.insert(neighbor);
-      }
-      abst_arrays.insert(symb_id);
-    }
-  }
+  return new_entities;
 }
 
 irep_idt am_abstractiont::get_string_id_from_exprt(const exprt &expr)
@@ -215,6 +392,75 @@ irep_idt am_abstractiont::get_string_id_from_exprt(const exprt &expr)
   }
 }
 
+// check if an expr is a symbol
+// e.g. a, b, a.len, b->len are all symbols
+bool am_abstractiont::is_symbol_expr(const exprt &expr)
+{
+  if(expr.id() == ID_symbol)
+  {
+    return true;
+  }
+  else if(expr.id() == ID_member)
+  {
+    INVARIANT(expr.operands().size() == 1, "member access should only have one operand");
+    const exprt &obj_expr = expr.operands()[0];
+
+    // we need to get rid of dereference/address_of pairs
+    // e.g. *&*&buf
+    exprt current_obj_expr = obj_expr;
+    while((current_obj_expr.id() == ID_dereference &&
+           current_obj_expr.operands()[0].id() == ID_address_of) ||
+          (current_obj_expr.id() == ID_address_of &&
+           current_obj_expr.operands()[0].id() == ID_dereference))
+      current_obj_expr = current_obj_expr.operands()[0].operands()[0];
+    // buf->a --translated--> (*buf).a
+    if(current_obj_expr.id() == ID_dereference)
+    {
+      INVARIANT(
+        current_obj_expr.operands().size() == 1,
+        "dereference should only have one operand");
+      const exprt &pointer = current_obj_expr.operands()[0]; // buf
+      return is_symbol_expr(pointer);
+    }
+    else  // buf.a
+    {
+      return is_symbol_expr(current_obj_expr);
+    }
+  }
+  else
+  {
+    return false;
+  }
+}
+
+std::pair<std::string, irep_idt> am_abstractiont::get_parent_id(const irep_idt &id)
+{
+  std::string id_str = id.c_str();
+  size_t arrow_pos = id_str.rfind("->");
+  size_t point_pos = id_str.rfind(".");
+  if(arrow_pos != std::string::npos && point_pos != std::string::npos)
+  {
+    if(arrow_pos > point_pos)  // should be "->"
+      return std::make_pair("->", id_str.substr(0, arrow_pos));
+    else  // should be "."
+      return std::make_pair(".", id_str.substr(0, point_pos));
+  }
+  else if(arrow_pos == std::string::npos && point_pos != std::string::npos)
+  {
+    // should be "."
+    return std::make_pair(".", id_str.substr(0, point_pos));
+  }
+  else if(arrow_pos != std::string::npos && point_pos == std::string::npos)
+  {
+    // should be "->"
+    return std::make_pair("->", id_str.substr(0, arrow_pos));
+  }
+  else  // both "->" and "." are not found
+  {
+    return std::make_pair("", irep_idt(""));
+  }
+}
+
 void am_abstractiont::link_abst_functions(goto_modelt &goto_model, const abstraction_spect &abst_spec, ui_message_handlert &msg_handler, const optionst &options)
 {
   std::vector<std::string> abstfiles = abst_spec.get_abstraction_function_files();  // get abst function file names
@@ -222,13 +468,12 @@ void am_abstractiont::link_abst_functions(goto_modelt &goto_model, const abstrac
   link_goto_model(goto_model, goto_model_for_abst_fns, msg_handler);  // link goto model
 }
 
-const std::tuple<std::unordered_set<irep_idt>, std::unordered_set<irep_idt>>
-am_abstractiont::find_index_symbols(
+std::unordered_set<irep_idt> am_abstractiont::update_relation_graph_from_function(
   const goto_functiont &goto_function,
-  const irep_idt &array_name)
+  am_abstractiont::expr_type_relation &etr, 
+  goto_modelt &goto_model)
 {
-  expr_type_relation etr(array_name);
-
+  std::unordered_set<irep_idt> funcs_called;
   forall_goto_program_instructions(it, goto_function.body)
   {
     // go through conditions
@@ -244,63 +489,38 @@ am_abstractiont::find_index_symbols(
       exprt new_lhs = fc.lhs();
       etr.add_expr(fc.lhs());
       
-      for(auto &arg : fc.arguments())
-        etr.add_expr(arg);
+      const irep_idt &new_func_name = to_symbol_expr(fc.function()).get_identifier();
+      const goto_functiont &new_function = goto_model.get_goto_function(new_func_name);
+
+      if(funcs_called.find(new_func_name) == funcs_called.end())
+        funcs_called.insert(new_func_name);
+      
+      // need to build relationship between argument and parameters
+      // func(a.len, b) on func(arg1, arg2) should be treated 
+      // in the same way as arg1=a.len, arg2=b
+      for(size_t i=0; i<fc.arguments().size(); i++)
+      {
+        auto arg = fc.arguments()[i];
+        irep_idt param_str = new_function.parameter_identifiers[i];
+        if(param_str != "")
+        {
+          // if param is "", it is built in functions such as malloc. we need to stop
+          exprt param = goto_model.get_symbol_table().lookup_ref(param_str).symbol_expr();
+          size_t arg_id = etr.add_expr(arg);
+          size_t param_id = etr.add_expr(param);
+          etr.link_equiv(param_id, arg_id);
+        }
+      }
     }
     else if(it->is_assign())
     {
       const code_assignt as = it->get_assign();
       size_t l_id = etr.add_expr(as.lhs());
       size_t r_id = etr.add_expr(as.rhs());
-      etr.link(l_id, r_id);
-      etr.link_array(l_id, r_id);
+      etr.link_equiv(l_id, r_id);
     }
   }
-
-  etr.solve();
-  etr.solve_array();
-
-  std::tuple<std::unordered_set<irep_idt>, std::unordered_set<irep_idt>> result(
-    etr.get_abst_arrays(), etr.get_abst_variables());
-
-  return result;
-}
-
-void am_abstractiont::complete_abst_spec(
-  const goto_functiont &goto_function,
-  abstraction_spect &abst_spec)
-{
-  for(auto &spec: abst_spec.get_specs())
-  {
-    std::queue<irep_idt> todo;
-    std::unordered_set<irep_idt> todo_set;
-    for(const auto &ent: spec.get_abst_arrays())
-    {
-      todo.push(ent.first);
-      todo_set.insert(ent.first);
-    }
-    
-    while (!todo.empty())
-    {
-      irep_idt current = todo.front();
-      todo.pop();
-      todo_set.erase(current);
-      std::tuple<std::unordered_set<irep_idt>, std::unordered_set<irep_idt>> abst_entities = find_index_symbols(goto_function, current);
-      for(irep_idt index_name: std::get<0>(abst_entities))
-        if(spec.get_abst_arrays().find(index_name) == spec.get_abst_arrays().end())
-        {
-          spec.insert_entity(index_name, "array");
-          if(todo_set.find(index_name) == todo_set.end())
-          {
-            todo.push(index_name);
-            todo_set.insert(index_name);
-          }
-        }
-      for(irep_idt index_name: std::get<1>(abst_entities))
-        if(spec.get_abst_indices().find(index_name) == spec.get_abst_indices().end())
-          spec.insert_entity(index_name, "scalar");
-    }
-  }
+  return funcs_called;
 }
 
 /// check if an expr is address_of or dereference
@@ -350,122 +570,57 @@ irep_idt am_abstractiont::check_expr_is_symbol(const exprt &expr)
   }
 }
 
-// go into a function to find all function calls we'll need to abstract
-std::vector<std::tuple<irep_idt, std::unordered_map<irep_idt, abstraction_spect::spect::func_call_arg_namet>>>
-am_abstractiont::find_function_calls(irep_idt func_name, goto_modelt &goto_model, const abstraction_spect &abst_spec)
+std::unordered_set<irep_idt>
+am_abstractiont::calculate_complete_abst_specs_for_funcs_global(goto_modelt &goto_model, abstraction_spect &abst_spec)
 {
-  std::vector<std::tuple<
-    irep_idt,
-    std::unordered_map<irep_idt, abstraction_spect::spect::func_call_arg_namet>>>
-    result;
-
-  const goto_functiont &goto_function = goto_model.get_goto_function(func_name);
-  forall_goto_program_instructions(it, goto_function.body)
+  std::unordered_set<irep_idt> all_functions;
+  for (auto &spec: abst_spec.get_specs())
   {
-    // go through every instruction
-    if(it->is_function_call())
+    expr_type_relation etr(spec);
+
+    // The following is a search of functions.
+    // At each step, we pop one function A from the todo list.
+    // We analyze A to see if it calls other functions.
+    // If any other functions are called and have not been analyzed, 
+    // we also analyze that function, 
+    // and then push that to the todo list.
+    // Each function is only analyzed for one time. 
+    std::set<irep_idt> todo;  // functions to be further analyzed
+    std::unordered_set<irep_idt> finished;  // functions that has been analyzed
+    todo.insert(abst_spec.get_func_name());  // the analysis starts from the init function
+
+    while(!todo.empty())
     {
-      // it is a function call that we potentially need to abstract
-      const code_function_callt fc = it->get_function_call();
-      const irep_idt &new_func_name = to_symbol_expr(fc.function()).get_identifier();
-      const goto_functiont &new_function = goto_model.get_goto_function(new_func_name);
-      std::unordered_map<irep_idt, abstraction_spect::spect::func_call_arg_namet> map;
-      // Consider we have a function call func(&lhs, &rhs)
-      // arg will be &lhs, &rhs
-      // real_arg will be lhs, rhs
-      for(size_t i=0; i<fc.arguments().size(); i++)
+      // pop the first function in the todo list
+      irep_idt current_func_name = *todo.begin();
+      INVARIANT(finished.find(current_func_name) == finished.end(), "we should never analyze the same functino twice");
+      todo.erase(current_func_name);
+      finished.insert(current_func_name);
+
+      const goto_functiont &current_func = goto_model.get_goto_function(current_func_name);
+      
+      // check it calls any other functions that we need to abstract
+      std::unordered_set<irep_idt> funcs_called = update_relation_graph_from_function(current_func, etr, goto_model);
+
+      // for each function we need to abstract, check if it's already analyzed
+      // if not, we analyze it and put it into the function_spec_map and todo
+      for(const auto &new_func_name: funcs_called)
       {
-        // for each argument, we check whether we need to abstract it.
-        const exprt &arg = fc.arguments()[i];
-        exprt real_arg = arg;
-        abstraction_spect::spect::func_call_arg_namet::arg_translate_typet
-          flag = check_expr_is_address_or_deref(arg, real_arg);
-        irep_idt symbol_name = check_expr_is_symbol(real_arg);
-        if(symbol_name != "" && abst_spec.has_entity(symbol_name))
-          // if so, we push it into the map
-          map.insert({symbol_name,
-                      abstraction_spect::spect::func_call_arg_namet(
-                        new_function.parameter_identifiers[i], flag)});
-      }
-      if(!map.empty())  //if map is not empty, we create a new entry in the result
-        result.push_back(std::make_tuple(new_func_name, map));
-    }
-  }
-  return result;
-}
-
-std::unordered_map<irep_idt, abstraction_spect> 
-am_abstractiont::calculate_complete_abst_specs_for_funcs(goto_modelt &goto_model, abstraction_spect &abst_spec)
-{
-  std::unordered_map<irep_idt, abstraction_spect> function_spec_map;  // map from function to its abst_spec
-  const goto_functiont &init_function = goto_model.get_goto_function(abst_spec.get_func_name());
-  complete_abst_spec(init_function, abst_spec);
-  function_spec_map.insert({abst_spec.get_func_name(), abst_spec});
-
-  // The following is a search of functions.
-  // At each step, we pop one function A from the todo list.
-  // We analyze A to see if it calls other functions.
-  // If any other functions are called and have not been analyzed, 
-  // we analyze the function with update_abst and complete_abst, 
-  // and then push that to the todo list.
-  // Each function is only analyzed for one time. 
-  // We assume each function will only have a unique abst_spec.
-  std::queue<irep_idt> todo;  // functions to be further analyzed
-  todo.push(abst_spec.get_func_name());
-
-  while(!todo.empty())
-  {
-    // pop the first function in the todo list
-    irep_idt current_func_name = todo.front();
-    todo.pop();
-
-    // check it calls any other functions that we need to abstract
-    std::vector<std::tuple<
-      irep_idt,
-      std::unordered_map<irep_idt, abstraction_spect::spect::func_call_arg_namet>>>
-      func_tuples = find_function_calls(
-        current_func_name, goto_model, function_spec_map[current_func_name]);
-
-    // for each function we need to abstract, check if it's already analyzed
-    // if not, we analyze it and put it into the function_spec_map and todo
-    for(const auto &func_tuple: func_tuples)
-    {
-      irep_idt new_func_name = std::get<0>(func_tuple);
-      std::
-        unordered_map<irep_idt, abstraction_spect::spect::func_call_arg_namet>
-          name_pairs = std::get<1>(func_tuple);
-      if(function_spec_map.find(new_func_name) == function_spec_map.end())
-      {
-        // we need to abstract it and analyze it
-        todo.push(new_func_name);
-        abstraction_spect new_func_abst =
-          function_spec_map[current_func_name].update_abst_spec(
-            current_func_name, new_func_name, name_pairs);
-        complete_abst_spec(goto_model.get_goto_function(new_func_name), new_func_abst);
-        function_spec_map.insert({new_func_name, new_func_abst});
-      }
-      else
-      {
-        // we need to compare if the structure is the same
-        abstraction_spect new_func_abst = function_spec_map[current_func_name].update_abst_spec(current_func_name, new_func_name, name_pairs);
-        complete_abst_spec(goto_model.get_goto_function(new_func_name), new_func_abst);
-        
-        // Note that:
-        // compare_shape compares everything;
-        // compare_shape_only only compares the shape
-        if(!new_func_abst.compare_shape(function_spec_map[new_func_name]))
-        {
-          std::string error_code = "Same function abstracted with different shape!\n";
-          error_code += "Original abst spec:\n";
-          error_code += function_spec_map[new_func_name].get_entities_string();
-          error_code += "New abst spec:\n";
-          error_code += new_func_abst.get_entities_string();
-          throw error_code;
-        }
+        if(todo.find(new_func_name) == todo.end() &&
+           finished.find(new_func_name) == finished.end())
+          todo.insert(new_func_name);
       }
     }
+
+    etr.solve();
+    for(const auto &new_ent_p: etr.get_new_entities())
+      if(!spec.has_entity(new_ent_p.first))
+        spec.insert_entity(new_ent_p.first, new_ent_p.second);
+
+    all_functions = finished;
   }
-  return function_spec_map;
+
+  return all_functions;
 }
 
 bool am_abstractiont::contains_an_entity_to_be_abstracted(const exprt &expr, const abstraction_spect &abst_spec)
@@ -608,13 +763,13 @@ exprt am_abstractiont::add_guard_expression_to_assert(
   }
 }
 
-void am_abstractiont::declare_abst_variables_for_func(
+void am_abstractiont::declare_abst_variables(
   goto_modelt &goto_model,
-  const irep_idt &func_name,
-  const abstraction_spect &abst_spec,
-  std::unordered_set<irep_idt> &abst_var_set)
+  const std::unordered_set<irep_idt> &functions,
+  const abstraction_spect &abst_spec)
 {
   symbol_tablet &symbol_table = goto_model.symbol_table;
+  std::unordered_set<irep_idt> abst_var_set;
 
   // helper function to insert abst variables into the symbol table
   auto insert_abst_symbol = [&symbol_table, &abst_var_set](const abstraction_spect::spect::entityt &entity)
@@ -650,55 +805,27 @@ void am_abstractiont::declare_abst_variables_for_func(
   }
 
   // Step 2: if it is in the function parameter list, change the name
-  goto_functiont &function = goto_model.goto_functions.function_map.at(func_name);
-  for(auto &param: function.parameter_identifiers)
-    if(abst_spec.has_entity(param))
-      param = std::string(param.c_str()) + "$abst";
-  INVARIANT(
-    goto_model.get_symbol_table().has_symbol(func_name),
-    "The function " + std::string(func_name.c_str()) + " is not found");
-  symbolt &function_symb = goto_model.symbol_table.get_writeable_ref(func_name);
-  code_typet &function_type = to_code_type(function_symb.type);
-  for(auto &param: function_type.parameters())
+  for(const auto &func_name: functions)
   {
-    const irep_idt param_id = param.get_identifier();
-    if(abst_spec.has_entity(param_id))
-      param.set_identifier(std::string(param_id.c_str()) + "$abst");
+    goto_functiont &function = goto_model.goto_functions.function_map.at(func_name);
+    for(auto &param: function.parameter_identifiers)
+      if(abst_spec.has_entity(param))
+        param = std::string(param.c_str()) + "$abst";
+    INVARIANT(
+      goto_model.get_symbol_table().has_symbol(func_name),
+      "The function " + std::string(func_name.c_str()) + " is not found");
+    symbolt &function_symb = goto_model.symbol_table.get_writeable_ref(func_name);
+    code_typet &function_type = to_code_type(function_symb.type);
+    for(auto &param: function_type.parameters())
+    {
+      const irep_idt param_id = param.get_identifier();
+      if(abst_spec.has_entity(param_id))
+        param.set_identifier(get_abstract_name(param_id));
+    }
   }
-    
 
-  // Step 3: if it is declared within the function, change DECLARE and DEAD
-  Forall_goto_program_instructions(it, function.body)
-  {
-    if(it->is_decl())
-    {
-      // change symbol name in DECLARE instruction
-      const code_declt &decl = it->get_decl();
-      if(abst_spec.has_entity(decl.get_identifier()))
-      {
-        irep_idt new_name = get_abstract_name(decl.get_identifier());
-        typet typ = symbol_table.lookup_ref(new_name).type;
-        symbol_exprt new_symb_expr(new_name, typ);
-        code_declt new_decl(new_symb_expr);
-        it->set_decl(new_decl);
-      }
-    }
-    else if(it->is_dead())
-    {
-      // change symbol name in DEAD instruction
-      const code_deadt &dead = it->get_dead();
-      if(abst_spec.has_entity(dead.get_identifier()))
-      {
-        irep_idt new_name = get_abstract_name(dead.get_identifier());
-        typet typ = symbol_table.lookup_ref(new_name).type;
-        symbol_exprt new_symb_expr(new_name, typ);
-        code_deadt new_dead(new_symb_expr);
-        it->set_dead(new_dead);
-      }
-    }
-    else {}
-    
-  }
+  // Note: we don't have to handle declare and dead here. 
+  // They'll be handled in the main run through the instructions.
 }
 
 bool am_abstractiont::check_if_exprt_eval_to_abst_index(
@@ -1857,8 +1984,8 @@ void am_abstractiont::add_length_assumptions(goto_modelt &goto_model, const abst
 void am_abstractiont::abstract_goto_program(goto_modelt &goto_model, abstraction_spect &abst_spec)
 {
   // A couple of spects are initialized from the json file. We should go from there and insert spects to other functions
-  std::unordered_map<irep_idt, abstraction_spect> function_spec_map =
-    calculate_complete_abst_specs_for_funcs(goto_model, abst_spec);
+  std::unordered_set<irep_idt> all_funcs =
+    calculate_complete_abst_specs_for_funcs_global(goto_model, abst_spec);
   
   // Define the global concrete indices to be used
   define_concrete_indices(goto_model, abst_spec);
@@ -1869,18 +1996,17 @@ void am_abstractiont::abstract_goto_program(goto_modelt &goto_model, abstraction
   // Add the assumption for len==$clen
   add_length_assumptions(goto_model, abst_spec);
 
-  std::unordered_set<irep_idt> abst_symbol_set;
-  for(auto &p: function_spec_map)
-    declare_abst_variables_for_func(goto_model, p.first, p.second, abst_symbol_set);
+  // Put the abstracted variables into the symbol table
+  // Change the function parameter's name if needed
+  declare_abst_variables(goto_model, all_funcs, abst_spec);
   
-  for(auto &p: function_spec_map)
+  std::cout << "=========== " << "Entities to be abstracted" << " ===========" << std::endl;
+  abst_spec.print_entities();
+  for(auto &func_name: all_funcs)
   {
-    std::cout << "=========== " << p.first << " ===========" << std::endl;
-    std::cout << "----------- " << "Entities to be abstracted" << " -----------" << std::endl;
-    p.second.print_entities();
+    std::cout << "=========== " << func_name.c_str() << " ===========" << std::endl;
     std::cout << "----------- " << "Exprs containing the above entities" << " -----------" << std::endl;
-    goto_functiont &goto_function = goto_model.goto_functions.function_map.at(p.first);
-    const abstraction_spect &abst_spec = p.second;
+    goto_functiont &goto_function = goto_model.goto_functions.function_map.at(func_name);
     Forall_goto_program_instructions(it, goto_function.body)
     {
       // go through all expressions
@@ -1899,7 +2025,7 @@ void am_abstractiont::abstract_goto_program(goto_modelt &goto_model, abstraction
         if(contains_an_entity_to_be_abstracted(it->get_condition(), abst_spec))
         {
           format_rec(std::cout, it->get_condition()) << " ==abst_read==> ";
-          exprt new_condition = abstract_expr_read(it->get_condition(), abst_spec, goto_model, p.first, inst_before, inst_after, new_symbs);
+          exprt new_condition = abstract_expr_read(it->get_condition(), abst_spec, goto_model, func_name, inst_before, inst_after, new_symbs);
           format_rec(std::cout, new_condition) << std::endl;
           it->set_condition(new_condition);
         }
@@ -1912,7 +2038,7 @@ void am_abstractiont::abstract_goto_program(goto_modelt &goto_model, abstraction
         if(contains_an_entity_to_be_abstracted(fc.lhs(), abst_spec))
         {
           format_rec(std::cout, fc.lhs()) << " ==abst_write==> ";
-          new_lhs = abstract_expr_write(fc.lhs(), abst_spec, goto_model, p.first, inst_before, inst_after, new_symbs);
+          new_lhs = abstract_expr_write(fc.lhs(), abst_spec, goto_model, func_name, inst_before, inst_after, new_symbs);
           format_rec(std::cout, new_lhs) << std::endl;
         }
         else
@@ -1927,7 +2053,7 @@ void am_abstractiont::abstract_goto_program(goto_modelt &goto_model, abstraction
           if(contains_an_entity_to_be_abstracted(arg, abst_spec))
           {
             format_rec(std::cout, arg) << " ==abst_read==> ";
-            new_arg = abstract_expr_read(arg, abst_spec, goto_model, p.first, inst_before, inst_after, new_symbs);
+            new_arg = abstract_expr_read(arg, abst_spec, goto_model, func_name, inst_before, inst_after, new_symbs);
             format_rec(std::cout, new_arg) << std::endl;
             new_arguments.push_back(new_arg);
           }
@@ -1942,8 +2068,9 @@ void am_abstractiont::abstract_goto_program(goto_modelt &goto_model, abstraction
         if(abs_lhs)
         {
           // in this case, we need to abstract the return value
-          symbolt tmp_lhs = create_abstract_func_after(new_lhs, lhs_spec, p.first, goto_model, inst_before, inst_after, new_symbs);
+          symbolt tmp_lhs = create_abstract_func_after(new_lhs, lhs_spec, func_name, goto_model, inst_before, inst_after, new_symbs);
           code_function_callt new_fc(tmp_lhs.symbol_expr(), fc.function(), new_arguments);
+          it->set_function_call(new_fc);
         }
         else
         {
@@ -1958,7 +2085,7 @@ void am_abstractiont::abstract_goto_program(goto_modelt &goto_model, abstraction
         if(contains_an_entity_to_be_abstracted(as.lhs(), abst_spec))
         {
           format_rec(std::cout, as.lhs()) << " ==abst_write==> ";
-          new_lhs = abstract_expr_write(as.lhs(), abst_spec, goto_model, p.first, inst_before, inst_after, new_symbs);
+          new_lhs = abstract_expr_write(as.lhs(), abst_spec, goto_model, func_name, inst_before, inst_after, new_symbs);
           format_rec(std::cout, new_lhs) << std::endl;
         }
         else
@@ -1970,7 +2097,7 @@ void am_abstractiont::abstract_goto_program(goto_modelt &goto_model, abstraction
         if(contains_an_entity_to_be_abstracted(as.rhs(), abst_spec))
         {
           format_rec(std::cout, as.rhs()) << " ==abst_read==> ";
-          new_rhs = abstract_expr_read(as.rhs(), abst_spec, goto_model, p.first, inst_before, inst_after, new_symbs);
+          new_rhs = abstract_expr_read(as.rhs(), abst_spec, goto_model, func_name, inst_before, inst_after, new_symbs);
           format_rec(std::cout, new_rhs) << std::endl;
         }
         else
@@ -1997,7 +2124,7 @@ void am_abstractiont::abstract_goto_program(goto_modelt &goto_model, abstraction
           // put the concrete indices into operands
           push_concrete_indices_to_operands(operands, lhs_spec, goto_model);
           // make the function call
-          auto new_rhs_symb = create_function_call(abst_func, operands, p.first, goto_model, inst_before, inst_after, new_symbs);
+          auto new_rhs_symb = create_function_call(abst_func, operands, func_name, goto_model, inst_before, inst_after, new_symbs);
           new_rhs = new_rhs_symb.symbol_expr();
         }
         else if(!lhs_abs && rhs_abs)
@@ -2008,7 +2135,7 @@ void am_abstractiont::abstract_goto_program(goto_modelt &goto_model, abstraction
           // put the concrete indices into operands
           push_concrete_indices_to_operands(operands, rhs_spec, goto_model);
           // make the function call
-          auto new_rhs_symb = create_function_call(conc_func, operands, p.first, goto_model, inst_before, inst_after, new_symbs);
+          auto new_rhs_symb = create_function_call(conc_func, operands, func_name, goto_model, inst_before, inst_after, new_symbs);
           new_rhs = new_rhs_symb.symbol_expr();
         }
         else {}// don't need to do anything
@@ -2028,7 +2155,7 @@ void am_abstractiont::abstract_goto_program(goto_modelt &goto_model, abstraction
           if(contains_an_entity_to_be_abstracted(re_val, abst_spec))
           {
             format_rec(std::cout, re_val) << " ==abst_read==> ";
-            new_re_val = abstract_expr_read(re_val, abst_spec, goto_model, p.first, inst_before, inst_after, new_symbs);
+            new_re_val = abstract_expr_read(re_val, abst_spec, goto_model, func_name, inst_before, inst_after, new_symbs);
             format_rec(std::cout, new_re_val) << std::endl;
             abstraction_spect::spect spec;
             if(check_if_exprt_eval_to_abst_index(re_val, abst_spec, spec))
@@ -2040,7 +2167,7 @@ void am_abstractiont::abstract_goto_program(goto_modelt &goto_model, abstraction
               // put the concrete indices into operands
               push_concrete_indices_to_operands(operands, spec, goto_model);
               // make the function call
-              auto new_re_symb = create_function_call(conc_func, operands, p.first, goto_model, inst_before, inst_after, new_symbs);
+              auto new_re_symb = create_function_call(conc_func, operands, func_name, goto_model, inst_before, inst_after, new_symbs);
               new_re_val = new_re_symb.symbol_expr();
             }
           }
@@ -2058,9 +2185,37 @@ void am_abstractiont::abstract_goto_program(goto_modelt &goto_model, abstraction
         format_rec(std::cout, it->get_condition()) << " ==optimistic==> ";
         exprt optim_cond = add_guard_expression_to_assert(
           it->get_condition(), assert_orig_expr, abst_spec,
-          goto_model, p.first, inst_before, inst_after, new_symbs);
+          goto_model, func_name, inst_before, inst_after, new_symbs);
         format_rec(std::cout, optim_cond) << std::endl;
         it->set_condition(optim_cond);
+      }
+      if(it->is_decl())
+      {
+        // change symbol name in DECLARE instruction
+        const code_declt &decl = it->get_decl();
+        const symbol_tablet &symbol_table = goto_model.get_symbol_table();
+        if(abst_spec.has_entity(decl.get_identifier()))
+        {
+          irep_idt new_name = get_abstract_name(decl.get_identifier());
+          typet typ = symbol_table.lookup_ref(new_name).type;
+          symbol_exprt new_symb_expr(new_name, typ);
+          code_declt new_decl(new_symb_expr);
+          it->set_decl(new_decl);
+        }
+      }
+      else if(it->is_dead())
+      {
+        // change symbol name in DEAD instruction
+        const code_deadt &dead = it->get_dead();
+        const symbol_tablet &symbol_table = goto_model.get_symbol_table();
+        if(abst_spec.has_entity(dead.get_identifier()))
+        {
+          irep_idt new_name = get_abstract_name(dead.get_identifier());
+          typet typ = symbol_table.lookup_ref(new_name).type;
+          symbol_exprt new_symb_expr(new_name, typ);
+          code_deadt new_dead(new_symb_expr);
+          it->set_dead(new_dead);
+        }
       }
 
       // is there any unknown inst types?

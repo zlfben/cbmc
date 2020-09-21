@@ -46,36 +46,45 @@ protected:
   class expr_type_relation
   {
   protected:
-    irep_idt target_array;
-    // we have two graphs. One for indices, another for arrays.
-    std::vector<std::vector<size_t>> edges;  // What are the neighbors of the i-th node
-    std::vector<std::vector<size_t>> edges_array;
+    std::vector<std::unordered_set<size_t>> edges_equiv;  // equiv edges: two nodes should have the same entity type
+    std::vector<std::unordered_set<size_t>> edges_access;  // access edges: a-b means that b is an index access to a (a[b])
     std::vector<exprt> expr_list;  // Ordered list of expressions
-    std::unordered_set<size_t> finished;  // analyzed closure set
-    std::unordered_set<size_t> finished_array;
-    std::unordered_set<size_t> todo;  // The node just put into the closure set. We need to put its neighbors as well.
-    std::unordered_set<size_t> todo_array;
-    std::map<irep_idt, std::vector<size_t>> symbols;  // Store information about which nodes are entities/symbols (var or member of struct)
-    std::unordered_set<irep_idt> abst_variables;
-    std::unordered_set<irep_idt> abst_arrays;
+    
+    std::unordered_map<irep_idt, std::unordered_set<size_t>> symbols;  // Store information about which nodes are entities/symbols (var or member of struct)
+    std::unordered_map<irep_idt, std::unordered_set<irep_idt>> symbol_equiv_rel;
+    std::unordered_map<irep_idt, std::unordered_set<irep_idt>> symbol_address_of_rel;
+
+    std::unordered_map<size_t, abstraction_spect::spect::entityt::entityt_type> todo;
+    std::unordered_map<size_t, abstraction_spect::spect::entityt::entityt_type> finished; // entities that is already added
+
+    std::unordered_map<irep_idt, abstraction_spect::spect::entityt::entityt_type> seeds;  // the variables specified to be abstracted in the first place
+    std::unordered_map<irep_idt, abstraction_spect::spect::entityt::entityt_type> new_entities;  // the new variables found in the closure analysis to be abstracted
 
   public:
-    expr_type_relation(irep_idt _target_array) : target_array(_target_array)
-    {
-    }
-    void link(size_t i1, size_t i2);
-    void link_array(size_t i1, size_t i2);
+    expr_type_relation(const abstraction_spect::spect &spec);
+
+    void link_equiv(size_t i1, size_t i2);
+    void link_access(size_t i1, size_t i2);
+
+    void link_symb_equiv(irep_idt symb1, irep_idt symb2);
+    void link_symb_addr_of(irep_idt symb1, irep_idt symb2);
+
     size_t add_expr(const exprt &expr);
+
+    std::vector<
+      std::pair<size_t, abstraction_spect::spect::entityt::entityt_type>>
+    get_neighbors(
+      size_t index,
+      abstraction_spect::spect::entityt::entityt_type type);
+    
+    int get_equiv_symb_level(irep_idt symb1, irep_idt symb2);
+    bool is_equiv_symb(irep_idt symb1, irep_idt symb2);
+
     void solve();
-    void solve_array();
-    const std::unordered_set<irep_idt> get_abst_variables()
-    {
-      return abst_variables;
-    }
-    const std::unordered_set<irep_idt> get_abst_arrays()
-    {
-      return abst_arrays;
-    }
+
+    std::unordered_map<irep_idt, 
+                       abstraction_spect::spect::entityt::entityt_type>
+      get_new_entities();
   };
 
   // get the string representation from a "symbol" exprt
@@ -83,38 +92,33 @@ protected:
   // symbol: <expr's name>
   // member: <ptr's name>->member or <obj's name>.member
   static irep_idt get_string_id_from_exprt(const exprt &expr);
+  // is an expr symbol?
+  // e.g. a.len, b->len, a, b are symbols
+  static bool is_symbol_expr(const exprt &expr);
+
+  /// get the parent of an id
+  /// e.g. symb.a.len => (".", "symb.a"), symb->b => ("->", "symb")
+  /// \return a pair (flag, parent_name)
+  /// flag is one of "" (not having a parent), 
+  /// "->"(parent is a pointer) and 
+  /// "."(parent is a struct)
+  static std::pair<std::string, irep_idt> get_parent_id(const irep_idt &id);
 
   /// check if an expr is array_of or dereference
   /// \return flag: 0(none); 1(array_of) -1(dereference)
   static abstraction_spect::spect::func_call_arg_namet::arg_translate_typet check_expr_is_address_or_deref(const exprt &expr, exprt &next_layer);
   
   static irep_idt check_expr_is_symbol(const exprt &expr);
-  // complete the abstraction spec for a goto function using static analysis
-  static void complete_abst_spec(const goto_functiont& goto_function, abstraction_spect &abst_spec);
 
-  /// go into a function to find all function calls we'll need to abstract
-  /// \return a vector. each entry is a pair of [function_name, variable map]
-  /// variable map: key - original symbol name; value [new symbol name, flag]
-  /// flag: 0 - normal, 1 - entity to pointer, -1 - pointer to entity 
-  static std::vector<std::tuple<irep_idt, std::unordered_map<irep_idt, abstraction_spect::spect::func_call_arg_namet>>>
-  find_function_calls(irep_idt func_name, goto_modelt &goto_model, const abstraction_spect &abst_spec);
-
-  /// \param goto_function: the function to be analyzed
-  /// \param array_name: the array to be analyzed
-  /// \return the related variables within function. the first entry in the tuple is the set of related arrays
-  /// the second entry is the set of related indices
-  static const std::tuple<std::unordered_set<irep_idt>, std::unordered_set<irep_idt>>
-  find_index_symbols(
+  /// update the etr object by analyzing all instructions from a function
+  static std::unordered_set<irep_idt> update_relation_graph_from_function(
     const goto_functiont &goto_function,
-    const irep_idt &array_name);
+    expr_type_relation &etr,
+    goto_modelt &goto_model);
 
-  /// \param goto_model: the goto model
-  /// \param abst_spec: the initialized abst_spec, containing all spects from the json file
-  /// \return a map with function name as key and its abst_spect as value
-  /// The function starts from the initial spects and check all function calls to build a complete set of entityts.
-  /// The new entityts are stored in abst_spec.specs
-  static std::unordered_map<irep_idt, abstraction_spect>
-  calculate_complete_abst_specs_for_funcs(goto_modelt &goto_model, abstraction_spect &abst_spec);
+  /// Same function as the previous one, but doing closure analysis across functions (globally)
+  static std::unordered_set<irep_idt>
+  calculate_complete_abst_specs_for_funcs_global(goto_modelt &goto_model, abstraction_spect &abst_spec);
 
   /// \param expr: the expression to be checked
   /// \param abst_spec: the abstraction_spect for the current function which contains all spects
@@ -161,11 +165,10 @@ protected:
   /// into the symbol table with name "var_name$abst"
   /// If it is a local variable in the function, we'll also change the declaration for the abstracted variable to "var_name$abst"
   /// If it is a function argument, we'll change the parameter table (var_name => var_name$abst)
-  static void declare_abst_variables_for_func(
+  static void declare_abst_variables(
     goto_modelt &goto_model,
-    const irep_idt &func_name,
-    const abstraction_spect &abst_spec,
-    std::unordered_set<irep_idt> &abst_var_set);
+    const std::unordered_set<irep_idt> &functions,
+    const abstraction_spect &abst_spec);
 
   /// \param expr: the expression to be checked
   /// \param abst_spec: the abstraction specification

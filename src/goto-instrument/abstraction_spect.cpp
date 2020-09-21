@@ -255,7 +255,7 @@ void abstraction_spect::spect::insert_entity(const irep_idt &_name, const abstra
   }
 }
 
-void abstraction_spect::spect::insert_entity(const irep_idt &_name, const std::string &_type)
+void abstraction_spect::spect::insert_entity(const irep_idt &_name, const entityt::entityt_type &_type)
 {
   std::string name_str = _name.c_str();
   std::unordered_map<irep_idt, std::unique_ptr<entityt>> *current_layer_entities = &abst_entities;
@@ -289,34 +289,25 @@ void abstraction_spect::spect::insert_entity(const irep_idt &_name, const std::s
     else  // "->" and "." are not found
     {
       // this is at the leaf
-      if(_type == "array")
-      {
-        if(current_layer_entities->find(name_str) == current_layer_entities->end())
-          current_layer_entities->insert({name_str, std::unique_ptr<entityt>(new array_entityt(name_str))});
-        else
-          throw "entity " + name_str + " already exists";
-      }
-      else if(_type == "scalar")
-      {
-        if(current_layer_entities->find(name_str) == current_layer_entities->end())
-          current_layer_entities->insert({name_str, std::unique_ptr<entityt>(new scalar_entityt(name_str))});
-        else
-          throw "entity " + name_str + " already exists";
-      }
-      else if(_type == "length")
-      {
-        if(current_layer_entities->find(name_str) == current_layer_entities->end())
-          current_layer_entities->insert({name_str, std::unique_ptr<entityt>(new length_entityt(name_str))});
-        else
-          throw "entity " + name_str + " already exists";
-      }
+      if(current_layer_entities->find(name_str) == current_layer_entities->end())
+        current_layer_entities->insert({name_str, std::unique_ptr<entityt>(new entityt(name_str, _type))});
       else
-      {
-        throw "Unknown entity type: " + _type;
-      }
+        throw "entity " + name_str + " already exists";
       name_str = "";
     }
   }
+}
+
+void abstraction_spect::spect::insert_entity(const irep_idt &_name, const std::string &_type)
+{
+  if(_type == "array")
+    insert_entity(_name, entityt::ARRAY);
+  else if(_type == "scalar")
+    insert_entity(_name, entityt::SCALAR);
+  else if(_type == "length")
+    insert_entity(_name, entityt::LENGTH);
+  else
+    throw "Unknown entity type: " + _type;
 }
 
 std::vector<exprt> abstraction_spect::spect::get_assumption_exprs(const namespacet &ns) const
@@ -556,7 +547,7 @@ void abstraction_spect::spect::search_all_lengths_and_generate_path(
   }
 }
 
-std::unordered_map<irep_idt, exprt>
+std::vector<std::pair<irep_idt, exprt>>
 abstraction_spect::spect::get_abst_lengths_with_expr(const namespacet &ns) const
 {
   // helper function to translate a length variable entity path to exprt
@@ -604,11 +595,11 @@ abstraction_spect::spect::get_abst_lengths_with_expr(const namespacet &ns) const
     current_path.pop_back();
   }
   
-  std::unordered_map<irep_idt, exprt> result;
+  std::vector<std::pair<irep_idt, exprt>> result;
   for(const auto &path: all_length_paths)
   {
     INVARIANT(path.size() > 0, "The length entity path should not be empty");
-    result.insert({path[0].name, generate_expr_from_path(path)});
+    result.push_back(std::make_pair(path[0].name, generate_expr_from_path(path)));
   }
 
   return result;

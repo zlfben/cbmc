@@ -370,6 +370,10 @@ public:
     void insert_entity(const irep_idt &_name, const entityt &entity);
 
     // We will have functions for accessing and modifying the above data.
+    // _type: "ARRAY", "SCALAR", "LENGTH", etc.
+    void insert_entity(const irep_idt &_name, const entityt::entityt_type &_type);
+
+    // We will have functions for accessing and modifying the above data.
     // _type: "array", "scalar", "length", etc.
     void insert_entity(const irep_idt &_name, const std::string &_type);
 
@@ -392,7 +396,7 @@ public:
       std::vector<entityt> &current_path,
       std::vector<std::vector<entityt>> &results);
 
-    std::unordered_map<irep_idt, exprt>
+    std::vector<std::pair<irep_idt, exprt>>
     get_abst_lengths_with_expr(const namespacet &ns) const;
 
     const bool has_entity(const irep_idt &entity_name) const
