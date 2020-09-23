@@ -84,8 +84,6 @@ std::string get_absolute_path(const std::string &rel_path)
 {
   #ifndef _WIN32
     errno=0;
-    char rp[4096];
-    strcpy(rp, rel_path.c_str());
     char *wd=realpath(rel_path.c_str(), nullptr);
 
     if(wd == nullptr || errno != 0)
@@ -96,19 +94,22 @@ std::string get_absolute_path(const std::string &rel_path)
     free(wd);
   #else
     TCHAR buffer[4096];
-    DWORD retval=GetFullPathName(rel_path, 4096, buffer, "") 
-    if(retval == 0)
-      throw system_exceptiont("failed to get current directory of process");
+    #  ifdef UNICODE
+      DWORD retval = GetFullPathNameW(widen(rel_path).c_str(), 4096, buffer, NULL);
+    #  else
+      DWORD retval = GetFullPathNameA(rel_path.c_str(), 4096, buffer, NULL);
+    #  endif
+      if(retval == 0)
+        throw system_exceptiont("failed to get current directory of process");
 
-  #  ifdef UNICODE
-    std::string abs_path(narrow(buffer));
-  #  else
-    std::string abs_path(buffer);
-  #  endif
-
+    #  ifdef UNICODE
+      std::string abs_path(narrow(buffer));
+    #  else
+      std::string abs_path(buffer);
+    #  endif
   #endif
 
-    return abs_path;
+  return abs_path;
 }
 
 /// Set working directory.

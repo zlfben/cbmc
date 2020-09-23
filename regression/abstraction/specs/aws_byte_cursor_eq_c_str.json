@@ -2,8 +2,8 @@
     "entries": [
         {
             "entity": "array",
-            "function": "aws_byte_cursor_eq_harness",
-            "name": "aws_byte_cursor_eq_harness::1::lhs.ptr",
+            "function": "aws_byte_cursor_eq_c_str_harness",
+            "name": "aws_byte_cursor_eq_c_str_harness::1::cur.ptr",
             "shape": {
                 "indices": ["cncrt0", "cncrt", "length"],
                 "assumptions": [
@@ -26,19 +26,24 @@
             },
             "related-entities": [
                 {
+                    "entity": "length",
+                    "function": "aws_byte_cursor_eq_c_str_harness",
+                    "name": "aws_byte_cursor_eq_c_str_harness::1::cur.len"
+                },
+                {
                     "entity": "array",
-                    "function": "aws_byte_cursor_eq_harness",
-                    "name": "aws_byte_cursor_eq_harness::1::rhs.ptr"
+                    "function": "aws_byte_cursor_eq_c_str_harness",
+                    "name": "aws_byte_cursor_eq_c_str_harness::1::c_str"
+                },
+                {
+                    "entity": "scalar",
+                    "function": "",
+                    "name": "str_len"
                 },
                 {
                     "entity": "length",
-                    "function": "aws_byte_cursor_eq_harness",
-                    "name": "aws_byte_cursor_eq_harness::1::lhs.len"
-                },
-                {
-                    "entity": "length",
-                    "function": "aws_byte_cursor_eq_harness",
-                    "name": "aws_byte_cursor_eq_harness::1::rhs.len"
+                    "function": "aws_byte_cursor_eq_c_str_harness",
+                    "name": "aws_byte_cursor_eq_c_str_harness::1::allocated_str_len"
                 }
             ]
 

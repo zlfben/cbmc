@@ -46,39 +46,58 @@ protected:
   class expr_type_relation
   {
   protected:
-    std::vector<std::unordered_set<size_t>> edges_equiv;  // equiv edges: two nodes should have the same entity type
+    std::vector<std::unordered_set<size_t>> edges_equiv;  // equiv edges: two nodes should have the same entity_type (e.g. ARRAY, SCALAR, ...)
     std::vector<std::unordered_set<size_t>> edges_access;  // access edges: a-b means that b is an index access to a (a[b])
     std::vector<exprt> expr_list;  // Ordered list of expressions
     
     std::unordered_map<irep_idt, std::unordered_set<size_t>> symbols;  // Store information about which nodes are entities/symbols (var or member of struct)
-    std::unordered_map<irep_idt, std::unordered_set<irep_idt>> symbol_equiv_rel;
-    std::unordered_map<irep_idt, std::unordered_set<irep_idt>> symbol_address_of_rel;
+    std::unordered_map<irep_idt, std::unordered_set<irep_idt>> entity_edges_equiv;
+    std::unordered_map<irep_idt, std::unordered_set<irep_idt>> entity_edges_addr_of;
 
     std::unordered_map<size_t, abstraction_spect::spect::entityt::entityt_type> todo;
     std::unordered_map<size_t, abstraction_spect::spect::entityt::entityt_type> finished; // entities that is already added
 
     std::unordered_map<irep_idt, abstraction_spect::spect::entityt::entityt_type> seeds;  // the variables specified to be abstracted in the first place
-    std::unordered_map<irep_idt, abstraction_spect::spect::entityt::entityt_type> new_entities;  // the new variables found in the closure analysis to be abstracted
+    std::unordered_map<irep_idt, abstraction_spect::spect::entityt::entityt_type> new_entities;  // the new variables/entities found in the closure analysis to be abstracted
 
   public:
     expr_type_relation(const abstraction_spect::spect &spec);
 
-    void link_equiv(size_t i1, size_t i2);
-    void link_access(size_t i1, size_t i2);
+    // add an equiv edge between node i1 and node i2 in the exprt graph
+    // this means node i1 and node i2 should be abstracted with the same 
+    // shape and type.
+    void link_exprt_equiv(size_t i1, size_t i2);
+    // add an access edge from node i1 to node i2 in the exprt graph
+    // this means node i2 is an access to node i1 (<node i1>[<node i2>])
+    void link_exprt_access(size_t i1, size_t i2);
 
-    void link_symb_equiv(irep_idt symb1, irep_idt symb2);
-    void link_symb_addr_of(irep_idt symb1, irep_idt symb2);
+    // add an equiv edge between symb1 and symb2 in the entity graph
+    // this means the two entities are equivalent in terms of abstraction
+    void link_entity_equiv(irep_idt symb1, irep_idt symb2);
+    // add an addr_of edge from symb1 to symb2
+    // this means symb1 = &symb2
+    void link_entity_addr_of(irep_idt symb1, irep_idt symb2);
 
+    // add an exprt in the exprt graph and return its node id
     size_t add_expr(const exprt &expr);
 
+    // get all neighbors of an exprt given a type
     std::vector<
       std::pair<size_t, abstraction_spect::spect::entityt::entityt_type>>
     get_neighbors(
       size_t index,
       abstraction_spect::spect::entityt::entityt_type type);
     
-    int get_equiv_symb_level(irep_idt symb1, irep_idt symb2);
-    bool is_equiv_symb(irep_idt symb1, irep_idt symb2);
+    // this will get two symbol's relation if we have a path of symb1 to symb2
+    // the return value is how many addr_of edges we have in the path
+    // note that there might be cycles in the symb relation path, but we only count the shortest path
+    // e.g. a - b -addrof-> c      get_equiv_symb_level(a, c) = 1, get_equiv_symb_level(a, b) = 0
+    // if no path, return -1
+    int check_symb_deref_level(irep_idt symb1, irep_idt symb2);
+
+    // tell whether two symbs are equivalent. This not only checks direct equiv edges, but also 
+    // checks whether they are equivalent because of chain relations in the entity graph
+    bool is_equiv_entity(irep_idt symb1, irep_idt symb2);
 
     void solve();
 
@@ -92,9 +111,10 @@ protected:
   // symbol: <expr's name>
   // member: <ptr's name>->member or <obj's name>.member
   static irep_idt get_string_id_from_exprt(const exprt &expr);
-  // is an expr symbol?
-  // e.g. a.len, b->len, a, b are symbols
-  static bool is_symbol_expr(const exprt &expr);
+  // is an expr entity?
+  // e.g. a.len, b->len, a, b are entities
+  // *(a+1).len are not considered entities by us
+  static bool is_entity_expr(const exprt &expr);
 
   /// get the parent of an id
   /// e.g. symb.a.len => (".", "symb.a"), symb->b => ("->", "symb")
@@ -111,6 +131,7 @@ protected:
   static irep_idt check_expr_is_symbol(const exprt &expr);
 
   /// update the etr object by analyzing all instructions from a function
+  /// we are updating both the exprt graph and entity graph in etr
   static std::unordered_set<irep_idt> update_relation_graph_from_function(
     const goto_functiont &goto_function,
     expr_type_relation &etr,
@@ -118,7 +139,7 @@ protected:
 
   /// Same function as the previous one, but doing closure analysis across functions (globally)
   static std::unordered_set<irep_idt>
-  calculate_complete_abst_specs_for_funcs_global(goto_modelt &goto_model, abstraction_spect &abst_spec);
+  complete_the_global_abst_spec(goto_modelt &goto_model, abstraction_spect &abst_spec);
 
   /// \param expr: the expression to be checked
   /// \param abst_spec: the abstraction_spect for the current function which contains all spects

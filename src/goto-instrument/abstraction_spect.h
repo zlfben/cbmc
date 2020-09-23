@@ -396,6 +396,9 @@ public:
       std::vector<entityt> &current_path,
       std::vector<std::vector<entityt>> &results);
 
+    // find all length variables' top level entities' name (the symbol)
+    // together with the length variables' exprt
+    // e.g. if buf.len is a length variable, ("buf", exprt<buf.len>) will be returned as a pair
     std::vector<std::pair<irep_idt, exprt>>
     get_abst_lengths_with_expr(const namespacet &ns) const;
 

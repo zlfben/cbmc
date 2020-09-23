@@ -31,46 +31,46 @@ am_abstractiont::expr_type_relation::expr_type_relation(const abstraction_spect:
     seeds.insert({index_p.first, abstraction_spect::spect::entityt::SCALAR});
 }
 
-void am_abstractiont::expr_type_relation::link_equiv(size_t i1, size_t i2)
+void am_abstractiont::expr_type_relation::link_exprt_equiv(size_t i1, size_t i2)
 {
   edges_equiv[i1].insert(i2);
   edges_equiv[i2].insert(i1);
 
-  if(is_symbol_expr(expr_list[i1]) && is_symbol_expr(expr_list[i2]))
+  if(is_entity_expr(expr_list[i1]) && is_entity_expr(expr_list[i2]))
   {
     const irep_idt str_id1 = get_string_id_from_exprt(expr_list[i1]);
     const irep_idt str_id2 = get_string_id_from_exprt(expr_list[i2]);
-    link_symb_equiv(str_id1, str_id2);
+    link_entity_equiv(str_id1, str_id2);
   }
-  else if(is_symbol_expr(expr_list[i1]) && expr_list[i2].id() == ID_address_of && is_symbol_expr(expr_list[i2].operands()[0]))
+  else if(is_entity_expr(expr_list[i1]) && expr_list[i2].id() == ID_address_of && is_entity_expr(expr_list[i2].operands()[0]))
   {
     const irep_idt str_id1 = get_string_id_from_exprt(expr_list[i1]);
     const irep_idt str_id2 = get_string_id_from_exprt(expr_list[i2].operands()[0]);
-    link_symb_addr_of(str_id1, str_id2);
+    link_entity_addr_of(str_id1, str_id2);
   }
-  else if(is_symbol_expr(expr_list[i2]) && expr_list[i1].id() == ID_address_of && is_symbol_expr(expr_list[i1].operands()[0]))
+  else if(is_entity_expr(expr_list[i2]) && expr_list[i1].id() == ID_address_of && is_entity_expr(expr_list[i1].operands()[0]))
   {
     const irep_idt str_id2 = get_string_id_from_exprt(expr_list[i2]);
     const irep_idt str_id1 = get_string_id_from_exprt(expr_list[i1].operands()[0]);
-    link_symb_addr_of(str_id2, str_id1);
+    link_entity_addr_of(str_id2, str_id1);
   }
   else {}
 }
 
-void am_abstractiont::expr_type_relation::link_access(size_t i1, size_t i2)
+void am_abstractiont::expr_type_relation::link_exprt_access(size_t i1, size_t i2)
 {
   edges_access[i1].insert(i2);
 }
 
-void am_abstractiont::expr_type_relation::link_symb_equiv(irep_idt symb1, irep_idt symb2)
+void am_abstractiont::expr_type_relation::link_entity_equiv(irep_idt symb1, irep_idt symb2)
 {
-  symbol_equiv_rel[symb1].insert(symb2);
-  symbol_equiv_rel[symb2].insert(symb1);
+  entity_edges_equiv[symb1].insert(symb2);
+  entity_edges_equiv[symb2].insert(symb1);
 }
 
-void am_abstractiont::expr_type_relation::link_symb_addr_of(irep_idt symb1, irep_idt symb2)
+void am_abstractiont::expr_type_relation::link_entity_addr_of(irep_idt symb1, irep_idt symb2)
 {
-  symbol_address_of_rel[symb1].insert(symb2);
+  entity_edges_addr_of[symb1].insert(symb2);
 }
 
 size_t am_abstractiont::expr_type_relation::add_expr(const exprt &expr)
@@ -81,15 +81,16 @@ size_t am_abstractiont::expr_type_relation::add_expr(const exprt &expr)
   edges_access.push_back(std::unordered_set<size_t>());
 
   // add symbol to symbol list
-  if(is_symbol_expr(expr))
+  if(is_entity_expr(expr))
   {
     const irep_idt str_id = get_string_id_from_exprt(expr);
     if(symbols.find(str_id) == symbols.end())
       symbols[str_id] = std::unordered_set<size_t>();
-    if(symbol_equiv_rel.find(str_id) == symbol_equiv_rel.end())
-      symbol_equiv_rel[str_id] = std::unordered_set<irep_idt>();
-    if(symbol_address_of_rel.find(str_id) == symbol_address_of_rel.end())
-      symbol_address_of_rel[str_id] = std::unordered_set<irep_idt>();
+    if(entity_edges_equiv.find(str_id) == entity_edges_equiv.end())
+      entity_edges_equiv[str_id] = std::unordered_set<irep_idt>();
+    if(entity_edges_addr_of.find(str_id) == entity_edges_addr_of.end())
+      entity_edges_addr_of[str_id] = std::unordered_set<irep_idt>();
+    // if this exprt is an entity, store this information
     symbols[str_id].insert(index);
     // if the symbol is one of the seeds, put it into the todo list
     if(seeds.find(str_id) != seeds.end())
@@ -107,13 +108,13 @@ size_t am_abstractiont::expr_type_relation::add_expr(const exprt &expr)
       expr.id() == ID_equal || expr.id() == ID_notequal || expr.id() == ID_ge ||
       expr.id() == ID_gt || expr.id() == ID_le || expr.id() == ID_lt)
     {
-      link_equiv(operands_index[0], operands_index[1]);
+      link_exprt_equiv(operands_index[0], operands_index[1]);
     }
     else if(
       expr.id() == ID_const_cast || expr.id() == ID_static_cast || expr.id() == ID_typecast || 
       expr.id() == ID_dynamic_cast || expr.id() == ID_reinterpret_cast)
     {
-      link_equiv(index, operands_index[0]);
+      link_exprt_equiv(index, operands_index[0]);
     }
     else if(expr.id() == ID_plus || expr.id() == ID_minus)
     {
@@ -123,7 +124,7 @@ size_t am_abstractiont::expr_type_relation::add_expr(const exprt &expr)
           (expr.operands()[1].id() == ID_typecast && expr.operands()[1].operands()[0].id() == ID_constant) ||
           expr.operands()[1].id() == ID_constant)
         {
-          link_equiv(index, operands_index[0]);
+          link_exprt_equiv(index, operands_index[0]);
         }
       }
     }
@@ -131,23 +132,18 @@ size_t am_abstractiont::expr_type_relation::add_expr(const exprt &expr)
     // If this is an access to the array, insert that edge
     if(
       expr.id() == ID_plus && 
-      (is_symbol_expr(expr.operands().front())) &&
+      (is_entity_expr(expr.operands().front())) &&
       expr.operands().front().type().id() == ID_pointer)
     {
-      link_access(operands_index[0], operands_index[1]);
+      link_exprt_access(operands_index[0], operands_index[1]);
     }
   }
 
   return index;
 }
 
-int am_abstractiont::expr_type_relation::get_equiv_symb_level(irep_idt symb1, irep_idt symb2)
+int am_abstractiont::expr_type_relation::check_symb_deref_level(irep_idt symb1, irep_idt symb2)
 {
-  // this will get two symbol's relation if we have a path of symb1 to symb2
-  // the return value is how many addr_of edges we have in the path
-  // note that there might be cycles in the symb relation path, but we only count the shortest path
-  // e.g. a - b -addrof-> c      get_equiv_symb_level(a, c) = 1, get_equiv_symb_level(a, b) = 0
-  // if no path, return -1
   std::unordered_map<irep_idt, int> finished;
   std::queue<irep_idt> todo;
 
@@ -163,30 +159,44 @@ int am_abstractiont::expr_type_relation::get_equiv_symb_level(irep_idt symb1, ir
       "the symbol " + std::string(current_symb.c_str()) +
         " should be in the symbol list.");
     INVARIANT(
-      symbol_equiv_rel.find(current_symb) != symbol_equiv_rel.end(),
+      entity_edges_equiv.find(current_symb) != entity_edges_equiv.end(),
       "the symbol " + std::string(current_symb.c_str()) +
         " should be in the symbol list.");
     INVARIANT(
-      symbol_address_of_rel.find(current_symb) != symbol_address_of_rel.end(),
+      entity_edges_addr_of.find(current_symb) != entity_edges_addr_of.end(),
       "the symbol " + std::string(current_symb.c_str()) +
         " should be in the symbol list.");
     todo.pop();
 
-    for(const auto &eq_ngbr: symbol_equiv_rel[current_symb])
+    for(const auto &eq_ngbr: entity_edges_equiv[current_symb])
     {
       if(finished.find(eq_ngbr) == finished.end())
       {
         todo.push(eq_ngbr);
         finished.insert({eq_ngbr, finished[current_symb]});
       }
+      else
+      {
+        INVARIANT(
+          finished[eq_ngbr] == finished[current_symb],
+          "the reference level between " + std::string(current_symb.c_str()) +
+            " and " + std::string(eq_ngbr.c_str()) + " are not consistent");
+      }
     }
 
-    for(const auto &addr_ngbr: symbol_address_of_rel[current_symb])
+    for(const auto &addr_ngbr: entity_edges_addr_of[current_symb])
     {
       if(finished.find(addr_ngbr) == finished.end())
       {
         todo.push(addr_ngbr);
         finished.insert({addr_ngbr, finished[current_symb]+1});
+      }
+      else
+      {
+        INVARIANT(
+          finished[addr_ngbr] == finished[current_symb] + 1,
+          "the reference level between " + std::string(current_symb.c_str()) +
+            " and " + std::string(addr_ngbr.c_str()) + " are not consistent");
       }
     }
   }
@@ -197,20 +207,20 @@ int am_abstractiont::expr_type_relation::get_equiv_symb_level(irep_idt symb1, ir
     return -1;
 }
 
-bool am_abstractiont::expr_type_relation::is_equiv_symb(irep_idt symb1, irep_idt symb2)
+bool am_abstractiont::expr_type_relation::is_equiv_entity(irep_idt symb1, irep_idt symb2)
 {
   INVARIANT(symbols.find(symb1) != symbols.end(), "Symbol " + std::string(symb1.c_str()) + " is not found");
-  INVARIANT(symbol_equiv_rel.find(symb1) != symbol_equiv_rel.end(), "Symbol " + std::string(symb1.c_str()) + " is not found");
-  INVARIANT(symbol_address_of_rel.find(symb1) != symbol_address_of_rel.end(), "Symbol " + std::string(symb1.c_str()) + " is not found");
+  INVARIANT(entity_edges_equiv.find(symb1) != entity_edges_equiv.end(), "Symbol " + std::string(symb1.c_str()) + " is not found");
+  INVARIANT(entity_edges_addr_of.find(symb1) != entity_edges_addr_of.end(), "Symbol " + std::string(symb1.c_str()) + " is not found");
   INVARIANT(symbols.find(symb2) != symbols.end(), "Symbol " + std::string(symb2.c_str()) + " is not found");
-  INVARIANT(symbol_equiv_rel.find(symb2) != symbol_equiv_rel.end(), "Symbol " + std::string(symb2.c_str()) + " is not found");
-  INVARIANT(symbol_address_of_rel.find(symb2) != symbol_address_of_rel.end(), "Symbol " + std::string(symb2.c_str()) + " is not found");
+  INVARIANT(entity_edges_equiv.find(symb2) != entity_edges_equiv.end(), "Symbol " + std::string(symb2.c_str()) + " is not found");
+  INVARIANT(entity_edges_addr_of.find(symb2) != entity_edges_addr_of.end(), "Symbol " + std::string(symb2.c_str()) + " is not found");
   
   // are they just the same?
   if(symb1 == symb2)
     return true;
   // do they have a direct equivalence?
-  if(symbol_equiv_rel[symb1].find(symb2) != symbol_equiv_rel[symb1].end())
+  if(check_symb_deref_level(symb1, symb2) == 0)
     return true;
   // are they equivalent because of the equiv of their parent?
   auto parent_p1 = get_parent_id(symb1);
@@ -232,7 +242,7 @@ bool am_abstractiont::expr_type_relation::is_equiv_symb(irep_idt symb1, irep_idt
     {
       if(flag1 == flag2)
       {
-        return get_equiv_symb_level(irep_idt(parent1), irep_idt(parent2)) == 0;
+        return check_symb_deref_level(irep_idt(parent1), irep_idt(parent2)) == 0;
       }
       else
       {
@@ -240,9 +250,9 @@ bool am_abstractiont::expr_type_relation::is_equiv_symb(irep_idt symb1, irep_idt
         irep_idt p2_idt = parent2;
         // is a->len and b.len equivalent? it depends on whether a = &b
         if(flag1 == "->" && flag2 == ".")
-          return get_equiv_symb_level(p1_idt, p2_idt) == 1;
+          return check_symb_deref_level(p1_idt, p2_idt) == 1;
         else if(flag1 == "." && flag2 == "->")
-          return get_equiv_symb_level(p2_idt, p1_idt) == 1;
+          return check_symb_deref_level(p2_idt, p1_idt) == 1;
         else
           throw "flag should be either -> or .";
       }
@@ -283,7 +293,7 @@ std::vector<std::pair<size_t, abstraction_spect::spect::entityt::entityt_type>>
   }
 
   // step 2: get the equiv neighbors because of using the same symbol
-  if(is_symbol_expr(expr_list[index]))
+  if(is_entity_expr(expr_list[index]))
   {
     irep_idt symb_name = get_string_id_from_exprt(expr_list[index]);
     // step 2.1: put all exprs using the same symbol as neighbors
@@ -297,7 +307,7 @@ std::vector<std::pair<size_t, abstraction_spect::spect::entityt::entityt_type>>
     for(const auto &symb_p: symbols)
     {
       const irep_idt &ngbr_symb_name = symb_p.first;
-      if(ngbr_symb_name != symb_name && is_equiv_symb(ngbr_symb_name, symb_name))
+      if(ngbr_symb_name != symb_name && is_equiv_entity(ngbr_symb_name, symb_name))
       {
         for(const size_t &ngbr_id: symbols[ngbr_symb_name])
           results.push_back(std::make_pair(ngbr_id, type));
@@ -322,7 +332,7 @@ void am_abstractiont::expr_type_relation::solve()
     todo.erase(current_index);
 
     // step 2: if this is a symbol, store it into the newly found entity list
-    if(is_symbol_expr(expr_list[current_index]))
+    if(is_entity_expr(expr_list[current_index]))
     {
       const irep_idt str_id = get_string_id_from_exprt(expr_list[current_index]);
       if(seeds.find(str_id) == seeds.end() &&
@@ -392,9 +402,11 @@ irep_idt am_abstractiont::get_string_id_from_exprt(const exprt &expr)
   }
 }
 
-// check if an expr is a symbol
-// e.g. a, b, a.len, b->len are all symbols
-bool am_abstractiont::is_symbol_expr(const exprt &expr)
+// check if an expr is a entity
+// e.g. a, b, a.len, b->len are all entities
+// *buf_p.len is a entity, 
+// but *(buf_p+1).len is not considered as one
+bool am_abstractiont::is_entity_expr(const exprt &expr)
 {
   if(expr.id() == ID_symbol)
   {
@@ -420,11 +432,11 @@ bool am_abstractiont::is_symbol_expr(const exprt &expr)
         current_obj_expr.operands().size() == 1,
         "dereference should only have one operand");
       const exprt &pointer = current_obj_expr.operands()[0]; // buf
-      return is_symbol_expr(pointer);
+      return is_entity_expr(pointer);
     }
     else  // buf.a
     {
-      return is_symbol_expr(current_obj_expr);
+      return is_entity_expr(current_obj_expr);
     }
   }
   else
@@ -508,7 +520,7 @@ std::unordered_set<irep_idt> am_abstractiont::update_relation_graph_from_functio
           exprt param = goto_model.get_symbol_table().lookup_ref(param_str).symbol_expr();
           size_t arg_id = etr.add_expr(arg);
           size_t param_id = etr.add_expr(param);
-          etr.link_equiv(param_id, arg_id);
+          etr.link_exprt_equiv(param_id, arg_id);
         }
       }
     }
@@ -517,7 +529,7 @@ std::unordered_set<irep_idt> am_abstractiont::update_relation_graph_from_functio
       const code_assignt as = it->get_assign();
       size_t l_id = etr.add_expr(as.lhs());
       size_t r_id = etr.add_expr(as.rhs());
-      etr.link_equiv(l_id, r_id);
+      etr.link_exprt_equiv(l_id, r_id);
     }
   }
   return funcs_called;
@@ -571,7 +583,7 @@ irep_idt am_abstractiont::check_expr_is_symbol(const exprt &expr)
 }
 
 std::unordered_set<irep_idt>
-am_abstractiont::calculate_complete_abst_specs_for_funcs_global(goto_modelt &goto_model, abstraction_spect &abst_spec)
+am_abstractiont::complete_the_global_abst_spec(goto_modelt &goto_model, abstraction_spect &abst_spec)
 {
   std::unordered_set<irep_idt> all_functions;
   for (auto &spec: abst_spec.get_specs())
@@ -1985,7 +1997,7 @@ void am_abstractiont::abstract_goto_program(goto_modelt &goto_model, abstraction
 {
   // A couple of spects are initialized from the json file. We should go from there and insert spects to other functions
   std::unordered_set<irep_idt> all_funcs =
-    calculate_complete_abst_specs_for_funcs_global(goto_model, abst_spec);
+    complete_the_global_abst_spec(goto_model, abst_spec);
   
   // Define the global concrete indices to be used
   define_concrete_indices(goto_model, abst_spec);

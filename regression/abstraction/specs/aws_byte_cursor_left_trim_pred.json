@@ -11,11 +11,12 @@
             },
             "abst-function-file": "./abst-funcs.c",
             "abst-functions":{
-                "add-abs-conc": "add_abs_to_conc",
-                "sub-abs-conc": "sub_conc_from_abs",
-                "precise-check": "is_precise",
+                "add-abs-conc": "add_abs_to_conc_1",
+                "sub-abs-conc": "sub_conc_from_abs_1",
+                "multiply-abs-conc": "multiply_abs_with_conc_1",
+                "precise-check": "is_precise_1",
                 "abstract-index": "one_abs",
-                "concretize-index": "concretize",
+                "concretize-index": "concretize_1",
                 "multiply-indices": null,
                 "mod-indices": null
             },
