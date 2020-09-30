@@ -11,16 +11,19 @@ MAKE="make"
 GOTO_INSTRUMENT="/home/ubuntu/cbmc/build/bin/goto-instrument"
 CBMC="/home/ubuntu/cbmc/build/bin/cbmc"
 CBMC_FLAGS="--unwind 4 
-            --trace"
-            # --bounds-check
-            # --nondet-static 
-            # --div-by-zero-check 
-            # --float-overflow-check 
-            # --nan-check 
-            # --pointer-overflow-check 
-            # --undefined-shift-check 
-            # --signed-overflow-check 
-            # --unsigned-overflow-check 
+            --trace
+            --bounds-check
+            --conversion-check
+            --div-by-zero-check
+            --enum-range-check
+            --float-overflow-check
+            --nan-check
+            --pointer-check
+            --pointer-overflow-check
+            --pointer-primitive-check
+            --signed-overflow-check
+            --undefined-shift-check
+            --unsigned-overflow-check"
 
 AWS_C_COMMON_TESTS=(
     "aws_array_eq" 

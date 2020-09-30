@@ -748,6 +748,7 @@ exprt am_abstractiont::add_guard_expression_to_assert(
   for(const auto &spec: abst_spec.get_specs())
   {
     const irep_idt is_prec_func = spec.get_precise_func();
+    size_t access_num = 0;
     for(const exprt &index: get_direct_access_exprs(expr, spec))
     {
       // initialize the operands used by is_precise function
@@ -759,9 +760,16 @@ exprt am_abstractiont::add_guard_expression_to_assert(
         goto_model, insts_before, insts_after, new_symbs);
       typecast_exprt symb_precise_bool(symb_precise.symbol_expr(), bool_typet());
       is_precise_exprs.push_back(symb_precise_bool);
+      access_num ++;
     }
+    INVARIANT(
+      1+ access_num + spec.get_abst_lengths().size() <=
+        spec.get_shape_indices().size(),
+      "We need to have at least " +
+        std::to_string(1 + access_num + spec.get_abst_lengths().size()) +
+        " concrete indices to make sure the proof is sound");
   }
-  
+
   // the final exprt should be is_prec_all->expr
   if(is_precise_exprs.size() > 0)
   {
