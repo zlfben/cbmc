@@ -28,6 +28,7 @@ abstraction_spect::abstraction_spect(
   jsont json;
   parse_json(filename, message_handler, json);
   const auto &json_object = to_json_object(json);
+  INVARIANT(json_object.find("entries")!=json_object.end(), "'entries' is missing from the json file");
   const auto &json_entries = json_object.find("entries")->second;
   const auto &json_entries_array = to_json_array(json_entries);
   for(auto it=json_entries_array.begin(); it != json_entries_array.end(); ++it)
@@ -37,27 +38,45 @@ abstraction_spect::abstraction_spect(
     size_t spec_index = specs.size();
     spec.set_spect_index(spec_index);
 
+    INVARIANT(entry_obj.find("function")!=entry_obj.end(), "'function' is missing from an entry in json file.");
     function = entry_obj.find("function")->second.value;  // we assume that all entries in the json file are located in the same function
     // insert the entity
+
+    INVARIANT(entry_obj.find("name")!=entry_obj.end(), "'name' is missing from an entry in json file.");
+    INVARIANT(entry_obj.find("entity")!=entry_obj.end(), "'entity' is missing from an entry in json file.");
     spec.insert_entity(entry_obj.find("name")->second.value, entry_obj.find("entity")->second.value);
+    INVARIANT(entry_obj.find("related-entities")!=entry_obj.end(), "'related-entities' is missing from an entry in json file.");
     const auto &json_re_array = to_json_array(entry_obj.find("related-entities")->second);
     for(auto it_r=json_re_array.begin(); it_r != json_re_array.end(); ++it_r)
     {
       const auto &related_entity = to_json_object(*it_r);
+      INVARIANT(related_entity.find("name")!=related_entity.end(), "'name' is missing from related entity.");
       spec.insert_entity(related_entity.find("name")->second.value, related_entity.find("entity")->second.value);
     }
 
     // initialize the abst functions
+    INVARIANT(entry_obj.find("abst-function-file")!=entry_obj.end(), "'abst-function-file' is missing from an entry in json file.");
     spec.set_abst_func_file(get_absolute_path(entry_obj.find("abst-function-file")->second.value));
-    spec.set_addition_func(to_json_object(entry_obj.find("abst-functions")->second).find("add-abs-conc")->second.value);
-    spec.set_minus_func(to_json_object(entry_obj.find("abst-functions")->second).find("sub-abs-conc")->second.value);
-    spec.set_multiply_func(to_json_object(entry_obj.find("abst-functions")->second).find("multiply-abs-conc")->second.value);
-    spec.set_precise_func(to_json_object(entry_obj.find("abst-functions")->second).find("precise-check")->second.value);
-    spec.set_abstract_func(to_json_object(entry_obj.find("abst-functions")->second).find("abstract-index")->second.value);
-    spec.set_concretize_func(to_json_object(entry_obj.find("abst-functions")->second).find("concretize-index")->second.value);
+    INVARIANT(entry_obj.find("abst-functions")!=entry_obj.end(), "'abst-functions' is missing from an entry in json file.");
+    const auto &abst_functions = to_json_object(entry_obj.find("abst-functions")->second);
+    INVARIANT(abst_functions.find("add-abs-conc")!=abst_functions.end(), "'add-abs-conc' is missing from abst-functions in json file.");
+    INVARIANT(abst_functions.find("sub-abs-conc")!=abst_functions.end(), "'sub-abs-conc' is missing from abst-functions in json file.");
+    INVARIANT(abst_functions.find("multiply-abs-conc")!=abst_functions.end(), "'multiply-abs-conc' is missing from abst-functions in json file.");
+    INVARIANT(abst_functions.find("precise-check")!=abst_functions.end(), "'precise-check' is missing from abst-functions in json file.");
+    INVARIANT(abst_functions.find("abstract-index")!=abst_functions.end(), "'abstract-index' is missing from abst-functions in json file.");
+    INVARIANT(abst_functions.find("concretize-index")!=abst_functions.end(), "'concretize-index' is missing from abst-functions in json file.");
+    spec.set_addition_func(abst_functions.find("add-abs-conc")->second.value);
+    spec.set_minus_func(abst_functions.find("sub-abs-conc")->second.value);
+    spec.set_multiply_func(abst_functions.find("multiply-abs-conc")->second.value);
+    spec.set_precise_func(abst_functions.find("precise-check")->second.value);
+    spec.set_abstract_func(abst_functions.find("abstract-index")->second.value);
+    spec.set_concretize_func(abst_functions.find("concretize-index")->second.value);
     
     // initialize the shape of this spect
+    INVARIANT(entry_obj.find("shape")!=entry_obj.end(), "'shape' is missing from an entry in json file.");
     const auto &json_shape_obj = to_json_object(entry_obj.find("shape")->second);
+    INVARIANT(json_shape_obj.find("indices")!=json_shape_obj.end(), "'indices' is missing from the shape.");
+    INVARIANT(json_shape_obj.find("assumptions")!=json_shape_obj.end(), "'assumptions' is missing from the shape.");
     const auto &json_shape_i_array = to_json_array(json_shape_obj.find("indices")->second);
     const auto &json_shape_a_array = to_json_array(json_shape_obj.find("assumptions")->second);
     std::vector<irep_idt> indices;
@@ -66,6 +85,7 @@ abstraction_spect::abstraction_spect(
       indices.push_back(to_json_string(*it_i).value);
     for(auto it_a=json_shape_a_array.begin(); it_a != json_shape_a_array.end(); ++it_a)
       assumptions.push_back(to_json_string(*it_a).value);
+    INVARIANT(json_shape_obj.find("shape-type")!=json_shape_obj.end(), "'shape-type' is missing from the shape.");
     std::string shape_type = to_json_string(json_shape_obj.find("shape-type")->second).value;
     spec.set_shape(indices, assumptions, shape_type);
 
