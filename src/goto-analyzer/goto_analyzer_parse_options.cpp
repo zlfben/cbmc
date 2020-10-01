@@ -26,6 +26,7 @@ Author: Daniel Kroening, kroening@kroening.com
 
 #include <jsil/jsil_language.h>
 
+#include <goto-programs/add_malloc_may_fail_variable_initializations.h>
 #include <goto-programs/adjust_float_expressions.h>
 #include <goto-programs/goto_convert_functions.h>
 #include <goto-programs/goto_inline.h>
@@ -48,6 +49,7 @@ Author: Daniel Kroening, kroening@kroening.com
 #include <analyses/goto_check.h>
 #include <analyses/interval_domain.h>
 #include <analyses/is_threaded.h>
+#include <analyses/local_control_flow_history.h>
 #include <analyses/local_may_alias.h>
 
 #include <langapi/mode.h>
@@ -295,6 +297,34 @@ void goto_analyzer_parse_optionst::get_command_line_options(optionst &options)
         "call-stack-recursion-limit", cmdline.get_value("call-stack"));
       options.set_option("history set", true);
     }
+    else if(cmdline.isset("loop-unwind"))
+    {
+      options.set_option("local-control-flow-history", true);
+      options.set_option("local-control-flow-history-forward", false);
+      options.set_option("local-control-flow-history-backward", true);
+      options.set_option(
+        "local-control-flow-history-limit", cmdline.get_value("loop-unwind"));
+      options.set_option("history set", true);
+    }
+    else if(cmdline.isset("branching"))
+    {
+      options.set_option("local-control-flow-history", true);
+      options.set_option("local-control-flow-history-forward", true);
+      options.set_option("local-control-flow-history-backward", false);
+      options.set_option(
+        "local-control-flow-history-limit", cmdline.get_value("branching"));
+      options.set_option("history set", true);
+    }
+    else if(cmdline.isset("loop-unwind-and-branching"))
+    {
+      options.set_option("local-control-flow-history", true);
+      options.set_option("local-control-flow-history-forward", true);
+      options.set_option("local-control-flow-history-backward", true);
+      options.set_option(
+        "local-control-flow-history-limit",
+        cmdline.get_value("loop-unwind-and-branching"));
+      options.set_option("history set", true);
+    }
 
     if(!options.get_bool_option("history set"))
     {
@@ -399,6 +429,13 @@ ai_baset *goto_analyzer_parse_optionst::build_analyzer(
     {
       hf = util_make_unique<call_stack_history_factoryt>(
         options.get_unsigned_int_option("call-stack-recursion-limit"));
+    }
+    else if(options.get_bool_option("local-control-flow-history"))
+    {
+      hf = util_make_unique<local_control_flow_history_factoryt>(
+        options.get_bool_option("local-control-flow-history-forward"),
+        options.get_bool_option("local-control-flow-history-backward"),
+        options.get_unsigned_int_option("local-control-flow-history-limit"));
     }
 
     // Build the domain factory
@@ -778,7 +815,12 @@ bool goto_analyzer_parse_optionst::process_goto_program(
     link_to_library(
       goto_model, ui_message_handler, cprover_cpp_library_factory);
     link_to_library(goto_model, ui_message_handler, cprover_c_library_factory);
-    #endif
+
+    // these are commented out as well because without the library
+    // this initialization code doesn’t make any sense
+    add_malloc_may_fail_variable_initializations(goto_model);
+
+#endif
 
     // remove function pointers
     log.status() << "Removing function pointers and virtual functions"
@@ -855,6 +897,18 @@ void goto_analyzer_parse_optionst::help()
     " --call-stack n               track the calling location stack for each function\n"
     // NOLINTNEXTLINE(whitespace/line_length)
     "                              limiting to at most n recursive loops, 0 to disable\n"
+    // NOLINTNEXTLINE(whitespace/line_length)
+    " --loop-unwind n              track the number of loop iterations within a function\n"
+    // NOLINTNEXTLINE(whitespace/line_length)
+    "                              limited to n histories per location, 0 is unlimited\n"
+    // NOLINTNEXTLINE(whitespace/line_length)
+    " --branching n                track the forwards jumps (if, switch, etc.) within a function\n"
+    // NOLINTNEXTLINE(whitespace/line_length)
+    "                              limited to n histories per location, 0 is unlimited\n"
+    // NOLINTNEXTLINE(whitespace/line_length)
+    " --loop-unwind-and-branching n track all local control flow\n"
+    // NOLINTNEXTLINE(whitespace/line_length)
+    "                              limited to n histories per location, 0 is unlimited\n"
     "\n"
     "Domain options:\n"
     " --constants                  a constant for each variable if possible\n"

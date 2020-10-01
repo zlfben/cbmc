@@ -48,6 +48,7 @@ Author: Daniel Kroening, kroening@kroening.com
 #include <goto-checker/stop_on_fail_verifier.h>
 #include <goto-checker/stop_on_fail_verifier_with_fault_localization.h>
 
+#include <goto-programs/add_malloc_may_fail_variable_initializations.h>
 #include <goto-programs/adjust_float_expressions.h>
 #include <goto-programs/initialize_goto_model.h>
 #include <goto-programs/instrument_preconditions.h>
@@ -198,6 +199,9 @@ void cbmc_parse_optionst::get_command_line_options(optionst &options)
 
   if(cmdline.isset("program-only"))
     options.set_option("program-only", true);
+
+  if(cmdline.isset("show-byte-ops"))
+    options.set_option("show-byte-ops", true);
 
   if(cmdline.isset("show-vcc"))
     options.set_option("show-vcc", true);
@@ -438,6 +442,13 @@ void cbmc_parse_optionst::get_command_line_options(optionst &options)
     options.set_option("smt2", true);
   }
 
+  if(cmdline.isset("external-sat-solver"))
+  {
+    options.set_option(
+      "external-sat-solver", cmdline.get_value("external-sat-solver")),
+      solver_set = true;
+  }
+
   if(cmdline.isset("yices"))
   {
     options.set_option("yices", true), solver_set=true;
@@ -641,7 +652,8 @@ int cbmc_parse_optionst::doit()
 
   if(
     options.get_bool_option("program-only") ||
-    options.get_bool_option("show-vcc"))
+    options.get_bool_option("show-vcc") ||
+    options.get_bool_option("show-byte-ops"))
   {
     if(options.get_bool_option("paths"))
     {
@@ -880,6 +892,8 @@ bool cbmc_parse_optionst::process_goto_program(
   link_to_library(
     goto_model, log.get_message_handler(), cprover_c_library_factory);
 
+  add_malloc_may_fail_variable_initializations(goto_model);
+
   if(options.get_bool_option("string-abstraction"))
     string_instrumentation(goto_model, log.get_message_handler());
 
@@ -1110,6 +1124,7 @@ void cbmc_parse_optionst::help()
     " --yices                      use Yices\n"
     " --z3                         use Z3\n"
     " --refine                     use refinement procedure (experimental)\n"
+    " --external-sat-solver cmd    command to invoke SAT solver process\n"
     HELP_STRING_REFINEMENT_CBMC
     " --outfile filename           output formula to given file\n"
     " --arrays-uf-never            never turn arrays into uninterpreted functions\n" // NOLINT(*)

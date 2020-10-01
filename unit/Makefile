@@ -15,9 +15,11 @@ SRC += analyses/ai/ai.cpp \
        analyses/does_remove_const/does_type_preserve_const_correctness.cpp \
        analyses/does_remove_const/is_type_at_least_as_const_as.cpp \
        ansi-c/max_malloc_size.cpp \
+       ansi-c/type2name.cpp \
        big-int/big-int.cpp \
        compound_block_locations.cpp \
        get_goto_model_from_c_test.cpp \
+       goto-cc/armcc_cmdline.cpp \
        goto-checker/report_util/is_property_less_than.cpp \
        goto-instrument/cover_instrument.cpp \
        goto-instrument/cover/cover_only.cpp \
@@ -56,6 +58,7 @@ SRC += analyses/ai/ai.cpp \
        solvers/floatbv/float_utils.cpp \
        solvers/lowering/byte_operators.cpp \
        solvers/prop/bdd_expr.cpp \
+       solvers/sat/external_sat.cpp \
        solvers/sat/satcheck_minisat2.cpp \
        solvers/strings/array_pool/array_pool.cpp \
        solvers/strings/string_constraint_generator_valueof/calculate_max_string_length.cpp \
@@ -71,6 +74,7 @@ SRC += analyses/ai/ai.cpp \
        util/allocate_objects.cpp \
        util/cmdline.cpp \
        util/dense_integer_map.cpp \
+       util/edit_distance.cpp \
        util/expr_cast/expr_cast.cpp \
        util/expr.cpp \
        util/expr_iterator.cpp \
@@ -115,6 +119,7 @@ SRC += analyses/ai/ai.cpp \
        util/string2int.cpp \
        util/structured_data.cpp \
        util/string_utils/capitalize.cpp \
+       util/string_utils/escape_non_alnum.cpp \
        util/string_utils/join_string.cpp \
        util/string_utils/split_string.cpp \
        util/string_utils/strip_string.cpp \
@@ -161,6 +166,8 @@ testing-utils-clean:
 BMC_DEPS =../src/cbmc/c_test_input_generator$(OBJEXT) \
           ../src/cbmc/cbmc_languages$(OBJEXT) \
           ../src/cbmc/cbmc_parse_options$(OBJEXT) \
+          ../src/goto-cc/armcc_cmdline$(OBJEXT) \
+          ../src/goto-cc/goto_cc_cmdline$(OBJEXT) \
           ../src/goto-instrument/source_lines$(OBJEXT) \
           ../src/goto-instrument/cover$(OBJEXT) \
           ../src/goto-instrument/cover_basic_blocks$(OBJEXT) \
