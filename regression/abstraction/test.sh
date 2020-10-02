@@ -10,8 +10,7 @@ AWS_C_COMMON_PATH="/home/ubuntu/aws-c-common"
 MAKE="make"
 GOTO_INSTRUMENT="/home/ubuntu/cbmc/build/bin/goto-instrument"
 CBMC="/home/ubuntu/cbmc/build/bin/cbmc"
-CBMC_FLAGS="--unwind 4 
-            --trace
+CBMC_FLAGS="--trace
             --bounds-check
             --conversion-check
             --div-by-zero-check
@@ -25,24 +24,29 @@ CBMC_FLAGS="--unwind 4
             --undefined-shift-check
             --unsigned-overflow-check"
 
+# benchmark name + number of concrete indices
 AWS_C_COMMON_TESTS=(
-    "aws_array_eq" 
-    "aws_array_eq_c_str" 
-    "aws_array_eq_c_str_ignore_case" 
-    "aws_array_eq_ignore_case" 
-    "aws_byte_buf_eq" 
-    "aws_byte_buf_eq_ignore_case"
-    "aws_byte_buf_eq_c_str"
-    "aws_byte_buf_eq_c_str_ignore_case"
-    "aws_byte_cursor_eq"
-    "aws_byte_cursor_eq_c_str"
-    "aws_byte_cursor_eq_c_str_ignore_case"
-    "aws_byte_cursor_eq_byte_buf"
-    "aws_byte_cursor_eq_byte_buf_ignore_case"
+    "aws_array_eq 3"
+    "aws_array_eq_c_str 5"
+    "aws_array_eq_c_str_ignore_case 5"
+    "aws_array_eq_ignore_case 3"
+    "aws_byte_buf_eq 6"
+    "aws_byte_buf_eq_ignore_case 6"
+    "aws_byte_buf_eq_c_str 6"
+    "aws_byte_buf_eq_c_str_ignore_case 6"
+    "aws_byte_cursor_eq 4"
+    "aws_byte_cursor_eq_c_str 5"
+    "aws_byte_cursor_eq_c_str_ignore_case 5"
+    "aws_byte_cursor_eq_byte_buf 5"
+    "aws_byte_cursor_eq_byte_buf_ignore_case 5"
 )
 
 cwd=$(pwd)
-for test in ${AWS_C_COMMON_TESTS[@]}; do
+for testp in "${AWS_C_COMMON_TESTS[@]}"; do
+    testl=($testp)
+    test=${testl[0]}
+    num_ind=${testl[1]}
+    let unwind=($num_ind-1)*2
     echo "===== $test ====="
     cd $AWS_C_COMMON_PATH/.cbmc-batch/jobs/$test/
     # compile program into goto-programs
@@ -61,6 +65,6 @@ for test in ${AWS_C_COMMON_TESTS[@]}; do
         >> $AWS_C_COMMON_PATH/.cbmc-batch/jobs/$test/${test}_harness_abst.txt
     # check the program
     if [ $CHECK = true ]; then
-        $CBMC $CBMC_FLAGS $AWS_C_COMMON_PATH/.cbmc-batch/jobs/$test/${test}_harness_abst.goto
+        $CBMC $CBMC_FLAGS --unwind $unwind $AWS_C_COMMON_PATH/.cbmc-batch/jobs/$test/${test}_harness_abst.goto
     fi
 done

@@ -1911,20 +1911,40 @@ void am_abstractiont::add_length_assumptions(goto_modelt &goto_model, const abst
       // go through each instruction in the function to find the declare
       Forall_goto_program_instructions(it, function.body)
       {
-        if(it->is_decl())
+        if(it->is_decl() || it->is_assign())
         {
-          const code_declt &decl = it->get_decl();
+          irep_idt var_name;
+          if(it->is_decl())
+          {
+            const code_declt &decl = it->get_decl();
+            var_name = decl.get_identifier();
+          }
+          else if(it->is_assign())
+          {
+            const code_assignt &assn = it->get_assign();
+            if(is_entity_expr(assn.lhs()))
+              var_name = get_string_id_from_exprt(assn.lhs());
+            else
+              continue;
+          }
+          else
+          {
+            continue;
+          }
+          
           // check if this declares the symbol containing the length
           // note that this symbol can be the length variable itself 
           // or a struct containing the length variable
-          if(decl.get_identifier() == lp.first)
+          if(var_name == lp.first)
           {
-            is_local = true;
             // need to add an assumption after this inst
             INVARIANT(
-              goto_model.get_symbol_table().has_symbol(decl.get_identifier()),
-              "Symbol " + std::string(decl.get_identifier().c_str()) +
+              goto_model.get_symbol_table().has_symbol(var_name),
+              "Symbol " + std::string(var_name.c_str()) +
                 " not defined");
+            
+            if(it->is_decl())
+              is_local = true;
 
             // define the assumption instruction
             const exprt length_expr = lp.second;
@@ -1945,7 +1965,7 @@ void am_abstractiont::add_length_assumptions(goto_modelt &goto_model, const abst
 
             // insert it
             function.body.insert_after(it, new_assumption);
-            std::cout << "Added length assumption after the decl: ";
+            std::cout << "Added length assumption after the decl/assign: ";
             format_rec(std::cout, assumption_expr) << std::endl;
             it++;
           }
@@ -1995,7 +2015,7 @@ void am_abstractiont::add_length_assumptions(goto_modelt &goto_model, const abst
 
         // insert it
         std::cout << "Added length assumption in the beginning of the function: ";
-        format_rec(std::cout, assumption_expr);
+        format_rec(std::cout, assumption_expr) << std::endl;
         init_function.insert_before_swap(last_instruction, new_assumption);
       }
     }

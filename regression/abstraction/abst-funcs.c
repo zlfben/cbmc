@@ -669,3 +669,166 @@ size_t multiply_abs_with_conc_5(size_t abs_ind, size_t num, size_t a1, size_t a2
         return five_abs(abs_ind*num, a1, a2, a3, a4, a5);
     }
 }
+
+// helper function
+// translate an index from *c*c*c*c*c*c* to the real one depending on value of a1, a2, a3, a4, a5, a6
+// e.g. when a1=0, a1+1==a2, *c*c*c*c*c*c* becomes cc*c*c*c*c*
+// index 4 in *c*c*c*c*c*c* will be translated into 2 by this function
+size_t raw_to_real_6(size_t raw_index, size_t a1, size_t a2, size_t a3, size_t a4, size_t a5, size_t a6)
+{
+  return raw_index - (raw_index >= 1 && a1 == 0) -
+         (raw_index >= 3 && a1 + 1 == a2) - (raw_index >= 5 && a2 + 1 == a3) -
+         (raw_index >= 7 && a3 + 1 == a4) - (raw_index >= 9 && a4 + 1 == a5) - 
+         (raw_index >= 11 && a5 + 1 == a6);
+}
+
+// helper function, the reversed version of raw_to_real
+// *c*c*c*c*c*c*
+// c1: 1-(a1==0)
+// c2: 3-(a1==0)-(a1+1==a2)
+// c3: 5-(a1==0)-(a1+1==a2)-(a2+1==a3)
+// c4: 7-(a1==0)-(a1+1==a2)-(a2+1==a3)-(a3+1==a4)
+// c5: 9-(a1==0)-(a1+1==a2)-(a2+1==a3)-(a3+1==a4)-(a4+1==a5)
+// c6: 11-(a1==0)-(a1+1==a2)-(a2+1==a3)-(a3+1==a4)-(a4+1==a5)-(a5+1==a6)
+size_t real_to_raw_6(size_t real_index, size_t a1, size_t a2, size_t a3, size_t a4, size_t a5, size_t a6)
+{
+    if (real_index < 1-(a1==0))
+        return 0;
+    else if (real_index == 1-(a1==0))
+        return 1;
+    else if (real_index < 3-(a1==0)-(a1+1==a2))
+        return 2;
+    else if (real_index == 3-(a1==0)-(a1+1==a2))
+        return 3;
+    else if (real_index < 5-(a1==0)-(a1+1==a2)-(a2+1==a3))
+        return 4;
+    else if (real_index == 5-(a1==0)-(a1+1==a2)-(a2+1==a3))
+        return 5;
+    else if (real_index < 7-(a1==0)-(a1+1==a2)-(a2+1==a3)-(a3+1==a4))
+        return 6;
+    else if (real_index == 7-(a1==0)-(a1+1==a2)-(a2+1==a3)-(a3+1==a4))
+        return 7;
+    else if (real_index < 9-(a1==0)-(a1+1==a2)-(a2+1==a3)-(a3+1==a4)-(a4+1==a5))
+        return 8;
+    else if (real_index == 9-(a1==0)-(a1+1==a2)-(a2+1==a3)-(a3+1==a4)-(a4+1==a5))
+        return 9;
+    else if (real_index < 11-(a1==0)-(a1+1==a2)-(a2+1==a3)-(a3+1==a4)-(a4+1==a5)-(a5+1==a6))
+        return 10;
+    else if (real_index == 11-(a1==0)-(a1+1==a2)-(a2+1==a3)-(a3+1==a4)-(a4+1==a5)-(a5+1==a6))
+        return 11;
+    else
+        return 12;
+}
+
+//Get the abstraction of an index for shape *c*c*c*c*c*.
+//If model checking time is affected then we can split into finer cases.
+size_t six_abs(size_t index, size_t a1, size_t a2, size_t a3, size_t a4, size_t a5, size_t a6) {
+    size_t raw_index = 0;
+    if (index < a1) raw_index = 0;
+    else if (index == a1) raw_index = 1;
+    else if (index > a1 && index < a2) raw_index = 2;
+    else if (index == a2) raw_index = 3;
+    else if (index > a2 && index < a3) raw_index = 4;
+    else if (index == a3) raw_index = 5;
+    else if (index > a3 && index < a4) raw_index = 6;
+    else if (index == a4) raw_index = 7;
+    else if (index > a4 && index < a5) raw_index = 8;
+    else if (index == a5) raw_index = 9;
+    else if (index > a5 && index < a6) raw_index = 10;
+    else if (index == a6) raw_index = 11;
+    else raw_index = 12;
+    return raw_to_real_6(raw_index, a1, a2, a3, a4, a5, a6);
+}
+
+//Get the concretization of an index. We assume all args are >= 0
+//Shape *c*c*c*c*c*c*
+size_t concretize_6(size_t abs_ind, size_t a1, size_t a2, size_t a3, size_t a4, size_t a5, size_t a6) {
+    assert(a1<a2);
+    assert(a2<a3);
+    assert(a3<a4);
+    assert(a4<a5);
+    assert(a5<a6);
+    size_t raw_index = real_to_raw_6(abs_ind, a1, a2, a3, a4, a5, a6);
+    if (raw_index == 0)
+        return nndt_under(a1);
+    else if (raw_index == 1)
+        return a1;
+    else if (raw_index == 2)
+        return nndt_between(a1, a2);
+    else if (raw_index == 3)
+        return a2;
+    else if (raw_index == 4)
+        return nndt_between(a2, a3);
+    else if (raw_index == 5)
+        return a3;
+    else if (raw_index == 6)
+        return nndt_between(a3, a4);
+    else if (raw_index == 7)
+        return a4;
+    else if (raw_index == 8)
+        return nndt_between(a4, a5);
+    else if (raw_index == 9)
+        return a5;
+    else if (raw_index == 10)
+        return nndt_between(a5, a6);
+    else if (raw_index == 11)
+        return a6;
+    else
+        return nndt_above(a6);
+}
+
+int is_precise_6(size_t abs_ind, size_t a1, size_t a2, size_t a3, size_t a4, size_t a5, size_t a6){
+    size_t raw_ind = real_to_raw_6(abs_ind, a1, a2, a3, a4, a5, a6);
+    return (raw_ind == 1 || raw_ind == 3 || raw_ind == 5 || raw_ind == 7 || raw_ind == 9 || raw_ind == 11);
+}
+
+int is_abstract_6(size_t abs_ind, size_t a1, size_t a2, size_t a3, size_t a4, size_t a5, size_t a6){
+    return !is_precise_6(abs_ind, a1, a2, a3, a4, a5, a6);
+}
+
+// Add a number to an abs_ind
+size_t add_abs_to_conc_6(size_t abs_ind, size_t num, size_t a1, size_t a2, size_t a3, size_t a4, size_t a5, size_t a6){
+    if (num == 0) {
+        return abs_ind;
+    } else if (num == 1) {
+        if (is_precise_6(abs_ind, a1, a2, a3, a4, a5, a6)) {
+            return abs_ind + 1;
+        } else {
+            return (abs_ind > 11-(a1==0)-(a1+1==a2)-(a2+1==a3)-(a3+1==a4)-(a4+1==a5)-(a5+1==a6) || nndt_bool()) ? abs_ind: abs_ind + 1;
+        }
+    } else {
+        size_t conc = concretize_6(abs_ind, a1, a2, a3, a4, a5, a6);
+        return six_abs(conc+num, a1, a2, a3, a4, a5, a6);
+    }
+
+}
+// Substract a number from abs_ind
+size_t sub_conc_from_abs_6(size_t abs_ind, size_t num, size_t a1, size_t a2, size_t a3, size_t a4, size_t a5, size_t a6){
+    if (num == 0) {
+        return abs_ind;
+    } else if (num == 1) {
+        if (is_precise_6(abs_ind, a1, a2, a3, a4, a5, a6)) {
+            if (abs_ind != 0)
+                return abs_ind - 1;
+            else
+                assert(0 != 0);  // this is to cover the overflow case 0-1
+        } else {
+            return (abs_ind == 0 || nndt_bool()) ? abs_ind: abs_ind - 1;
+        }
+    } else {
+        size_t conc = concretize_6(abs_ind, a1, a2, a3, a4, a5, a6);
+        assert(conc >= num);
+        return six_abs(conc-num, a1, a2, a3, a4, a5, a6);
+    }
+}
+
+size_t multiply_abs_with_conc_6(size_t abs_ind, size_t num, size_t a1, size_t a2, size_t a3, size_t a4, size_t a5, size_t a6) {
+    if (num == 0) {
+        return 0;
+    } else if (num == 1) {
+        return abs_ind;
+    } else {
+        size_t conc = concretize_6(abs_ind, a1, a2, a3, a4, a5, a6);
+        return six_abs(abs_ind*num, a1, a2, a3, a4, a5, a6);
+    }
+}

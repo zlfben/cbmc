@@ -5,22 +5,24 @@
             "function": "aws_byte_cursor_eq_byte_buf_ignore_case_harness",
             "name": "aws_byte_cursor_eq_byte_buf_ignore_case_harness::1::cur.ptr",
             "shape": {
-                "indices": ["cncrt0", "cncrt", "length"],
+                "indices": ["cncrt0", "cncrt1", "cncrt2", "cncrt3", "length"],
                 "assumptions": [
                     "cncrt0==0",
-                    "cncrt0<cncrt",
-                    "cncrt<length"
+                    "cncrt0<cncrt1",
+                    "cncrt1<cncrt2",
+                    "cncrt2<cncrt3",
+                    "cncrt3<length"
                 ],
-                "shape-type": "c*c*l"
+                "shape-type": "c*c*c*c*l"
             },
             "abst-function-file": "./abst-funcs.c",
             "abst-functions":{
-                "add-abs-conc": "add_abs_to_conc_3",
-                "sub-abs-conc": "sub_conc_from_abs_3",
-                "multiply-abs-conc": "multiply_abs_with_conc_3",
-                "precise-check": "is_precise_3",
-                "abstract-index": "three_abs",
-                "concretize-index": "concretize_3",
+                "add-abs-conc": "add_abs_to_conc_5",
+                "sub-abs-conc": "sub_conc_from_abs_5",
+                "multiply-abs-conc": "multiply_abs_with_conc_5",
+                "precise-check": "is_precise_5",
+                "abstract-index": "five_abs",
+                "concretize-index": "concretize_5",
                 "multiply-indices": null,
                 "mod-indices": null
             },
