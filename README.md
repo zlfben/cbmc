@@ -91,3 +91,49 @@ License
 [coverity_img]: https://scan.coverity.com/projects/13552/badge.svg
 [codecov]: https://codecov.io/gh/diffblue/cbmc
 [codecov_img]: https://codecov.io/gh/diffblue/cbmc/branch/develop/graphs/badge.svg
+
+
+RRA Abstraction
+=======
+***Run our tool using pre-written scripts and input json specifications on AWS-C-Common
+
+Clone our CBMC repo where we implemented our abstraction:
+
+    ~ $ git clone <place holder for our cbmc repo>
+
+Clone our modified AWS-C-Common repo (we modified it so that the proofs no longer have bounds):
+
+    ~ $ git clone <place holder for our aws-c-common repo>
+
+Build CBMC (debug flag is included):
+
+    ~ $ cd cbmc
+    cbmc $ cmake -S . -Bbuild -GNinja -DWITH_JBMC=OFF -DCMAKE_BUILD_TYPE=Debug
+    cbmc $ cd build; ninja
+
+Modify "AWS_C_COMMON_PATH" in cbmc/regression/abstraction/test.sh to reflect your AWS-C-Common path:
+
+Run our system on 15 example benchmarks:
+
+    ~ $ cd cbmc/regression/abstraction
+    ~ $ ./test.sh
+
+***General workflow to run our tool
+
+Say you have a program "program.c" to be proved unboundedly.
+
+Step 1: write json spec file for "program.c" as "spec.json". Please follow the instructions in the section "Input file format".
+
+Step 2: build the goto program for "program.c"
+
+    ~ $ goto-cc -o program.goto program.c
+
+Step 3: abstract "program.goto"
+
+    ~ $ goto-instrument --use-abstraction spec.json program.goto program_abst.goto
+
+Step 4: run the proof (to make the proof sound, x should be greater than (n-1)*2 where n is the number of concrete indices in the shape)
+
+    ~ $ cbmc --unwind <x> --trace program_abst.goto
+
+For better reference, you can visit aws-c-common/.cbmc_batch/jobs/aws-array-eq in our modified AWS-C-Common repo.
