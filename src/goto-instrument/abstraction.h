@@ -148,6 +148,8 @@ protected:
 
   static irep_idt get_abstract_name(const irep_idt &old_name);
 
+  static irep_idt get_const_c_str_len_name(const irep_idt &c_str_name);
+
   /// \param expr: the expression to be checked
   /// \return whether the expr contains a function call
   static bool contains_a_function_call(const exprt &expr);
@@ -219,6 +221,21 @@ protected:
   static symbolt create_function_call(
     const irep_idt &func_name,
     const std::vector<exprt> operands,
+    const irep_idt &caller, 
+    const goto_modelt &goto_model,
+    goto_programt::instructionst &insts_before,
+    goto_programt::instructionst &insts_after,
+    std::vector<symbolt> &new_symbs);
+  
+  /// \param target_expr: the target expression.
+  /// \param caller: the name of the caller function. this is used to create temp variable
+  /// \param insts_before: It will put the instructions that declare the temp variable here.
+  /// \param insts_after: It will put the instructions that unclare the temp variable here.
+  /// \param new_symbs: The new introduced symbol will be stored here.
+  /// \return the tmp variable's symbolt that contains the return value of the assignment
+  /// This function creates a assignment that stores a given expression
+  static symbolt create_temp_var_for_expr(
+    const exprt &target_expr,
     const irep_idt &caller, 
     const goto_modelt &goto_model,
     goto_programt::instructionst &insts_before,
@@ -361,6 +378,9 @@ protected:
 
   // define concrete indices globally
   static void define_concrete_indices(goto_modelt &goto_model, const abstraction_spect &abst_spec);
+
+  // define the length for const c string variables (the place where '0' appears the first)
+  static void define_const_c_str_lengths(goto_modelt &goto_model, const abstraction_spect &abst_spec);
 
   // insert the assumptions about the shape's concrete indices
   static void insert_shape_assumptions(goto_modelt &goto_model, const abstraction_spect &abst_spec);

@@ -105,7 +105,7 @@ public:
     class entityt
     {
     public:
-      enum entityt_type {ARRAY, SCALAR, LENGTH, STRUCT, STRUCT_POINTER};
+      enum entityt_type {ARRAY, SCALAR, LENGTH, STRUCT, STRUCT_POINTER, CONST_C_STR};
     
       // Name of the entity being abstracted
       irep_idt name;  // should be in the id format: function::x::name, this is the unique identifier
@@ -385,6 +385,9 @@ public:
 
     // Return all nodes with type "ARRAY" in the entity forest
     std::unordered_map<irep_idt, entityt> get_abst_arrays() const;
+
+    // Return all nodes with type "CONST_C_STR" in the entity forest
+    std::unordered_map<irep_idt, entityt> get_abst_const_c_strs() const;
     
     // Return all nodes with type "SCALAR" or "LENGTH" in the entity forest
     std::unordered_map<irep_idt, entityt> get_abst_indices() const;
@@ -412,6 +415,12 @@ public:
     {
       const auto abst_arrays = get_abst_arrays();
       return (abst_arrays.find(entity_name) != abst_arrays.end());
+    }
+
+    const bool has_const_c_str_entity(const irep_idt &entity_name) const
+    {
+      const auto abst_c_strs = get_abst_const_c_strs();
+      return (abst_c_strs.find(entity_name) != abst_c_strs.end());
     }
 
     const bool has_index_entity(const irep_idt &entity_name) const
@@ -612,6 +621,16 @@ public:
     return false;
   }
 
+  bool has_const_c_str_entity(const irep_idt &entity_name) const
+  {
+    for(const spect &spec: specs)
+    {
+      if(spec.has_const_c_str_entity(entity_name))
+        return true;
+    }
+    return false;
+  }
+
   // check if a variable is an index to be abstracted
   bool has_index_entity(const irep_idt &entity_name) const
   {
@@ -640,6 +659,17 @@ public:
     for(const spect &spec: specs)
     {
       if(spec.has_array_entity(entity_name))
+        return spec;
+    }
+    throw "Entity " + std::string(entity_name.c_str()) + " not found";
+  }
+
+  // return the spect that has the entity, should always run has_const_c_str_entity before running this function
+  const spect &get_spec_for_const_c_str_entity(const irep_idt &entity_name) const
+  {
+    for(const spect &spec: specs)
+    {
+      if(spec.has_const_c_str_entity(entity_name))
         return spec;
     }
     throw "Entity " + std::string(entity_name.c_str()) + " not found";

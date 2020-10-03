@@ -220,6 +220,8 @@ std::string abstraction_spect::get_entities_string() const
   {
     for(const auto &ent: spec.get_abst_arrays())
       str += "array: " + std::string(ent.first.c_str()) + "\n";
+    for(const auto &ent: spec.get_abst_const_c_strs())
+      str += "const c_str: " + std::string(ent.first.c_str()) + "\n";
     for(const auto &ent: spec.get_abst_indices())
       str += "index: " + std::string(ent.first.c_str()) + "\n";
   }
@@ -326,6 +328,8 @@ void abstraction_spect::spect::insert_entity(const irep_idt &_name, const std::s
     insert_entity(_name, entityt::SCALAR);
   else if(_type == "length")
     insert_entity(_name, entityt::LENGTH);
+  else if(_type == "const_c_str")
+    insert_entity(_name, entityt::CONST_C_STR);
   else
     throw "Unknown entity type: " + _type;
 }
@@ -513,6 +517,19 @@ abstraction_spect::spect::get_abst_arrays() const
   {
     std::unordered_map<irep_idt, entityt> sub_result =
       search_for_entities(*(ent.second), entityt::ARRAY, "");
+    result.insert(sub_result.begin(), sub_result.end());
+  }
+  return result;
+}
+
+std::unordered_map<irep_idt, abstraction_spect::spect::entityt>
+abstraction_spect::spect::get_abst_const_c_strs() const
+{
+  std::unordered_map<irep_idt, entityt> result;
+  for(const auto &ent : abst_entities)
+  {
+    std::unordered_map<irep_idt, entityt> sub_result =
+      search_for_entities(*(ent.second), entityt::CONST_C_STR, "");
     result.insert(sub_result.begin(), sub_result.end());
   }
   return result;

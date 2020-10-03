@@ -16,6 +16,7 @@ Author: Lefan Zhang, lefanz@amazon.com
 
 #include <util/std_expr.h>
 #include <util/expr_util.h>
+#include <util/expr_initializer.h>
 #include <util/format_expr.h>
 #include <util/c_types.h>
 #include <goto-programs/initialize_goto_model.h>
@@ -27,6 +28,8 @@ am_abstractiont::expr_type_relation::expr_type_relation(const abstraction_spect:
 {
   for(const auto &array_p: spec.get_abst_arrays())
     seeds.insert({array_p.first, abstraction_spect::spect::entityt::ARRAY});
+  for(const auto &array_p: spec.get_abst_const_c_strs())
+    seeds.insert({array_p.first, abstraction_spect::spect::entityt::CONST_C_STR});
   for(const auto &index_p: spec.get_abst_indices())
     seeds.insert({index_p.first, abstraction_spect::spect::entityt::SCALAR});
 }
@@ -271,11 +274,13 @@ std::vector<std::pair<size_t, abstraction_spect::spect::entityt::entityt_type>>
 {
   // step 1: get all neighbors related with direct edges
   std::vector<std::pair<size_t, abstraction_spect::spect::entityt::entityt_type>> results;
-  if(type == abstraction_spect::spect::entityt::ARRAY)
+  if(
+    type == abstraction_spect::spect::entityt::ARRAY ||
+    type == abstraction_spect::spect::entityt::CONST_C_STR)
   {
     // edge neighbors should consist of edge_equiv and edge_index
     for(const size_t &ngbr_id: edges_equiv[index])
-      results.push_back(std::make_pair(ngbr_id, abstraction_spect::spect::entityt::ARRAY));
+      results.push_back(std::make_pair(ngbr_id, type));
     for(const size_t &ngbr_id: edges_access[index])
       results.push_back(std::make_pair(ngbr_id, abstraction_spect::spect::entityt::SCALAR));
   }
@@ -289,7 +294,7 @@ std::vector<std::pair<size_t, abstraction_spect::spect::entityt::entityt_type>>
   }
   else
   {
-    throw "seeds of type other than ARRAY, SCALAR and LENGTH shouldn't appear in closure analysis";
+    throw "seeds of type other than ARRAY, CONST_C_STR, SCALAR and LENGTH shouldn't appear in closure analysis";
   }
 
   // step 2: get the equiv neighbors because of using the same symbol
@@ -661,6 +666,11 @@ irep_idt am_abstractiont::get_abstract_name(const irep_idt &old_name)
   return irep_idt(std::string(old_name.c_str())+"$abst");
 }
 
+irep_idt am_abstractiont::get_const_c_str_len_name(const irep_idt &c_str_name)
+{
+  return irep_idt(std::string(c_str_name.c_str())+"$cstrlen");
+}
+
 bool am_abstractiont::contains_a_function_call(const exprt &expr)
 {
   class find_functiont : public const_expr_visitort
@@ -719,6 +729,15 @@ std::vector<exprt> am_abstractiont::get_direct_access_exprs(const exprt &expr, c
   };
   std::vector<exprt> result;
   for(const auto &array: spec.get_abst_arrays())
+  {
+    const irep_idt &array_name = array.first;
+    const irep_idt array_name_abst = get_abstract_name(array_name);
+    find_direct_accesst fda(array_name_abst);
+    expr.visit(fda);
+    for(const auto &e: fda.get_direct_accesses())
+      result.push_back(e);
+  }
+  for(const auto &array: spec.get_abst_const_c_strs())
   {
     const irep_idt &array_name = array.first;
     const irep_idt array_name_abst = get_abstract_name(array_name);
@@ -920,6 +939,12 @@ bool am_abstractiont::check_if_exprt_eval_to_abst_index(
         spec = abst_spec.get_spec_for_array_entity(to_symbol_expr(pointer).get_identifier());
         return true;
       }
+      else if(abst_spec.has_const_c_str_entity(to_symbol_expr(pointer).get_identifier()))
+      {
+        // if the pointer is an abstracted array, we should use the same spec of this array
+        spec = abst_spec.get_spec_for_const_c_str_entity(to_symbol_expr(pointer).get_identifier());
+        return true;
+      }
       else
       {
         return false;
@@ -1009,6 +1034,65 @@ symbolt am_abstractiont::create_function_call(
   auto new_func_call_inst = goto_programt::make_function_call(
     code_function_callt(new_symb_expr, func_call_expr, operands));
   insts_before.push_back(new_func_call_inst);
+
+  // instruction 3: DEAD for the temp symbol 
+  auto new_dead_inst = goto_programt::make_dead(new_symb_expr);
+  insts_after.push_back(new_dead_inst);
+
+  return new_symb;
+}
+
+symbolt am_abstractiont::create_temp_var_for_expr(
+  const exprt &target_expr,
+  const irep_idt &caller, 
+  const goto_modelt &goto_model,
+  goto_programt::instructionst &insts_before,
+  goto_programt::instructionst &insts_after,
+  std::vector<symbolt> &new_symbs)
+{
+  // determine the temp symbol's name
+  std::unordered_set<irep_idt> new_symbs_name;
+  for(const auto &symb: new_symbs)
+    new_symbs_name.insert(symb.name);
+
+  auto get_name = [&caller, &goto_model, &new_symbs_name]() {
+    // base name is "{caller}::$tmp::return_value_{callee}"
+    std::string base_name = std::string(caller.c_str()) +
+                            "::$tmp::temp_var_for_expr";
+    // if base name is not defined yet, use the base name
+    if(
+      !goto_model.symbol_table.has_symbol(irep_idt(base_name)) &&
+      new_symbs_name.find(irep_idt(base_name)) == new_symbs_name.end())
+      return irep_idt(base_name);
+    
+    // otherwise use "{basename}$id" with the lowest id available
+    size_t id = 0;
+    while(goto_model.symbol_table.has_symbol(
+            irep_idt(base_name + "$" + std::to_string(id))) ||
+          new_symbs_name.find(irep_idt(base_name + "$" + std::to_string(id))) !=
+            new_symbs_name.end())
+      id++;
+    
+    return irep_idt(base_name + "$" + std::to_string(id));
+  };
+  irep_idt temp_symb_name = get_name();
+
+  // define the symbol
+  symbolt new_symb;
+  new_symb.type = target_expr.type();
+  new_symb.name = temp_symb_name;
+  new_symb.mode = ID_C;
+  symbol_exprt new_symb_expr = new_symb.symbol_expr();
+  new_symbs.push_back(new_symb);
+
+  // instruction 1: DECLARE of the temp symbol
+  auto new_decl_inst = goto_programt::make_decl(code_declt(new_symb_expr));
+  insts_before.push_back(new_decl_inst);
+
+  // instruction 2: ASSIGNMENT
+  auto new_assign_inst = goto_programt::make_assignment(
+    code_assignt(new_symb_expr, target_expr));
+  insts_before.push_back(new_assign_inst);
 
   // instruction 3: DEAD for the temp symbol 
   auto new_dead_inst = goto_programt::make_dead(new_symb_expr);
@@ -1143,6 +1227,8 @@ exprt am_abstractiont::abstract_expr_write(
         const exprt &i = pointer_expr.operands()[1];
         // we have 4 different cases: a$abst[i$abst], a[i$abst], a$abst[i], a[i]
         abstraction_spect::spect a_spec;
+        INVARIANT(!abst_spec.has_const_c_str_entity(a.get_identifier()),
+          "We shouldn't write to a const c string entity.");
         bool a_abs = abst_spec.has_array_entity(a.get_identifier());
         if(a_abs)
           a_spec = abst_spec.get_spec_for_array_entity(a.get_identifier());
@@ -1510,12 +1596,15 @@ exprt am_abstractiont::abstract_expr_read_dereference(
       const exprt new_base_pointer = abstract_expr_read(
         base_pointer, abst_spec, goto_model, current_func,
         insts_before, insts_after, new_symbs);
-      if(abst_spec.has_array_entity(base_pointer_orig_name))
+      if(abst_spec.has_array_entity(base_pointer_orig_name) || abst_spec.has_const_c_str_entity(base_pointer_orig_name))
       {
         // a[i]  ==>   is_prec(i$abst) ? a$abst[i$abst] : nondet
 
         // get the array's spec
-        const auto &spec = abst_spec.get_spec_for_array_entity(base_pointer_orig_name);
+        const auto &spec =
+          abst_spec.has_array_entity(base_pointer_orig_name)
+            ? abst_spec.get_spec_for_array_entity(base_pointer_orig_name)
+            : abst_spec.get_spec_for_const_c_str_entity(base_pointer_orig_name);
 
         // get the new offset i$abst
         exprt new_offset = abstract_expr_read(
@@ -1556,7 +1645,50 @@ exprt am_abstractiont::abstract_expr_read_dereference(
         if_exprt final_expr(
           is_prec_bool, new_access,
           side_effect_expr_nondett(expr.type(), source_locationt()));
-        return std::move(final_expr);
+        
+        if(abst_spec.has_const_c_str_entity(base_pointer_orig_name))
+        {
+          // if i is at the concrete first '0' location, the result must be '0'
+          // if i is smaller than the concrete first '0' location, the result must not be '0'
+          // essentially it's adding two instructions before this
+          // tmp_result = is_prec(i$abst) ? a$abst[i$abst] : nondet
+          // assumption(i$abst == first_0 => tmp_result == '\0' && i$abst < first_0 => tmp_result != '\0')
+          // a[i] ==> tmp_result
+
+          // tmp_result = is_prec(i$abst) ? a$abst[i$abst] : nondet
+          symbolt tmp_result = create_temp_var_for_expr(
+            final_expr, current_func, goto_model,
+            insts_before, insts_after, new_symbs);
+
+          // add assumption(i$abst == c_str_len => tmp_result == '\0' && i$abst < c_str_len => tmp_result != '\0')
+          // get the length variable for the const c str
+          INVARIANT(
+            goto_model.symbol_table.has_symbol(
+              get_const_c_str_len_name(base_pointer_orig_name)),
+            "The const c string variable is not found in the symbol table");
+          const exprt c_str_len =
+            goto_model.symbol_table
+              .lookup_ref(get_const_c_str_len_name(base_pointer_orig_name))
+              .symbol_expr();
+          const auto zero = zero_initializer(tmp_result.type, source_locationt(), namespacet(goto_model.symbol_table));
+          CHECK_RETURN(zero.has_value());
+          const exprt first_constraint = implies_exprt(
+            equal_exprt(new_offset, c_str_len),
+            equal_exprt(
+              tmp_result.symbol_expr(),
+              *zero));
+          const exprt second_constraint = implies_exprt(
+            binary_relation_exprt(new_offset, ID_lt, c_str_len),
+            notequal_exprt(
+              tmp_result.symbol_expr(),
+              *zero));
+          // return tmp_result
+          return tmp_result.symbol_expr();
+        }
+        else
+        {
+          return std::move(final_expr);
+        }
       }
       else
       {
@@ -1616,12 +1748,15 @@ exprt am_abstractiont::abstract_expr_read_index(
     const exprt new_array = abstract_expr_read(
         array, abst_spec, goto_model, current_func,
         insts_before, insts_after, new_symbs);
-    if(abst_spec.has_array_entity(array_orig_name))
+    if(abst_spec.has_array_entity(array_orig_name) || abst_spec.has_const_c_str_entity(array_orig_name))
     {
       // a[i]  ==>   is_prec(i$abst) ? a$abst[i$abst] : nondet
 
       // get the array's spec
-      const auto &spec = abst_spec.get_spec_for_array_entity(array_orig_name);
+      const auto &spec =
+        abst_spec.has_array_entity(array_orig_name)
+          ? abst_spec.get_spec_for_array_entity(array_orig_name)
+          : abst_spec.get_spec_for_const_c_str_entity(array_orig_name);
 
       // get the new offset i$abst
       exprt new_index = abstract_expr_read(
@@ -1661,8 +1796,52 @@ exprt am_abstractiont::abstract_expr_read_index(
       if_exprt final_expr(
         is_prec_bool, new_access,
         side_effect_expr_nondett(expr.type(), source_locationt()));
-      return std::move(final_expr);
+
+      if(abst_spec.has_const_c_str_entity(array_orig_name))
+      {
+        // if i is at the concrete first '0' location, the result must be '0'
+        // if i is smaller than the concrete first '0' location, the result must not be '0'
+        // essentially it's adding two instructions before this
+        // tmp_result = is_prec(i$abst) ? a$abst[i$abst] : nondet
+        // assumption(i$abst == first_0 => tmp_result == '\0' && i$abst < first_0 => tmp_result != '\0')
+        // a[i] ==> tmp_result
+
+        // tmp_result = is_prec(i$abst) ? a$abst[i$abst] : nondet
+        symbolt tmp_result = create_temp_var_for_expr(
+          final_expr, current_func, goto_model,
+          insts_before, insts_after, new_symbs);
+
+        // add assumption(i$abst == c_str_len => tmp_result == '\0' && i$abst < c_str_len => tmp_result != '\0')
+        // get the length variable for the const c str
+        INVARIANT(
+          goto_model.symbol_table.has_symbol(
+            get_const_c_str_len_name(array_orig_name)),
+          "The const c string variable is not found in the symbol table");
+        const exprt c_str_len =
+          goto_model.symbol_table
+            .lookup_ref(get_const_c_str_len_name(array_orig_name))
+            .symbol_expr();
+        const auto zero = zero_initializer(tmp_result.type, source_locationt(), namespacet(goto_model.symbol_table));
+        CHECK_RETURN(zero.has_value());
+        const exprt first_constraint = implies_exprt(
+          equal_exprt(new_index, c_str_len),
+          equal_exprt(
+            tmp_result.symbol_expr(),
+            *zero));
+        const exprt second_constraint = implies_exprt(
+          binary_relation_exprt(new_index, ID_lt, c_str_len),
+          notequal_exprt(
+            tmp_result.symbol_expr(),
+            *zero));
+        // return tmp_result
+        return tmp_result.symbol_expr();
+      }
+      else
+      {
+        return std::move(final_expr);
+      }
     }
+    
     else
     {
       exprt new_index = abstract_expr_read(
@@ -1869,6 +2048,73 @@ void am_abstractiont::define_concrete_indices(goto_modelt &goto_model, const abs
   }
 }
 
+void am_abstractiont::define_const_c_str_lengths(goto_modelt &goto_model, const abstraction_spect &abst_spec)
+{
+  for(const auto &spec: abst_spec.get_specs())
+  {
+    for(auto &c_str_len_pair: spec.get_abst_const_c_strs())
+    {
+      irep_idt var_name = get_const_c_str_len_name(c_str_len_pair.first);
+
+      unsignedbv_typet index_type = unsigned_long_int_type();
+      source_locationt src_loc;
+      symbolt symb;
+      symb.type = index_type;
+      symb.location = src_loc;
+      symb.name = var_name;
+      symb.mode = ID_C;
+      symbol_exprt symb_expr = symb.symbol_expr();
+
+      // Step 1: put it into the symbol table
+      if(goto_model.symbol_table.has_symbol(var_name))
+        throw "the c_str len variable " + std::string(var_name.c_str()) + " is already defined";
+      goto_model.symbol_table.insert(std::move(symb));
+
+      // Step 2: put it into __CPROVER_initialize which is the entry function for each goto program
+      goto_functionst::function_mapt::iterator fct_entry =
+        goto_model.goto_functions.function_map.find(INITIALIZE_FUNCTION);
+      CHECK_RETURN(fct_entry != goto_model.goto_functions.function_map.end());
+      goto_programt &init_function = fct_entry->second.body;
+      auto last_instruction = std::prev(init_function.instructions.end());
+      DATA_INVARIANT(
+        last_instruction->is_end_function(),
+        "last instruction in function should be END_FUNCTION");
+      goto_programt::instructiont new_inst = goto_programt::make_assignment(
+        code_assignt(symb_expr, side_effect_expr_nondett(index_type, src_loc)));
+      init_function.insert_before_swap(last_instruction, new_inst);
+
+      // Step 3: run is_precise on the function
+      goto_programt::instructionst insts_before, insts_after;
+      std::vector<symbolt> new_symbs;
+      exprt::operandst operands{symb_expr};
+      // put the concrete indices into operands
+      push_concrete_indices_to_operands(operands, spec, goto_model);
+      auto is_prec_ret = create_function_call(
+        spec.get_precise_func(), operands, INITIALIZE_FUNCTION,
+        goto_model, insts_before, insts_after, new_symbs);
+      for(auto &inst : insts_before)
+        init_function.insert_before_swap(last_instruction, inst);
+      for(auto &new_symb: new_symbs)
+      {
+        INVARIANT(
+          !goto_model.symbol_table.has_symbol(new_symb.name),
+          "the c_str len variable " + std::string(new_symb.name.c_str()) +
+            " is already defined");
+        goto_model.symbol_table.insert(std::move(new_symb));
+      }
+      
+      // Step 4: add assumption saying it must be precise
+      typecast_exprt assumption_expr(is_prec_ret.symbol_expr(), bool_typet());
+      auto new_assumption = goto_programt::make_assumption(assumption_expr);
+      init_function.insert_before_swap(last_instruction, new_assumption);
+
+      // Step 5: insert the instructions introduced by the create function call
+      for(auto &inst : insts_after)
+        init_function.insert_before_swap(last_instruction, inst);
+    }
+  }
+}
+
 void am_abstractiont::insert_shape_assumptions(goto_modelt &goto_model, const abstraction_spect &abst_spec)
 {
   namespacet ns(goto_model.get_symbol_table());
@@ -2033,6 +2279,9 @@ void am_abstractiont::abstract_goto_program(goto_modelt &goto_model, abstraction
 
   // Insert the assumptions about concrete indices
   insert_shape_assumptions(goto_model, abst_spec);
+
+  // Define the const c_string length symbols
+  define_const_c_str_lengths(goto_model, abst_spec);
 
   // Add the assumption for len==$clen
   add_length_assumptions(goto_model, abst_spec);
