@@ -1670,18 +1670,22 @@ exprt am_abstractiont::abstract_expr_read_dereference(
             goto_model.symbol_table
               .lookup_ref(get_const_c_str_len_name(base_pointer_orig_name))
               .symbol_expr();
+          const exprt new_offset_t = typecast_exprt(new_offset, c_str_len.type());
           const auto zero = zero_initializer(tmp_result.type, source_locationt(), namespacet(goto_model.symbol_table));
           CHECK_RETURN(zero.has_value());
           const exprt first_constraint = implies_exprt(
-            equal_exprt(new_offset, c_str_len),
+            equal_exprt(new_offset_t, c_str_len),
             equal_exprt(
               tmp_result.symbol_expr(),
               *zero));
           const exprt second_constraint = implies_exprt(
-            binary_relation_exprt(new_offset, ID_lt, c_str_len),
+            binary_relation_exprt(new_offset_t, ID_lt, c_str_len),
             notequal_exprt(
               tmp_result.symbol_expr(),
               *zero));
+          const exprt constraint = and_exprt(first_constraint, second_constraint);
+          auto c_str_assume_inst = goto_programt::make_assumption(constraint);
+          insts_before.push_back(c_str_assume_inst);
           // return tmp_result
           return tmp_result.symbol_expr();
         }
@@ -1821,18 +1825,22 @@ exprt am_abstractiont::abstract_expr_read_index(
           goto_model.symbol_table
             .lookup_ref(get_const_c_str_len_name(array_orig_name))
             .symbol_expr();
+        const exprt new_index_t = typecast_exprt(new_index, c_str_len.type());
         const auto zero = zero_initializer(tmp_result.type, source_locationt(), namespacet(goto_model.symbol_table));
         CHECK_RETURN(zero.has_value());
         const exprt first_constraint = implies_exprt(
-          equal_exprt(new_index, c_str_len),
+          equal_exprt(new_index_t, c_str_len),
           equal_exprt(
             tmp_result.symbol_expr(),
             *zero));
         const exprt second_constraint = implies_exprt(
-          binary_relation_exprt(new_index, ID_lt, c_str_len),
+          binary_relation_exprt(new_index_t, ID_lt, c_str_len),
           notequal_exprt(
             tmp_result.symbol_expr(),
             *zero));
+        const exprt constraint = and_exprt(first_constraint, second_constraint);
+        auto c_str_assume_inst = goto_programt::make_assumption(constraint);
+        insts_before.push_back(c_str_assume_inst);
         // return tmp_result
         return tmp_result.symbol_expr();
       }
@@ -2093,7 +2101,13 @@ void am_abstractiont::define_const_c_str_lengths(goto_modelt &goto_model, const 
         spec.get_precise_func(), operands, INITIALIZE_FUNCTION,
         goto_model, insts_before, insts_after, new_symbs);
       for(auto &inst : insts_before)
+      {
+        last_instruction = std::prev(init_function.instructions.end());
+        DATA_INVARIANT(
+          last_instruction->is_end_function(),
+          "last instruction in function should be END_FUNCTION");
         init_function.insert_before_swap(last_instruction, inst);
+      }
       for(auto &new_symb: new_symbs)
       {
         INVARIANT(
@@ -2106,11 +2120,21 @@ void am_abstractiont::define_const_c_str_lengths(goto_modelt &goto_model, const 
       // Step 4: add assumption saying it must be precise
       typecast_exprt assumption_expr(is_prec_ret.symbol_expr(), bool_typet());
       auto new_assumption = goto_programt::make_assumption(assumption_expr);
+      last_instruction = std::prev(init_function.instructions.end());
+      DATA_INVARIANT(
+        last_instruction->is_end_function(),
+        "last instruction in function should be END_FUNCTION");
       init_function.insert_before_swap(last_instruction, new_assumption);
 
       // Step 5: insert the instructions introduced by the create function call
       for(auto &inst : insts_after)
+      {
+        last_instruction = std::prev(init_function.instructions.end());
+        DATA_INVARIANT(
+          last_instruction->is_end_function(),
+          "last instruction in function should be END_FUNCTION");
         init_function.insert_before_swap(last_instruction, inst);
+      }
     }
   }
 }
