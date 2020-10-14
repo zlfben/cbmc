@@ -294,7 +294,7 @@ std::vector<std::pair<size_t, abstraction_spect::spect::entityt::entityt_type>>
   }
   else
   {
-    throw "seeds of type other than ARRAY, CONST_C_STR, SCALAR and LENGTH shouldn't appear in closure analysis";
+    throw "seeds of type other than ARRAY, CONST_C_STR, SCALAR and LENGTH shouldn't appear in closure analysis. Type val: " + std::to_string(type);
   }
 
   // step 2: get the equiv neighbors because of using the same symbol
@@ -668,7 +668,7 @@ irep_idt am_abstractiont::get_abstract_name(const irep_idt &old_name)
 
 irep_idt am_abstractiont::get_const_c_str_len_name(const irep_idt &c_str_name)
 {
-  return irep_idt(std::string(c_str_name.c_str())+"$cstrlen");
+  return irep_idt(std::string(c_str_name.c_str())+"$cstrlen$abst");
 }
 
 bool am_abstractiont::contains_a_function_call(const exprt &expr)
@@ -1058,7 +1058,7 @@ symbolt am_abstractiont::create_temp_var_for_expr(
   auto get_name = [&caller, &goto_model, &new_symbs_name]() {
     // base name is "{caller}::$tmp::return_value_{callee}"
     std::string base_name = std::string(caller.c_str()) +
-                            "::$tmp::temp_var_for_expr";
+                            "::$tmp::$abst::temp_var_for_expr";
     // if base name is not defined yet, use the base name
     if(
       !goto_model.symbol_table.has_symbol(irep_idt(base_name)) &&
@@ -1227,8 +1227,10 @@ exprt am_abstractiont::abstract_expr_write(
         const exprt &i = pointer_expr.operands()[1];
         // we have 4 different cases: a$abst[i$abst], a[i$abst], a$abst[i], a[i]
         abstraction_spect::spect a_spec;
-        INVARIANT(!abst_spec.has_const_c_str_entity(a.get_identifier()),
-          "We shouldn't write to a const c string entity.");
+        INVARIANT(
+          !abst_spec.has_const_c_str_entity(a.get_identifier()),
+          "We shouldn't write to a const c string entity. Entity: " +
+            std::string(a.get_identifier().c_str()));
         bool a_abs = abst_spec.has_array_entity(a.get_identifier());
         if(a_abs)
           a_spec = abst_spec.get_spec_for_array_entity(a.get_identifier());
@@ -2091,7 +2093,7 @@ void am_abstractiont::define_const_c_str_lengths(goto_modelt &goto_model, const 
         code_assignt(symb_expr, side_effect_expr_nondett(index_type, src_loc)));
       init_function.insert_before_swap(last_instruction, new_inst);
 
-      // Step 3: run is_precise on the function
+      // Step 3: run is_precise on the '\0' location variable
       goto_programt::instructionst insts_before, insts_after;
       std::vector<symbolt> new_symbs;
       exprt::operandst operands{symb_expr};
