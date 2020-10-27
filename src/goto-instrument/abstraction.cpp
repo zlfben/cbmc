@@ -604,7 +604,7 @@ am_abstractiont::complete_the_global_abst_spec(goto_modelt &goto_model, abstract
     // Each function is only analyzed for one time. 
     std::set<irep_idt> todo;  // functions to be further analyzed
     std::unordered_set<irep_idt> finished;  // functions that has been analyzed
-    todo.insert(abst_spec.get_func_name());  // the analysis starts from the init function
+    todo.insert(goto_model.get_goto_functions().entry_point());  // the analysis starts from the init function
 
     while(!todo.empty())
     {
