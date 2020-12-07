@@ -47,7 +47,8 @@ DIRS = cbmc \
        cbmc-primitives \
        goto-interpreter \
        cbmc-sequentialization \
-			 cpp-linter \
+	cpp-linter \
+       rra \
        # Empty last line
 
 ifeq ($(OS),Windows_NT)
