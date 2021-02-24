@@ -163,9 +163,8 @@ void constant_propagator_domaint::transform(
   }
   else if(from->is_assign())
   {
-    const auto &assignment = from->get_assign();
-    const exprt &lhs=assignment.lhs();
-    const exprt &rhs=assignment.rhs();
+    const exprt &lhs = from->assign_lhs();
+    const exprt &rhs = from->assign_rhs();
     assign_rec(values, lhs, rhs, ns, cp, true);
   }
   else if(from->is_assume())
@@ -769,14 +768,12 @@ void constant_propagator_ait::replace(
     }
     else if(it->is_assign())
     {
-      auto assign = it->get_assign();
-      exprt &rhs = assign.rhs();
+      exprt &rhs = it->assign_rhs_nonconst();
 
       if(!constant_propagator_domaint::partial_evaluate(d.values, rhs, ns))
       {
         if(rhs.id() == ID_constant)
-          rhs.add_source_location() = assign.lhs().source_location();
-        it->set_assign(assign);
+          rhs.add_source_location() = it->assign_lhs().source_location();
       }
     }
     else if(it->is_function_call())

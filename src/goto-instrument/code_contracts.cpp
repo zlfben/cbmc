@@ -392,7 +392,7 @@ void code_contractst::instrument_assigns_statement(
     instruction_iterator->is_assign(),
     "The first argument of instrument_assigns_statement should always be"
     " an assignment");
-  const exprt &lhs = instruction_iterator->get_assign().lhs();
+  const exprt &lhs = instruction_iterator->assign_lhs();
   if(freely_assignable_exprs.find(lhs) != freely_assignable_exprs.end())
   {
     return;
@@ -434,10 +434,9 @@ void code_contractst::instrument_call_statement(
     local_instruction_iterator++;
     if(
       local_instruction_iterator->is_assign() &&
-      local_instruction_iterator->get_assign().lhs().is_not_nil())
+      local_instruction_iterator->assign_lhs().is_not_nil())
     {
-      freely_assignable_exprs.insert(
-        local_instruction_iterator->get_assign().lhs());
+      freely_assignable_exprs.insert(local_instruction_iterator->assign_lhs());
     }
     return; // assume malloc edits no currently-existing memory objects.
   }
