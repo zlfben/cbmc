@@ -35,7 +35,7 @@ size_t nndt_between(size_t l, size_t u){
 
 size_t nndt_above(size_t bound){
     size_t nd = nndt_int();
-    __CPROVER_assume(nd < bound);
+    __CPROVER_assume(nd > bound);
     return(nd);
 }
 

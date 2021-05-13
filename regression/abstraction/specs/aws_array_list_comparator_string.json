@@ -5,18 +5,23 @@
             "function": "aws_array_list_comparator_string_harness",
             "name": "aws_array_list_comparator_string::1::str_a->bytes",
             "shape": {
-                "indices": ["cncrt"],
+                "indices": ["cncrt0", "cncrt1", "cncrt2", "length"],
                 "assumptions": [
+                    "cncrt0==0",
+                    "cncrt0<cncrt1",
+                    "cncrt1<cncrt2",
+                    "cncrt2<length"
                 ],
-                "shape-type": "*c*"
+                "shape-type": "c*c*c*l*"
             },
             "abst-function-file": "./abst-funcs.c",
             "abst-functions":{
-                "add-abs-conc": "add_abs_to_conc",
-                "sub-abs-conc": "sub_conc_from_abs",
-                "precise-check": "is_precise",
-                "abstract-index": "one_abs",
-                "concretize-index": "concretize",
+                "add-abs-conc": "add_abs_to_conc_4",
+                "sub-abs-conc": "sub_conc_from_abs_4",
+                "multiply-abs-conc": "multiply_abs_with_conc_4",
+                "precise-check": "is_precise_4",
+                "abstract-index": "four_abs",
+                "concretize-index": "concretize_4",
                 "multiply-indices": null,
                 "mod-indices": null
             },
