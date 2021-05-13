@@ -4,7 +4,7 @@
 CHECK=true
 
 # paths to the benchmark repos
-AWS_C_COMMON_PATH="../../../aws-c-common-proofs"
+AWS_C_COMMON_PATH="../../../aws-c-common"
 
 # executables
 MAKE="make"
