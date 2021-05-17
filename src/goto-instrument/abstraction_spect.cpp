@@ -54,40 +54,29 @@ abstraction_spect::abstraction_spect(
       spec.insert_entity(related_entity.find("name")->second.value, related_entity.find("entity")->second.value);
     }
 
-    // initialize the abst functions
-    INVARIANT(entry_obj.find("abst-function-file")!=entry_obj.end(), "'abst-function-file' is missing from an entry in json file.");
-    spec.set_abst_func_file(get_absolute_path(entry_obj.find("abst-function-file")->second.value));
-    INVARIANT(entry_obj.find("abst-functions")!=entry_obj.end(), "'abst-functions' is missing from an entry in json file.");
-    const auto &abst_functions = to_json_object(entry_obj.find("abst-functions")->second);
-    INVARIANT(abst_functions.find("add-abs-conc")!=abst_functions.end(), "'add-abs-conc' is missing from abst-functions in json file.");
-    INVARIANT(abst_functions.find("sub-abs-conc")!=abst_functions.end(), "'sub-abs-conc' is missing from abst-functions in json file.");
-    INVARIANT(abst_functions.find("multiply-abs-conc")!=abst_functions.end(), "'multiply-abs-conc' is missing from abst-functions in json file.");
-    INVARIANT(abst_functions.find("precise-check")!=abst_functions.end(), "'precise-check' is missing from abst-functions in json file.");
-    INVARIANT(abst_functions.find("abstract-index")!=abst_functions.end(), "'abstract-index' is missing from abst-functions in json file.");
-    INVARIANT(abst_functions.find("concretize-index")!=abst_functions.end(), "'concretize-index' is missing from abst-functions in json file.");
-    spec.set_addition_func(abst_functions.find("add-abs-conc")->second.value);
-    spec.set_minus_func(abst_functions.find("sub-abs-conc")->second.value);
-    spec.set_multiply_func(abst_functions.find("multiply-abs-conc")->second.value);
-    spec.set_precise_func(abst_functions.find("precise-check")->second.value);
-    spec.set_abstract_func(abst_functions.find("abstract-index")->second.value);
-    spec.set_concretize_func(abst_functions.find("concretize-index")->second.value);
-    
     // initialize the shape of this spect
-    INVARIANT(entry_obj.find("shape")!=entry_obj.end(), "'shape' is missing from an entry in json file.");
-    const auto &json_shape_obj = to_json_object(entry_obj.find("shape")->second);
-    INVARIANT(json_shape_obj.find("indices")!=json_shape_obj.end(), "'indices' is missing from the shape.");
-    INVARIANT(json_shape_obj.find("assumptions")!=json_shape_obj.end(), "'assumptions' is missing from the shape.");
-    const auto &json_shape_i_array = to_json_array(json_shape_obj.find("indices")->second);
-    const auto &json_shape_a_array = to_json_array(json_shape_obj.find("assumptions")->second);
-    std::vector<irep_idt> indices;
-    std::vector<std::string> assumptions;
-    for(auto it_i=json_shape_i_array.begin(); it_i != json_shape_i_array.end(); ++it_i)
-      indices.push_back(to_json_string(*it_i).value);
-    for(auto it_a=json_shape_a_array.begin(); it_a != json_shape_a_array.end(); ++it_a)
-      assumptions.push_back(to_json_string(*it_a).value);
-    INVARIANT(json_shape_obj.find("shape-type")!=json_shape_obj.end(), "'shape-type' is missing from the shape.");
-    std::string shape_type = to_json_string(json_shape_obj.find("shape-type")->second).value;
+    INVARIANT(entry_obj.find("shape-type")!=entry_obj.end(), "'shape-type' is missing from an entry in json file.");
+    std::string shape_type = to_json_string(entry_obj.find("shape-type")->second).value;
+
+    std::vector<irep_idt> indices = generate_indices(shape_type);
+    std::vector<std::string> assumptions = generate_assumptions(shape_type, indices);
+
     spec.set_shape(indices, assumptions, shape_type);
+
+    // initialize the abst functions
+    // Function names are generated automatically
+    // The functions are pre-defined in the function file provided.
+    // Eventually, this should be merged with Adrian's code generator commits.
+    INVARIANT(entry_obj.find("abst-function-file")!=entry_obj.end(), "'abst-function-file' is missing from an entry in json file.");
+    INVARIANT(indices.size()<=6, "Currently we have not prepared abstract functions with greater than 6 indices.");
+    spec.set_abst_func_file(get_absolute_path(entry_obj.find("abst-function-file")->second.value));
+    auto func_names = get_abst_function_names(indices.size());
+    spec.set_addition_func(func_names["add-abs-conc"]);
+    spec.set_addition_func(func_names["sub-abs-conc"]);
+    spec.set_addition_func(func_names["multiply-abs-conc"]);
+    spec.set_addition_func(func_names["precise-check"]);
+    spec.set_addition_func(func_names["abstract-index"]);
+    spec.set_addition_func(func_names["concretize-index"]);
 
     specs.push_back(spec);
   }
@@ -640,4 +629,103 @@ abstraction_spect::spect::get_abst_lengths_with_expr(const namespacet &ns) const
   }
 
   return result;
+}
+
+size_t abstraction_spect::count_concs(std::string shape_type)
+{
+  // this function is copied from Adrian's code generator commit
+  size_t num_concs = 0;
+  size_t shape_len = shape_type.length();
+
+  for(size_t i = 0; i < shape_len; i++)
+    if(shape_type[i] == 'c' || shape_type[i] == 'l')
+      num_concs++;
+
+  return num_concs;
+}
+
+std::vector<irep_idt> abstraction_spect::generate_indices(std::string shape_type)
+{
+  // this function is copied from Adrian's code generator commit
+  std::vector<irep_idt> indices;
+  size_t num_concs = count_concs(shape_type);
+
+  for(size_t i = 0; i < num_concs; i++)
+  {
+    irep_idt index;
+    index = "cncrt" + std::to_string(i);
+    indices.push_back(index);
+  }
+
+  return indices;
+}
+
+std::vector<std::string> abstraction_spect::generate_assumptions(std::string shape_type, std::vector<irep_idt> indices)
+{
+  // this function is copied from Adrian's code generator commit
+  /*
+   * Generate a set of assumptions given a shape and a set of indices
+   *
+   * If the first symbol is a 'c', we must add assumption "cncrt0==0".
+   * In the general case, whenever we find a 'c' ("cncrtX") in the shape,
+   * we add an assumption depending on the preceding symbol:
+   *  - 'c': "cncrtY==cncrtX-1"
+   *  - '*': "cncrtY<cncrtX"
+   * where Y = X-1
+   *
+   * Example: c*c*c*
+   * Output: ["cncrt0==0","cncrt0<cncrt1","cncrt1<cncrt2"]
+   *
+   * Example: *cc*c*
+   * Output: ["cncrt0==cncrt1-1","cncrt1<cncrt2"]
+   */
+  std::vector<std::string> assumptions;
+  size_t shape_len = shape_type.length();
+  size_t cur_c = 0;
+
+  if(shape_type[0] == 'c')
+  {
+    std::string fst_assumption = id2string(indices[0]) + "==0";
+    assumptions.push_back(fst_assumption);
+  }
+
+  for(size_t i = 0; i < shape_len; i++)
+  {
+    if(shape_type[i] == 'c' || shape_type[i] == 'l')
+    {
+      if(cur_c > 0)
+      {
+        std::string assumption;
+
+        if(shape_type[i - 1] == '*')
+        {
+          assumption =
+            id2string(indices[cur_c - 1]) + "<" + id2string(indices[cur_c]);
+        }
+        else // shape_type[i - 1] == 'c'
+        {
+          assumption = id2string(indices[cur_c - 1]) +
+                       "==" + id2string(indices[cur_c]) + "-1";
+        }
+
+        assumptions.push_back(assumption);
+      }
+      cur_c++;
+    }
+  }
+
+  return assumptions;
+}
+
+std::unordered_map<std::string, std::string> abstraction_spect::get_abst_function_names(size_t n)
+{
+  std::string n_str = std::to_string(n);
+  std::unordered_map<std::string, std::string> func_names;
+  func_names.insert(std::make_pair("add-abs-conc", "add_abs_to_conc_" + n_str));
+  func_names.insert(std::make_pair("sub-abs-conc", "sub_conc_from_abs_" + n_str));
+  func_names.insert(std::make_pair("multiply-abs-conc", "multiply_abs_with_conc_" + n_str));
+  func_names.insert(std::make_pair("precise-check", "is_precise_" + n_str));
+  func_names.insert(std::make_pair("abstract-index", "abstract_" + n_str));
+  func_names.insert(std::make_pair("concretize-index", "concretize_" + n_str));
+  return func_names;
 }

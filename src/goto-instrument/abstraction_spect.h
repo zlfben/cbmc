@@ -696,6 +696,19 @@ public:
 protected:
   std::vector<spect> specs;
   irep_idt function; // function name, no need to have path
+
+protected:
+  /* Note: the following functions are a temporary way to 
+  automatically get abstract functions based on the shape. 
+  We should merge this with Adrian's code generator eventually. */
+  // Count the number of indices from shape (from Adrian's commits)
+  static size_t count_concs(std::string shape_type);
+  // Generate names of indices from the shape (from Adrian's commits)
+  static std::vector<irep_idt> generate_indices(std::string shape_type);
+  // Generate assumptions based on the shape (from Adrian's commits)
+  static std::vector<std::string> generate_assumptions(std::string shape_type, std::vector<irep_idt> indices); 
+  // Get names of the abstract functions based on number of concrete indices
+  static std::unordered_map<std::string, std::string> get_abst_function_names(size_t n);
 };
 
 #endif // CPROVER_GOTO_INSTRUMENT_ABSTSPEC_H
