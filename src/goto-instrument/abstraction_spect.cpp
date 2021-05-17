@@ -72,11 +72,11 @@ abstraction_spect::abstraction_spect(
     spec.set_abst_func_file(get_absolute_path(entry_obj.find("abst-function-file")->second.value));
     auto func_names = get_abst_function_names(indices.size());
     spec.set_addition_func(func_names["add-abs-conc"]);
-    spec.set_addition_func(func_names["sub-abs-conc"]);
-    spec.set_addition_func(func_names["multiply-abs-conc"]);
-    spec.set_addition_func(func_names["precise-check"]);
-    spec.set_addition_func(func_names["abstract-index"]);
-    spec.set_addition_func(func_names["concretize-index"]);
+    spec.set_minus_func(func_names["sub-abs-conc"]);
+    spec.set_multiply_func(func_names["multiply-abs-conc"]);
+    spec.set_precise_func(func_names["precise-check"]);
+    spec.set_abstract_func(func_names["abstract-index"]);
+    spec.set_concretize_func(func_names["concretize-index"]);
 
     specs.push_back(spec);
   }
