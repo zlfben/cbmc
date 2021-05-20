@@ -159,6 +159,11 @@ protected:
   /// \return a list of exprts that directly access abst arrays
   static std::vector<exprt> get_direct_access_exprs(const exprt &expr, const abstraction_spect::spect &spec);
 
+  /// \param orig_expr: the original expression. should be called before abst_read
+  /// \param spec: the abstraction spec containing all info
+  /// \return a list of symbols (as expressions) that are abstracted
+  static std::vector<exprt> get_abstract_symbols(const exprt &orig_expr, const abstraction_spect::spect &spec, const goto_modelt &goto_model);
+
   /// \param expr: the expr to be modified, it should be a boolean expr used in assert inst
   /// \param expr_before_abst: the exprt before we do abstract_read. this is used to check function calls and abst indices
   /// \param abst_spec: the abstration information for the current function
@@ -167,6 +172,7 @@ protected:
   /// \param insts_before: instructions that need to be added before the instruction to support the write
   /// \param insts_after: instructions that need to be added after the instruction to support the write
   /// \param new_symbs: new symbols to be added to support the write
+  /// \param only_precise: if true, only prove this assertion if every symbol shown up is precise
   /// \return an exprt that will be evaluated true if there are abstract indices in expr
   /// This is used to modify assertions. Assertions should be evaluated true if there are non-concrete abst indices in it.
   /// This should be called after abst_read on the expr.
@@ -178,7 +184,8 @@ protected:
     const irep_idt &current_func,
     goto_programt::instructionst &insts_before,
     goto_programt::instructionst &insts_after,
-    std::vector<symbolt> &new_symbs);
+    std::vector<symbolt> &new_symbsm,
+    bool only_precise);
 
   /// \param goto_model: the goto model
   /// \param func_name: the target function
@@ -367,6 +374,24 @@ protected:
   static exprt abstract_expr_read(
     const exprt &expr,
     const abstraction_spect &abst_spec,
+    const goto_modelt &goto_model,
+    const irep_idt &current_func,
+    goto_programt::instructionst &insts_before,
+    goto_programt::instructionst &insts_after,
+    std::vector<symbolt> &new_symbs);
+
+  // insert a rra lemma
+  /// \param lemma: the lemma added
+  /// \param abst_spec: the abstration information for the current function
+  /// \param goto_model: the goto_model
+  /// \param current_func: the name of the current function
+  /// \param insts_before: instructions that need to be added before the instruction to support the read
+  /// \param insts_after: instructions that need to be added after the instruction to support the read
+  /// \param new_symbs: new symbols to be added to support the read
+  /// The function inserts an assertion to be proved at precise location and an assumption for all locations
+  static void insert_rra_lemma(
+    const exprt &lemma, 
+    const abstraction_spect &abst_spec, 
     const goto_modelt &goto_model,
     const irep_idt &current_func,
     goto_programt::instructionst &insts_before,

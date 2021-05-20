@@ -749,6 +749,49 @@ std::vector<exprt> am_abstractiont::get_direct_access_exprs(const exprt &expr, c
   return result;
 }
 
+std::vector<exprt> am_abstractiont::get_abstract_symbols(const exprt &orig_expr, const abstraction_spect::spect &spec, const goto_modelt &goto_model)
+{
+  class find_abst_symbst : public const_expr_visitort
+  {
+  protected:
+    std::vector<exprt> abst_symbs;
+    const abstraction_spect::spect &spec;
+    const goto_modelt &goto_model;
+  public:
+    find_abst_symbst(const abstraction_spect::spect &_spec, const goto_modelt &_goto_model): spec(_spec), goto_model(_goto_model) {}
+    void operator()(const exprt &expr)
+    {
+      if(expr.id() == ID_symbol)
+      {
+        // if it is a symbol, we just return the new abstract symbol
+        irep_idt symbol_name = check_expr_is_symbol(expr);
+        std::cout << "********************************************** " << symbol_name.c_str() << std::endl;
+        if (symbol_name != "" && spec.has_index_entity(symbol_name))
+        {
+          std::cout << "++++++++++++++++++++++++++++++++++++++++++++++++++++++ " << symbol_name.c_str() << std::endl;
+          const symbol_exprt &symb = to_symbol_expr(expr);
+          irep_idt new_name = get_abstract_name(symb.get_identifier());
+          INVARIANT(goto_model.symbol_table.has_symbol(new_name), "Abst variable " +
+                                    std::string(new_name.c_str()) +
+                                    " used before inserting to the symbol table");
+          symbol_exprt new_symb_expr = goto_model.symbol_table.lookup_ref(new_name).symbol_expr();
+          abst_symbs.push_back(new_symb_expr);
+        }
+      }
+    }
+    std::vector<exprt> get_abst_symbs() const
+    {
+      return abst_symbs;
+    }
+  };
+  std::vector<exprt> result;
+  find_abst_symbst fas(spec, goto_model);
+  orig_expr.visit(fas);
+  for(const auto &e: fas.get_abst_symbs())
+    result.push_back(e);
+  return result;
+}
+
 exprt am_abstractiont::add_guard_expression_to_assert(
   const exprt &expr,
   const exprt &expr_before_abst,
@@ -757,7 +800,8 @@ exprt am_abstractiont::add_guard_expression_to_assert(
   const irep_idt &current_func,
   goto_programt::instructionst &insts_before,
   goto_programt::instructionst &insts_after,
-  std::vector<symbolt> &new_symbs)
+  std::vector<symbolt> &new_symbs,
+  bool only_precise=false)
 {
   if(contains_a_function_call(expr_before_abst))
     throw "The assertion contains a function call. Currently our system doesn't support it.";
@@ -782,6 +826,22 @@ exprt am_abstractiont::add_guard_expression_to_assert(
       if(accesses.find(index.pretty())==accesses.end())
         accesses.insert(index.pretty());
     }
+    if (only_precise) {
+      for(const exprt &index: get_abstract_symbols(expr_before_abst, spec, goto_model))
+      {
+        exprt::operandst operands{index};
+        push_concrete_indices_to_operands(operands, spec, goto_model);
+        // create the function call for is_precise
+        symbolt symb_precise = create_function_call(
+          is_prec_func, operands, current_func,
+          goto_model, insts_before, insts_after, new_symbs);
+        typecast_exprt symb_precise_bool(symb_precise.symbol_expr(), bool_typet());
+        is_precise_exprs.push_back(symb_precise_bool);
+        if(accesses.find(index.pretty())==accesses.end())
+          accesses.insert(index.pretty());
+      }
+    }
+    
     INVARIANT(
       1+ accesses.size() + spec.get_abst_lengths().size() <=
         spec.get_shape_indices().size(),
@@ -2018,6 +2078,31 @@ exprt am_abstractiont::abstract_expr_read(
   }
 }
 
+void am_abstractiont::insert_rra_lemma(
+    const exprt &lemma, 
+    const abstraction_spect &abst_spec, 
+    const goto_modelt &goto_model,
+    const irep_idt &current_func,
+    goto_programt::instructionst &insts_before,
+    goto_programt::instructionst &insts_after,
+    std::vector<symbolt> &new_symbs)
+{
+  typecast_exprt lemma_bool(lemma, bool_typet());
+  exprt abstracted_lemma = abstract_expr_read(
+    lemma_bool, abst_spec, goto_model, current_func, insts_before, insts_after, new_symbs);
+  exprt optim_cond = add_guard_expression_to_assert(
+    abstracted_lemma, lemma_bool, abst_spec,
+    goto_model, current_func, insts_before, insts_after, new_symbs, true);
+  typecast_exprt abstracted_lemma_bool(abstracted_lemma, bool_typet());
+  typecast_exprt optim_cond_bool(optim_cond, bool_typet());
+  PRECONDITION(abstracted_lemma_bool.type().id() == ID_bool);
+  PRECONDITION(optim_cond_bool.type().id() == ID_bool);
+  auto assertion = goto_programt::make_assertion(optim_cond_bool);
+  auto assumption = goto_programt::make_assumption(abstracted_lemma_bool);
+  insts_after.insert(insts_after.begin(), assumption);
+  insts_after.insert(insts_after.begin(), assertion);
+}
+
 void am_abstractiont::define_concrete_indices(goto_modelt &goto_model, const abstraction_spect &abst_spec)
 {
   for(const auto &spec: abst_spec.get_specs())
@@ -2350,48 +2435,59 @@ void am_abstractiont::abstract_goto_program(goto_modelt &goto_model, abstraction
       if(it->is_function_call())
       {
         const code_function_callt fc = it->get_function_call();
-        exprt new_lhs;
-        if(contains_an_entity_to_be_abstracted(fc.lhs(), abst_spec))
-        {
-          format_rec(std::cout, fc.lhs()) << " ==abst_write==> ";
-          new_lhs = abstract_expr_write(fc.lhs(), abst_spec, goto_model, func_name, inst_before, inst_after, new_symbs);
-          format_rec(std::cout, new_lhs) << std::endl;
+        if (check_expr_is_symbol(fc.function()) == "__RRA_lemma") {
+          // this is a lemma
+          // it should be translated into an assertion and an assumption
+          // it should only have 1 argument
+          INVARIANT(fc.arguments().size() == 1, "__RRA_lemma should only have 1 argument");
+          const exprt lemma = *fc.arguments().begin();
+          insert_rra_lemma(lemma, abst_spec, goto_model, func_name, inst_before, inst_after, new_symbs);
         }
         else
         {
-          new_lhs = fc.lhs();
-        }
-
-        code_function_callt::argumentst new_arguments;
-        for(const auto &arg : fc.arguments())
-        {
-          exprt new_arg;
-          if(contains_an_entity_to_be_abstracted(arg, abst_spec))
+          exprt new_lhs;
+          if(contains_an_entity_to_be_abstracted(fc.lhs(), abst_spec))
           {
-            format_rec(std::cout, arg) << " ==abst_read==> ";
-            new_arg = abstract_expr_read(arg, abst_spec, goto_model, func_name, inst_before, inst_after, new_symbs);
-            format_rec(std::cout, new_arg) << std::endl;
-            new_arguments.push_back(new_arg);
+            format_rec(std::cout, fc.lhs()) << " ==abst_write==> ";
+            new_lhs = abstract_expr_write(fc.lhs(), abst_spec, goto_model, func_name, inst_before, inst_after, new_symbs);
+            format_rec(std::cout, new_lhs) << std::endl;
           }
           else
           {
-            new_arguments.push_back(arg);
+            new_lhs = fc.lhs();
           }
-        }
 
-        abstraction_spect::spect lhs_spec;
-        bool abs_lhs = check_if_exprt_eval_to_abst_index(fc.lhs(), abst_spec, lhs_spec);
-        if(abs_lhs)
-        {
-          // in this case, we need to abstract the return value
-          symbolt tmp_lhs = create_abstract_func_after(new_lhs, lhs_spec, func_name, goto_model, inst_before, inst_after, new_symbs);
-          code_function_callt new_fc(tmp_lhs.symbol_expr(), fc.function(), new_arguments);
-          it->set_function_call(new_fc);
-        }
-        else
-        {
-          code_function_callt new_fc(new_lhs, fc.function(), new_arguments);
-          it->set_function_call(new_fc);
+          code_function_callt::argumentst new_arguments;
+          for(const auto &arg : fc.arguments())
+          {
+            exprt new_arg;
+            if(contains_an_entity_to_be_abstracted(arg, abst_spec))
+            {
+              format_rec(std::cout, arg) << " ==abst_read==> ";
+              new_arg = abstract_expr_read(arg, abst_spec, goto_model, func_name, inst_before, inst_after, new_symbs);
+              format_rec(std::cout, new_arg) << std::endl;
+              new_arguments.push_back(new_arg);
+            }
+            else
+            {
+              new_arguments.push_back(arg);
+            }
+          }
+
+          abstraction_spect::spect lhs_spec;
+          bool abs_lhs = check_if_exprt_eval_to_abst_index(fc.lhs(), abst_spec, lhs_spec);
+          if(abs_lhs)
+          {
+            // in this case, we need to abstract the return value
+            symbolt tmp_lhs = create_abstract_func_after(new_lhs, lhs_spec, func_name, goto_model, inst_before, inst_after, new_symbs);
+            code_function_callt new_fc(tmp_lhs.symbol_expr(), fc.function(), new_arguments);
+            it->set_function_call(new_fc);
+          }
+          else
+          {
+            code_function_callt new_fc(new_lhs, fc.function(), new_arguments);
+            it->set_function_call(new_fc);
+          }
         }
       }
       else if(it->is_assign())
