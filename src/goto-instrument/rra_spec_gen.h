@@ -16,6 +16,22 @@ class rra_spec_gent
 private:
   static size_t count_concs(std::string shape_type);
 
+  static std::map<size_t, std::string> get_conc_loc_names(
+    std::string shape_type);
+  
+  static std::map<size_t, std::string> get_star_skip_pred(
+    std::string shape_type);
+
+  static void generate_fun_raw2real(
+    size_t spec_index,
+    std::string shape_type,
+    std::ostream &output);
+  
+  static void generate_fun_real2raw(
+    size_t spec_index,
+    std::string shape_type,
+    std::ostream &output);
+
   static void generate_fun_abs(
     size_t spec_index,
     std::string shape_type,

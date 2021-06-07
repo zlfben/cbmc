@@ -13,6 +13,7 @@ Author: Adrian Palacios accorell@amazon.com
 
 #include <string>
 #include <vector>
+#include <map>
 
 #include "rra_spec_gen.h"
 
@@ -94,6 +95,8 @@ void rra_spec_gent::generate_functions(
   std::string shape_type,
   std::ostream &output)
 {
+  generate_fun_raw2real(spec_index, shape_type, output);
+  generate_fun_real2raw(spec_index, shape_type, output);
   generate_fun_abs(spec_index, shape_type, output);
   generate_fun_conc(spec_index, shape_type, output);
   generate_fun_prec(spec_index, shape_type, output);
@@ -146,8 +149,128 @@ void rra_spec_gent::generate_abst_funcs_hdr(std::ostream &output)
 
   output << "size_t nndt_above(size_t bound){\n";
   output << "\tsize_t nd = nndt_int();\n";
-  output << "\t" CPROVER_PREFIX "assume(nd < bound);\n";
+  output << "\t" CPROVER_PREFIX "assume(nd > bound);\n";
   output << "\treturn(nd);\n";
+  output << "}\n\n";
+}
+
+std::map<size_t, std::string> rra_spec_gent::get_conc_loc_names(
+  std::string shape_type)
+{
+  size_t count = 0;
+  std::map<size_t, std::string> res;
+  for(size_t i = 0; i < shape_type.length(); i++)
+  {
+    if(shape_type[i] == 'c' || shape_type[i] == 'l')
+    {
+      count++;
+      res.insert(std::make_pair(i, "a"+std::to_string(count)));
+    }
+  }
+  return res;
+}
+
+std::map<size_t, std::string> rra_spec_gent::get_star_skip_pred(
+  std::string shape_type)
+{
+  size_t count = 0;
+  std::map<size_t, std::string> res;
+  for(size_t i = 0; i < shape_type.length(); i++)
+  {
+    if(shape_type[i] == 'c' || shape_type[i] == 'l')
+    {
+      count++;
+    }
+    else
+    {
+      if(i == 0)
+        res.insert(std::make_pair(i, "a" + std::to_string(count + 1) + "==0"));
+      else
+        res.insert(std::make_pair(
+          i,
+          "a" + std::to_string(count) + "+1==" + "a" +
+            std::to_string(count + 1)));
+    }
+  }
+  return res;
+}
+
+void rra_spec_gent::generate_fun_raw2real(
+  size_t spec_index,
+  std::string shape_type,
+  std::ostream &output)
+{
+  INVARIANT(shape_type.length() > 0, "Shape should not be empty");
+  if(shape_type[shape_type.length()-1] != '*')
+    shape_type += '*';
+  std::map<size_t, std::string> conc_loc_names = get_conc_loc_names(shape_type);
+  std::map<size_t, std::string> star_skip_pred = get_star_skip_pred(shape_type);
+
+  output << "size_t raw_to_real_" + std::to_string(spec_index) + "(size_t raw_index";
+  for (auto it = conc_loc_names.begin(); it != conc_loc_names.end(); it++)
+    output << ",size_t " + it->second;
+  output << ") {\n";
+  output << "\treturn raw_index";
+  for (size_t i = 0; i < shape_type.length(); i++) {
+    if (i != shape_type.length()-1 && shape_type[i] == '*') {
+      std::string entry = "raw_index>" + std::to_string(i);
+      entry += " && ";
+      entry += star_skip_pred[i];
+      output << " - (" + entry + ")";
+    }
+  }
+  output << ";\n";
+  output << "}\n\n";
+}
+
+void rra_spec_gent::generate_fun_real2raw(
+  size_t spec_index,
+  std::string shape_type,
+  std::ostream &output)
+{
+  INVARIANT(shape_type.length() > 0, "Shape should not be empty");
+  if(shape_type[shape_type.length()-1] != '*')
+    shape_type += '*';
+
+  std::map<size_t, std::string> conc_loc_names = get_conc_loc_names(shape_type);
+  std::map<size_t, std::string> star_skip_pred = get_star_skip_pred(shape_type);
+  std::map<size_t, std::string> conc_locs;
+
+  output << "size_t real_to_raw_" + std::to_string(spec_index) + "(size_t real_index";
+  for (auto it = conc_loc_names.begin(); it != conc_loc_names.end(); it++)
+    output << ",size_t " + it->second;
+  output << ") {\n";
+
+  for(size_t i = 0; i < shape_type.length(); i++)
+  {
+    std::string entry = std::to_string(i);
+    if (shape_type[i] != '*')
+    {
+      for(size_t j = 0; j < i; j++)
+      if(shape_type[j] == '*')
+        entry = entry + "-(" + star_skip_pred[j] + ")";
+      conc_locs.insert(std::make_pair(i, entry));
+    }
+  }
+
+  for(size_t i = 0; i < shape_type.length(); i++)
+  {
+    if(i != shape_type.length()-1)
+    {
+      output << "\tif (real_index";
+      if(shape_type[i] == '*') // real_index < next conc_loc
+        output << " < " << conc_locs[i+1] << ")\n";
+      else // real_index == current conc_loc
+        output << " == " << conc_locs[i] << ")\n";
+      output << "\t\treturn " + std::to_string(i) + ";\n";
+    }
+    else
+    {
+      output << "\telse\n";
+      output << "\t\treturn " + std::to_string(i) + ";\n";
+    }
+  }
+
   output << "}\n\n";
 }
 
@@ -156,68 +279,44 @@ void rra_spec_gent::generate_fun_abs(
   std::string shape_type,
   std::ostream &output)
 {
-  size_t num_concs = count_concs(shape_type);
-  size_t cur_idx = 0;
-  size_t cur_c = 1;
-  size_t shape_len = shape_type.length();
-  size_t last_i = shape_len - 1;
+  INVARIANT(shape_type.length() > 0, "Shape should not be empty");
+  if(shape_type[shape_type.length()-1] != '*')
+    shape_type += '*';
+  
+  std::map<size_t, std::string> conc_loc_names = get_conc_loc_names(shape_type);
 
   output << "// Detected shape: " + shape_type + "\n";
-  output << "size_t abs_" + std::to_string(spec_index) + "(size_t index,";
+  output << "size_t abs_" + std::to_string(spec_index) + "(size_t index";
 
-  for(size_t i = 1; i <= num_concs; i++)
-  {
-    output << "size_t a" + std::to_string(i);
-    if(i != num_concs)
-      output << ",";
-  }
+  for (auto it = conc_loc_names.begin(); it != conc_loc_names.end(); it++)
+    output << ",size_t " + it->second;
   output << ") {\n";
 
-  // first type is best handled separately
-  if(shape_type[0] == '*')
-  {
-    output << "\tif (index < a" + std::to_string(cur_c) + ") return " +
-                std::to_string(cur_idx) + ";\n";
-    cur_idx++;
-  }
-  else // shape_type[0] == 'c' || shape_type[0] == 'l'
-  {
-    output << "\tif (index == a" + std::to_string(cur_c) + ") return " +
-                std::to_string(cur_idx) + ";\n";
-    cur_idx++;
-    cur_c++;
-  }
+  output << "\tsize_t raw_index = ";
+  output << std::to_string(shape_type.length()-1);
+  output << ";\n";
 
-  // general algorithm for [1..n-1] types
-  for(size_t i = cur_idx; i < last_i; i++)
+  for(size_t i = 0; i < shape_type.length(); i++)
   {
-    if(shape_type[i] == '*')
+    if(i != shape_type.length()-1)
     {
-      output << "\tif (index > a" + std::to_string(cur_c - 1) +
-                  " && index < a" + std::to_string(cur_c) + ") return " +
-                  std::to_string(cur_idx) + ";\n";
-      cur_idx++;
-    }
-    else // shape_type[i] == 'c' || shape_type[i] == 'l'
-    {
-      output << "\tif (index == a" + std::to_string(cur_c) + ") return " +
-                  std::to_string(cur_idx) + ";\n";
-      cur_c++;
-      cur_idx++;
+      output << "\tif (";
+      if(shape_type[i] == '*' && i == 0)
+        output << "index < " << conc_loc_names[i+1];
+      else if(shape_type[i] == '*' && i != 0)
+        output << "index > " << conc_loc_names[i-1] << " && " << "index < " << conc_loc_names[i+1];
+      else
+        output << "index == " << conc_loc_names[i];
+      output << ") raw_index=";
+      output << std::to_string(i) + ";\n";
     }
   }
 
-  if(shape_type[last_i] == '*')
-  {
-    output << "\tif (index > a" + std::to_string(cur_c - 1) + ") return " +
-                std::to_string(cur_idx) + ";\n";
-  }
-  else // shape_type[last_i] == 'c' || shape_type[last_i] == 'l'
-  {
-    output << "\tif (index == a" + std::to_string(cur_c) + ") return " +
-                std::to_string(cur_idx) + ";\n";
-  }
-  output << "\tassert(0!=0);\n";
+  output << "\treturn raw_to_real_" << std::to_string(spec_index) << "(";
+  output << "raw_index";
+  for (auto it = conc_loc_names.begin(); it != conc_loc_names.end(); it++)
+    output << ", " + it->second;
+  output << ");\n";
   output << "}\n\n";
 }
 
@@ -226,73 +325,37 @@ void rra_spec_gent::generate_fun_conc(
   std::string shape_type,
   std::ostream &output)
 {
-  size_t num_concs = count_concs(shape_type);
-  size_t cur_idx = 0;
-  size_t cur_c = 1;
-  size_t shape_len = shape_type.length();
-  size_t last_i = shape_len - 1;
+  INVARIANT(shape_type.length() > 0, "Shape should not be empty");
+  if(shape_type[shape_type.length()-1] != '*')
+    shape_type += '*';
 
-  output << "size_t conc_" + std::to_string(spec_index) + "(size_t abs_ind,";
+  std::map<size_t, std::string> conc_loc_names = get_conc_loc_names(shape_type);
 
-  for(size_t i = 1; i <= num_concs; i++)
-  {
-    output << "size_t a" + std::to_string(i);
-    if(i != num_concs)
-      output << ",";
-  }
+  output << "size_t conc_" + std::to_string(spec_index) + "(size_t abs_ind";
+  for (auto it = conc_loc_names.begin(); it != conc_loc_names.end(); it++)
+    output << ",size_t " + it->second;
   output << ") {\n";
-  output << "\tassert(abs_ind >= 0);\n";
-  output << "\tassert(a1 >= 0);\n";
+  
+  output << "\tsize_t raw_index = real_to_raw_" << std::to_string(spec_index);
+  output << "(abs_ind";
+  for (auto it = conc_loc_names.begin(); it != conc_loc_names.end(); it++)
+    output << ", " + it->second;
+  output << ");\n";
 
-  for(size_t i = 1; i < num_concs; i++)
+  for(size_t i = 0; i < shape_type.length(); i++)
   {
-    output << "\tassert(a" + std::to_string(i) + " < a" +
-                std::to_string(i + 1) + ");\n";
+    output << "\tif (raw_index == " << std::to_string(i) << ") ";
+    output << "return ";
+    if(shape_type[i] == '*' && i == 0)
+      output << "nndt_under(" << conc_loc_names[i+1] << ")";
+    else if(shape_type[i] == '*' && i == shape_type.length()-1)
+      output << "nndt_above(" << conc_loc_names[i-1] << ")";
+    else if(shape_type[i] == '*')
+      output << "nndt_between(" << conc_loc_names[i-1]+","+conc_loc_names[i+1]+")";
+    else
+      output << conc_loc_names[i];
+    output << ";\n";
   }
-  output << "\n";
-
-  if(shape_type[0] == '*')
-  {
-    output << "\tif (abs_ind == " + std::to_string(cur_idx) +
-                ") return nndt_under(a" + std::to_string(cur_c) + ");\n";
-    cur_idx++;
-  }
-  else // shape_type[0] == 'c' || shape_type[0] == 'l'
-  {
-    output << "\tif (abs_ind == " + std::to_string(cur_idx) + ") return a" +
-                std::to_string(cur_c) + ";\n";
-    cur_idx++;
-    cur_c++;
-  }
-
-  for(size_t i = cur_idx; i < last_i; i++)
-  {
-    if(shape_type[i] == '*')
-    {
-      output << "\tif (abs_ind == " + std::to_string(cur_idx) +
-                  ") return nndt_between(a" + std::to_string(cur_c - 1) + ",a" +
-                  std::to_string(cur_c) + ");\n";
-      cur_idx++;
-    }
-    else // shape_type[i] == 'c' || shape_type[i] == 'l'
-    {
-      output << "\tif (abs_ind == " + std::to_string(cur_idx) + ") return a" +
-                  std::to_string(cur_c) + ";\n";
-      cur_idx++;
-      cur_c++;
-    }
-  }
-
-  if(shape_type[last_i] == '*')
-  {
-    output << "\treturn nndt_above(a" + std::to_string(cur_c - 1) + ");\n";
-  }
-  else // shape_type[last_i] == 'c' || shape_type[last_i] == 'l'
-  {
-    output << "\tif (abs_ind == " + std::to_string(cur_idx) + ") return a" +
-                std::to_string(cur_c) + ";\n";
-  }
-  output << "\tassert(0!=0);\n";
   output << "}\n\n";
 }
 
@@ -301,27 +364,28 @@ void rra_spec_gent::generate_fun_prec(
   std::string shape_type,
   std::ostream &output)
 {
-  size_t num_concs = count_concs(shape_type);
-  size_t shape_len = shape_type.length();
+  INVARIANT(shape_type.length() > 0, "Shape should not be empty");
+  if(shape_type[shape_type.length()-1] != '*')
+    shape_type += '*';
+
+  std::map<size_t, std::string> conc_loc_names = get_conc_loc_names(shape_type);
 
   output << "bool is_precise_" + std::to_string(spec_index) +
-              "(size_t abs_ind,";
-
-  for(size_t i = 1; i <= num_concs; i++)
-  {
-    output << "size_t a" + std::to_string(i);
-    if(i != num_concs)
-      output << ",";
-  }
+              "(size_t abs_ind";
+  for (auto it = conc_loc_names.begin(); it != conc_loc_names.end(); it++)
+    output << ",size_t " + it->second;
   output << ") {\n";
 
-  for(size_t i = 0; i < shape_len; i++)
-  {
-    if(shape_type[i] == 'c' || shape_type[i] == 'l')
-    {
-      output << "\tif(abs_ind == " + std::to_string(i) + ") return 1;\n";
-    }
-  }
+  output << "\tsize_t raw_index = real_to_raw_" << std::to_string(spec_index);
+  output << "(abs_ind";
+  for (auto it = conc_loc_names.begin(); it != conc_loc_names.end(); it++)
+    output << ", " + it->second;
+  output << ");\n";
+
+  for(size_t i = 0; i < shape_type.length(); i++)
+    if(shape_type[i] != '*')
+      output << "\tif(raw_index == " + std::to_string(i) + ") return 1;\n";
+
   output << "\treturn 0;\n";
   output << "}\n\n";
 }
@@ -331,35 +395,42 @@ void rra_spec_gent::generate_fun_add(
   std::string shape_type,
   std::ostream &output)
 {
+  INVARIANT(shape_type.length() > 0, "Shape should not be empty");
+  if(shape_type[shape_type.length()-1] != '*')
+    shape_type += '*';
+
+  std::map<size_t, std::string> conc_loc_names = get_conc_loc_names(shape_type);
+  std::map<size_t, std::string> star_skip_pred = get_star_skip_pred(shape_type);
+
   size_t num_concs = count_concs(shape_type);
 
   output << "size_t add_" + std::to_string(spec_index) +
-              "(size_t abs_ind, size_t num,";
-
-  for(size_t i = 1; i <= num_concs; i++)
-  {
-    output << "size_t a" + std::to_string(i);
-    if(i != num_concs)
-      output << ",";
-  }
+              "(size_t abs_ind, size_t num";
+  for (auto it = conc_loc_names.begin(); it != conc_loc_names.end(); it++)
+    output << ",size_t " + it->second;
   output << ") {\n";
+
   output << "\tif (num == 0) return abs_ind;\n";
   output << "\tif (num == 1) {\n";
 
-  output << "\t\tif (is_precise_" + std::to_string(spec_index) + "(abs_ind,";
-  for(size_t i = 1; i <= num_concs; i++)
-  {
-    output << "a" + std::to_string(i);
-    if(i != num_concs)
-      output << ",";
-  }
+  output << "\t\tif (is_precise_" + std::to_string(spec_index) + "(abs_ind";
+  for (auto it = conc_loc_names.begin(); it != conc_loc_names.end(); it++)
+    output << ", " + it->second;
   output << "))\n";
   output << "\t\t\treturn abs_ind + 1;\n";
-  size_t max = 2 * num_concs - 1;
-  output << "\t\treturn (" + std::to_string(max) + " > ";
-  output << "(a1 == 0)";
-  for(size_t i = 1; i < num_concs; i++)
-    output << "-(a" + std::to_string(i) + "+1==a" + std::to_string(i + 1) + ")";
+
+  std::string last_loc = std::to_string(shape_type.length()-1);
+  for(size_t i = 0; i < shape_type.length()-1; i++)
+  {
+    if (shape_type[i] == '*')
+    {
+      last_loc += "-(";
+      last_loc += star_skip_pred[i];
+      last_loc += ")";
+    }
+  }
+
+  output << "\t\treturn ((abs_ind == " << last_loc << ")";
   output << " || nndt_bool()) ? abs_ind : abs_ind + 1;\n";
   output << "\t}\n";
   output << "\tsize_t conc_idx = conc_" + std::to_string(spec_index) +
