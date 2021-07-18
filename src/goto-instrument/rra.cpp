@@ -1859,6 +1859,33 @@ void rrat::update_pointer_obj(
   inst_after.insert(inst_after.end(), fake_insts_after.begin(), fake_insts_after.end());
 }
 
+void rrat::analyze_soundness(
+    goto_modelt &goto_model,
+    std::unordered_set<irep_idt> &all_funcs,
+    const rra_spect &abst_spec)
+{
+  auto &goto_functions = goto_model.goto_functions;
+
+  for (const auto &func_name: all_funcs) {
+    auto goto_func = goto_functions.function_map.find(func_name);
+    natural_loops_mutablet natural_loops(goto_func->second.body);
+    local_may_aliast local_may_alias(goto_func->second);
+    
+    for (const auto &loop: natural_loops.loop_map) {
+      modifiest modifies;
+      get_modifies(local_may_alias, loop.second, modifies);
+      std::cout << "!!!!!!loop found in " 
+                << func_name
+                << " size: "
+                << loop.second.size() 
+                << std::endl;
+      for (const auto &exp: modifies) {
+        format_rec(std::cout, exp);
+      }
+    }
+  }
+}
+
 void rrat::abstract_goto_program(goto_modelt &goto_model, rra_spect &abst_spec)
 {
   // A couple of spects are initialized from the json file.
@@ -1866,6 +1893,9 @@ void rrat::abstract_goto_program(goto_modelt &goto_model, rra_spect &abst_spec)
   std::unordered_set<irep_idt> all_funcs =
     get_all_functions(goto_model);
 
+  // Analyze soundness of abstraction
+  analyze_soundness(goto_model, all_funcs, abst_spec);
+  
   // Define the global concrete indices to be used
   define_concrete_indices(goto_model, abst_spec);
 

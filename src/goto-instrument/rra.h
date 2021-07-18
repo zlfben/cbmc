@@ -354,6 +354,15 @@ protected:
     goto_programt::instructionst &inst_after,
     std::vector<symbolt> &new_symbs);
   
+  // this function analyze the soundness 
+  // of abstraction. It checks whether we
+  // have dependences in loops. If so, 
+  // an exception is raised.
+  static void analyze_soundness(
+    goto_modelt &goto_model,
+    std::unordered_set<irep_idt> &all_funcs,
+    const rra_spect &abst_spec);
+
 public:
   // link abst functions to goto programs
   static void link_abst_functions(
