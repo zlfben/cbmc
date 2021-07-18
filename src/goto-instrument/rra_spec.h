@@ -137,7 +137,8 @@ public:
       enum entityt_type
       {
         ARRAY,
-        SCALAR,
+        ITERATOR_POINTER, 
+        ITERATOR_SCALAR,
         LENGTH,
         STRUCT,
         STRUCT_POINTER,
@@ -197,12 +198,9 @@ public:
 
       static bool compare_type(entityt_type type1, entityt_type type2)
       {
-        if(
-          (type1 == SCALAR && type2 == LENGTH) ||
-          (type1 == LENGTH && type2 == SCALAR))
-          return true;
         return type1 == type2;
       }
+
       bool operator==(const entityt &_other) const
       {
         if(name != _other.name || !compare_type(type, _other.type))
@@ -222,126 +220,13 @@ public:
       }
     };
 
-    class array_entityt : public entityt
-    {
-    public:
-      array_entityt() : entityt()
-      {
-        type = entityt_type::ARRAY;
-      }
-      explicit array_entityt(irep_idt _name) : entityt(_name)
-      {
-        type = entityt_type::ARRAY;
-      }
-      array_entityt(const array_entityt &_entity) : entityt(_entity)
-      {
-      }
-    };
-
-    class scalar_entityt : public entityt
-    {
-    public:
-      scalar_entityt() : entityt()
-      {
-        type = entityt_type::SCALAR;
-      }
-      explicit scalar_entityt(irep_idt _name) : entityt(_name)
-      {
-        type = entityt_type::SCALAR;
-      }
-      scalar_entityt(const scalar_entityt &_entity) : entityt(_entity)
-      {
-      }
-    };
-
-    class length_entityt : public entityt
-    {
-    public:
-      length_entityt() : entityt()
-      {
-        type = entityt_type::LENGTH;
-      }
-      explicit length_entityt(irep_idt _name) : entityt(_name)
-      {
-        type = entityt_type::LENGTH;
-      }
-      length_entityt(const length_entityt &_entity) : entityt(_entity)
-      {
-      }
-    };
-
-    class struct_entityt : public entityt
-    {
-    public:
-      struct_entityt() : entityt()
-      {
-        type = entityt_type::STRUCT;
-      }
-      explicit struct_entityt(irep_idt _name) : entityt(_name)
-      {
-        type = entityt_type::STRUCT;
-      }
-      struct_entityt(const struct_entityt &_entity) : entityt(_entity)
-      {
-      }
-    };
-
-    class struct_pointer_entityt : public entityt
-    {
-    public:
-      struct_pointer_entityt() : entityt()
-      {
-        type = entityt_type::STRUCT_POINTER;
-      }
-      explicit struct_pointer_entityt(irep_idt _name) : entityt(_name)
-      {
-        type = entityt_type::STRUCT_POINTER;
-      }
-      struct_pointer_entityt(const struct_pointer_entityt &_entity)
-        : entityt(_entity)
-      {
-      }
-    };
-
-    array_entityt &to_array_entity(entityt &entity)
-    {
-      PRECONDITION(entity.type == entityt::entityt_type::ARRAY);
-      return static_cast<array_entityt &>(entity);
-    }
-
-    const array_entityt &to_array_entity(const entityt &entity)
-    {
-      PRECONDITION(entity.type == entityt::entityt_type::ARRAY);
-      return static_cast<const array_entityt &>(entity);
-    }
-
-    scalar_entityt &to_scalar_entity(entityt &entity)
-    {
-      PRECONDITION(entity.type == entityt::entityt_type::SCALAR);
-      return static_cast<scalar_entityt &>(entity);
-    }
-
-    const scalar_entityt &to_scalar_entity(const entityt &entity)
-    {
-      PRECONDITION(entity.type == entityt::entityt_type::SCALAR);
-      return static_cast<const scalar_entityt &>(entity);
-    }
-
-    length_entityt &to_length_entity(entityt &entity)
-    {
-      PRECONDITION(entity.type == entityt::entityt_type::LENGTH);
-      return static_cast<length_entityt &>(entity);
-    }
-
-    const length_entityt &to_length_entity(const entityt &entity)
-    {
-      PRECONDITION(entity.type == entityt::entityt_type::LENGTH);
-      return static_cast<const length_entityt &>(entity);
-    }
-
   protected:
-    // Entities to be abstracted
+    // Entities to be abstracted: those will be renamed in the program (var=>var$abst)
     std::unordered_map<irep_idt, std::unique_ptr<entityt>> abst_entities;
+
+    // Length entities: those will not be renamed. 
+    // We'll only add assumptions that those are at concrete locations.
+    std::unordered_map<irep_idt, std::unique_ptr<entityt>> length_entities;
 
     // Shape of the abstraction
     abst_shapet shape;
@@ -399,6 +284,9 @@ public:
       for(const auto &k_v : _spec.abst_entities)
         abst_entities.insert(
           {k_v.first, std::unique_ptr<entityt>(new entityt(*k_v.second))});
+      length_entities = std::unordered_map<irep_idt, std::unique_ptr<entityt>>();
+      for(const auto &k_v: _spec.length_entities)
+        length_entities.insert({k_v.first, std::unique_ptr<entityt>(new entityt(*k_v.second))});
     }
 
     spect &operator=(const spect &other)
@@ -415,6 +303,9 @@ public:
       abst_entities = std::unordered_map<irep_idt, std::unique_ptr<entityt>>();
       for(const auto &k_v : other.abst_entities)
         abst_entities.insert(
+          {k_v.first, std::unique_ptr<entityt>(new entityt(*k_v.second))});
+      for(const auto &k_v: other.length_entities)
+        length_entities.insert(
           {k_v.first, std::unique_ptr<entityt>(new entityt(*k_v.second))});
       return *this;
     }
@@ -440,7 +331,10 @@ public:
     void insert_entity(const irep_idt &_name, const std::string &_type);
 
     // Return the top level entities, which are "roots" in the entity forest
-    std::unordered_map<irep_idt, entityt> get_top_level_entities() const;
+    std::unordered_map<irep_idt, entityt> get_top_level_abst_entities() const;
+
+    // Return all array entities (ARRAYs and C_STRs)
+    std::unordered_map<irep_idt, entityt> get_abst_pointers() const;
 
     // Return all nodes in the entity forest
     std::unordered_map<irep_idt, entityt> get_all_abst_entities() const;
@@ -451,8 +345,11 @@ public:
     // Return all nodes with type "CONST_C_STR" in the entity forest
     std::unordered_map<irep_idt, entityt> get_abst_const_c_strs() const;
 
-    // Return all nodes with type "SCALAR" or "LENGTH" in the entity forest
-    std::unordered_map<irep_idt, entityt> get_abst_indices() const;
+    // Return all nodes with type "INTERATOR_SCALAR" in the entity forest
+    std::unordered_map<irep_idt, entityt> get_abst_iterator_scalars() const;
+
+    // Return all nodes with type "INTERATOR_POINTER" in the entity forest
+    std::unordered_map<irep_idt, entityt> get_abst_iterator_pointers() const;
 
     // Return all nodes with type "LENGTH" in the entity forest
     std::unordered_map<irep_idt, entityt> get_abst_lengths() const;
@@ -488,7 +385,7 @@ public:
 
     const bool has_index_entity(const irep_idt &entity_name) const
     {
-      const auto abst_indices = get_abst_indices();
+      const auto abst_indices = get_abst_iterator_scalars();
       return (abst_indices.find(entity_name) != abst_indices.end());
     }
 

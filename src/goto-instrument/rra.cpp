@@ -20,396 +20,17 @@ Author: Adrian Palacios accorell@amazon.com
 #include <goto-programs/initialize_goto_model.h>
 #include <goto-programs/link_goto_model.h>
 #include <linking/static_lifetime_init.h>
+#include <util/arith_tools.h>
 #include <util/c_types.h>
 #include <util/expr_initializer.h>
 #include <util/expr_util.h>
 #include <util/format_expr.h>
+#include <util/pointer_predicates.h>
 #include <util/std_expr.h>
 #include <util/pointer_expr.h>
-
-rrat::expr_type_relationt::expr_type_relationt(const rra_spect::spect &spec)
-{
-  for(const auto &array_p : spec.get_abst_arrays())
-    seeds.insert({array_p.first, rra_spect::spect::entityt::ARRAY});
-  for(const auto &array_p : spec.get_abst_const_c_strs())
-    seeds.insert({array_p.first, rra_spect::spect::entityt::CONST_C_STR});
-  for(const auto &index_p : spec.get_abst_indices())
-    seeds.insert({index_p.first, rra_spect::spect::entityt::SCALAR});
-}
-
-void rrat::expr_type_relationt::link_exprt_equiv(size_t i1, size_t i2)
-{
-  edges_equiv[i1].insert(i2);
-  edges_equiv[i2].insert(i1);
-
-  if(is_entity_expr(expr_list[i1]) && is_entity_expr(expr_list[i2]))
-  {
-    const irep_idt str_id1 = get_string_id_from_exprt(expr_list[i1]);
-    const irep_idt str_id2 = get_string_id_from_exprt(expr_list[i2]);
-    link_entity_equiv(str_id1, str_id2);
-  }
-  else if(
-    is_entity_expr(expr_list[i1]) && expr_list[i2].id() == ID_address_of &&
-    is_entity_expr(expr_list[i2].operands()[0]))
-  {
-    const irep_idt str_id1 = get_string_id_from_exprt(expr_list[i1]);
-    const irep_idt str_id2 =
-      get_string_id_from_exprt(expr_list[i2].operands()[0]);
-    link_entity_addr_of(str_id1, str_id2);
-  }
-  else if(
-    is_entity_expr(expr_list[i2]) && expr_list[i1].id() == ID_address_of &&
-    is_entity_expr(expr_list[i1].operands()[0]))
-  {
-    const irep_idt str_id2 = get_string_id_from_exprt(expr_list[i2]);
-    const irep_idt str_id1 =
-      get_string_id_from_exprt(expr_list[i1].operands()[0]);
-    link_entity_addr_of(str_id2, str_id1);
-  }
-  else
-  {
-  }
-}
-
-void rrat::expr_type_relationt::link_exprt_access(size_t i1, size_t i2)
-{
-  edges_access[i1].insert(i2);
-}
-
-void rrat::expr_type_relationt::link_entity_equiv(
-  irep_idt symb1,
-  irep_idt symb2)
-{
-  entity_edges_equiv[symb1].insert(symb2);
-  entity_edges_equiv[symb2].insert(symb1);
-}
-
-void rrat::expr_type_relationt::link_entity_addr_of(
-  irep_idt symb1,
-  irep_idt symb2)
-{
-  entity_edges_addr_of[symb1].insert(symb2);
-}
-
-size_t rrat::expr_type_relationt::add_expr(const exprt &expr)
-{
-  size_t index = expr_list.size();
-  expr_list.push_back(expr);
-  edges_equiv.push_back(std::unordered_set<size_t>());
-  edges_access.push_back(std::unordered_set<size_t>());
-
-  // add symbol to symbol list
-  if(is_entity_expr(expr))
-  {
-    const irep_idt str_id = get_string_id_from_exprt(expr);
-    if(symbols.find(str_id) == symbols.end())
-      symbols[str_id] = std::unordered_set<size_t>();
-    if(entity_edges_equiv.find(str_id) == entity_edges_equiv.end())
-      entity_edges_equiv[str_id] = std::unordered_set<irep_idt>();
-    if(entity_edges_addr_of.find(str_id) == entity_edges_addr_of.end())
-      entity_edges_addr_of[str_id] = std::unordered_set<irep_idt>();
-    // if this exprt is an entity, store this information
-    symbols[str_id].insert(index);
-    // if the symbol is one of the seeds, put it into the todo list
-    if(seeds.find(str_id) != seeds.end())
-      todo.insert({index, seeds[str_id]});
-  }
-
-  // add operands also
-  if(expr.has_operands())
-  {
-    std::vector<size_t> operands_index;
-    for(auto &op : expr.operands())
-      operands_index.push_back(add_expr(op));
-
-    if(
-      expr.id() == ID_equal || expr.id() == ID_notequal || expr.id() == ID_ge ||
-      expr.id() == ID_gt || expr.id() == ID_le || expr.id() == ID_lt)
-    {
-      link_exprt_equiv(operands_index[0], operands_index[1]);
-    }
-    else if(
-      expr.id() == ID_const_cast || expr.id() == ID_static_cast ||
-      expr.id() == ID_typecast || expr.id() == ID_dynamic_cast ||
-      expr.id() == ID_reinterpret_cast)
-    {
-      link_exprt_equiv(index, operands_index[0]);
-    }
-    else if(expr.id() == ID_plus || expr.id() == ID_minus)
-    {
-      if(
-        expr.operands()[0].id() == ID_symbol ||
-        expr.operands()[0].id() == ID_member)
-      {
-        if(
-          (expr.operands()[1].id() == ID_typecast &&
-           expr.operands()[1].operands()[0].id() == ID_constant) ||
-          expr.operands()[1].id() == ID_constant)
-        {
-          link_exprt_equiv(index, operands_index[0]);
-        }
-      }
-    }
-
-    // If this is an access to the array, insert that edge
-    if(
-      expr.id() == ID_plus && (is_entity_expr(expr.operands().front())) &&
-      expr.operands().front().type().id() == ID_pointer)
-    {
-      link_exprt_access(operands_index[0], operands_index[1]);
-    }
-  }
-
-  return index;
-}
-
-int rrat::expr_type_relationt::check_symb_deref_level(
-  irep_idt symb1,
-  irep_idt symb2)
-{
-  std::unordered_map<irep_idt, int> finished;
-  std::queue<irep_idt> todo;
-
-  // the starting node should be 0 level
-  todo.push(symb1);
-  finished.insert({symb1, 0});
-
-  while(!todo.empty())
-  {
-    irep_idt current_symb = todo.front();
-    INVARIANT(
-      symbols.find(current_symb) != symbols.end(),
-      "the symbol " + std::string(current_symb.c_str()) +
-        " should be in the symbol list.");
-    INVARIANT(
-      entity_edges_equiv.find(current_symb) != entity_edges_equiv.end(),
-      "the symbol " + std::string(current_symb.c_str()) +
-        " should be in the symbol list.");
-    INVARIANT(
-      entity_edges_addr_of.find(current_symb) != entity_edges_addr_of.end(),
-      "the symbol " + std::string(current_symb.c_str()) +
-        " should be in the symbol list.");
-    todo.pop();
-
-    for(const auto &eq_ngbr : entity_edges_equiv[current_symb])
-    {
-      if(finished.find(eq_ngbr) == finished.end())
-      {
-        todo.push(eq_ngbr);
-        finished.insert({eq_ngbr, finished[current_symb]});
-      }
-      else
-      {
-        INVARIANT(
-          finished[eq_ngbr] == finished[current_symb],
-          "the reference level between " + std::string(current_symb.c_str()) +
-            " and " + std::string(eq_ngbr.c_str()) + " are not consistent");
-      }
-    }
-
-    for(const auto &addr_ngbr : entity_edges_addr_of[current_symb])
-    {
-      if(finished.find(addr_ngbr) == finished.end())
-      {
-        todo.push(addr_ngbr);
-        finished.insert({addr_ngbr, finished[current_symb] + 1});
-      }
-      else
-      {
-        INVARIANT(
-          finished[addr_ngbr] == finished[current_symb] + 1,
-          "the reference level between " + std::string(current_symb.c_str()) +
-            " and " + std::string(addr_ngbr.c_str()) + " are not consistent");
-      }
-    }
-  }
-
-  if(finished.find(symb2) != finished.end())
-    return finished[symb2];
-  else
-    return -1;
-}
-
-bool rrat::expr_type_relationt::is_equiv_entity(irep_idt symb1, irep_idt symb2)
-{
-  INVARIANT(
-    symbols.find(symb1) != symbols.end(),
-    "Symbol " + std::string(symb1.c_str()) + " is not found");
-  INVARIANT(
-    entity_edges_equiv.find(symb1) != entity_edges_equiv.end(),
-    "Symbol " + std::string(symb1.c_str()) + " is not found");
-  INVARIANT(
-    entity_edges_addr_of.find(symb1) != entity_edges_addr_of.end(),
-    "Symbol " + std::string(symb1.c_str()) + " is not found");
-  INVARIANT(
-    symbols.find(symb2) != symbols.end(),
-    "Symbol " + std::string(symb2.c_str()) + " is not found");
-  INVARIANT(
-    entity_edges_equiv.find(symb2) != entity_edges_equiv.end(),
-    "Symbol " + std::string(symb2.c_str()) + " is not found");
-  INVARIANT(
-    entity_edges_addr_of.find(symb2) != entity_edges_addr_of.end(),
-    "Symbol " + std::string(symb2.c_str()) + " is not found");
-
-  // are they just the same?
-  if(symb1 == symb2)
-    return true;
-  // do they have a direct equivalence?
-  if(check_symb_deref_level(symb1, symb2) == 0)
-    return true;
-  // are they equivalent because of the equiv of their parent?
-  auto parent_p1 = get_parent_id(symb1);
-  auto parent_p2 = get_parent_id(symb2);
-  if(parent_p1.first != "" && parent_p2.first != "")
-  {
-    // e.g. a.len => (flag: ".", parent: "a", child: "len")
-    std::string flag1 = parent_p1.first;
-    std::string parent1 = parent_p1.second.c_str();
-    std::string child1 =
-      std::string(symb1.c_str()).substr(parent1.size() + flag1.size());
-    std::string flag2 = parent_p2.first;
-    std::string parent2 = parent_p2.second.c_str();
-    std::string child2 =
-      std::string(symb2.c_str()).substr(parent2.size() + flag2.size());
-    if(child1 != child2)
-    {
-      return false;
-    }
-    else
-    {
-      if(flag1 == flag2)
-      {
-        return check_symb_deref_level(irep_idt(parent1), irep_idt(parent2)) ==
-               0;
-      }
-      else
-      {
-        irep_idt p1_idt = parent1;
-        irep_idt p2_idt = parent2;
-        // is a->len and b.len equivalent? it depends on whether a = &b
-        if(flag1 == "->" && flag2 == ".")
-          return check_symb_deref_level(p1_idt, p2_idt) == 1;
-        else if(flag1 == "." && flag2 == "->")
-          return check_symb_deref_level(p2_idt, p1_idt) == 1;
-        else
-          throw "flag should be either -> or .";
-      }
-    }
-  }
-  else
-  {
-    return false;
-  }
-}
-
-std::vector<std::pair<size_t, rra_spect::spect::entityt::entityt_type>>
-rrat::expr_type_relationt::get_neighbors(
-  size_t index,
-  rra_spect::spect::entityt::entityt_type type)
-{
-  // step 1: get all neighbors related with direct edges
-  std::vector<std::pair<size_t, rra_spect::spect::entityt::entityt_type>>
-    results;
-  if(
-    type == rra_spect::spect::entityt::ARRAY ||
-    type == rra_spect::spect::entityt::CONST_C_STR)
-  {
-    // edge neighbors should consist of edge_equiv and edge_index
-    for(const size_t &ngbr_id : edges_equiv[index])
-      results.push_back(std::make_pair(ngbr_id, type));
-    for(const size_t &ngbr_id : edges_access[index])
-      results.push_back(
-        std::make_pair(ngbr_id, rra_spect::spect::entityt::SCALAR));
-  }
-  else if(
-    type == rra_spect::spect::entityt::SCALAR ||
-    type == rra_spect::spect::entityt::LENGTH)
-  {
-    // edge neighbors should consist of edge_equiv only
-    for(const size_t &ngbr_id : edges_equiv[index])
-      results.push_back(
-        std::make_pair(ngbr_id, rra_spect::spect::entityt::SCALAR));
-  }
-  else
-  {
-    const char *seed_error =
-      "seeds of type other than ARRAY, CONST_C_STR, "
-      "SCALAR and LENGTH shouldn't appear in closure analysis. Type val: ";
-    throw seed_error + std::to_string(type);
-  }
-
-  // step 2: get the equiv neighbors because of using the same symbol
-  if(is_entity_expr(expr_list[index]))
-  {
-    irep_idt symb_name = get_string_id_from_exprt(expr_list[index]);
-    // step 2.1: put all exprs using the same symbol as neighbors
-    // e.g. the same symbol is referenced in different places as exprs.
-    // Those exprs should be neighbors
-    for(const size_t &ngbr_id : symbols[symb_name])
-      if(ngbr_id != index)
-        results.push_back(std::make_pair(ngbr_id, type));
-
-    // step 2.2: put all exprs refering to the same struct member as neighbors
-    // e.g. a = &b; then a->len and b.len should refer to the same symbol,
-    // and thus be neighbors
-    for(const auto &symb_p : symbols)
-    {
-      const irep_idt &ngbr_symb_name = symb_p.first;
-      if(
-        ngbr_symb_name != symb_name &&
-        is_equiv_entity(ngbr_symb_name, symb_name))
-      {
-        for(const size_t &ngbr_id : symbols[ngbr_symb_name])
-          results.push_back(std::make_pair(ngbr_id, type));
-      }
-    }
-  }
-
-  return results;
-}
-
-void rrat::expr_type_relationt::solve()
-{
-  while(!todo.empty())
-  {
-    auto current_it = todo.begin();
-    size_t current_index = current_it->first;
-    auto current_type = current_it->second;
-
-    // step 1: insert this into finished and remove it from the todo
-    INVARIANT(
-      finished.find(current_index) == finished.end(),
-      "an exprt node is analyzed twice in closure analysis");
-    finished.insert({current_index, current_type});
-    todo.erase(current_index);
-
-    // step 2: if this is a symbol, store it into the newly found entity list
-    if(is_entity_expr(expr_list[current_index]))
-    {
-      const irep_idt str_id =
-        get_string_id_from_exprt(expr_list[current_index]);
-      if(
-        seeds.find(str_id) == seeds.end() &&
-        new_entities.find(str_id) == new_entities.end())
-        new_entities.insert({str_id, current_type});
-    }
-
-    // step 3: visit all neighbors, put them into the todo list if needed
-    std::vector<std::pair<size_t, rra_spect::spect::entityt::entityt_type>>
-      neighbors = get_neighbors(current_index, current_type);
-    for(const auto &ngbr : neighbors)
-      if(
-        todo.find(ngbr.first) == todo.end() &&
-        finished.find(ngbr.first) == finished.end())
-        todo.insert(ngbr);
-  }
-}
-
-std::unordered_map<irep_idt, rra_spect::spect::entityt::entityt_type>
-rrat::expr_type_relationt::get_new_entities()
-{
-  return new_entities;
-}
+#include <analyses/natural_loops.h>
+#include <analyses/local_may_alias.h>
+#include <goto-instrument/loop_utils.h>
 
 irep_idt rrat::get_string_id_from_exprt(const exprt &expr)
 {
@@ -549,60 +170,21 @@ void rrat::link_abst_functions(
   link_goto_model(goto_model, goto_model_for_abst_fns, msg_handler);
 }
 
-std::unordered_set<irep_idt> rrat::update_relation_graph_from_function(
-  const goto_functiont &goto_function,
-  rrat::expr_type_relationt &etr,
-  goto_modelt &goto_model)
+std::unordered_set<irep_idt> rrat::get_all_funcs_called(
+  const goto_functiont &goto_function)
 {
   std::unordered_set<irep_idt> funcs_called;
   forall_goto_program_instructions(it, goto_function.body)
   {
-    // go through conditions
-    if(it->has_condition())
-    {
-      etr.add_expr(it->get_condition());
-    }
-
     // go through all expressions
     if(it->is_function_call())
     {
       const code_function_callt fc = it->get_function_call();
-      exprt new_lhs = fc.lhs();
-      etr.add_expr(fc.lhs());
-
       const irep_idt &new_func_name =
         to_symbol_expr(fc.function()).get_identifier();
-      const goto_functiont &new_function =
-        goto_model.get_goto_function(new_func_name);
 
       if(funcs_called.find(new_func_name) == funcs_called.end())
         funcs_called.insert(new_func_name);
-
-      // need to build relationship between argument and parameters
-      // func(a.len, b) on func(arg1, arg2) should be treated
-      // in the same way as arg1=a.len, arg2=b
-      for(size_t i = 0; i < fc.arguments().size(); i++)
-      {
-        auto arg = fc.arguments()[i];
-        irep_idt param_str = new_function.parameter_identifiers[i];
-        if(param_str != "")
-        {
-          // if param is "", it is built in functions such as malloc.
-          // we need to stop
-          exprt param =
-            goto_model.get_symbol_table().lookup_ref(param_str).symbol_expr();
-          size_t arg_id = etr.add_expr(arg);
-          size_t param_id = etr.add_expr(param);
-          etr.link_exprt_equiv(param_id, arg_id);
-        }
-      }
-    }
-    else if(it->is_assign())
-    {
-      const code_assignt as = it->get_assign();
-      size_t l_id = etr.add_expr(as.lhs());
-      size_t r_id = etr.add_expr(as.rhs());
-      etr.link_exprt_equiv(l_id, r_id);
     }
   }
   return funcs_called;
@@ -655,64 +237,41 @@ irep_idt rrat::check_expr_is_symbol(const exprt &expr)
   }
 }
 
-std::unordered_set<irep_idt> rrat::complete_the_global_abst_spec(
-  goto_modelt &goto_model,
-  rra_spect &abst_spec)
+std::unordered_set<irep_idt> rrat::get_all_functions(
+  goto_modelt &goto_model)
 {
   std::unordered_set<irep_idt> all_functions;
-  for(auto &spec : abst_spec.get_specs())
+  // The following is a search of functions.
+  // At each step, we pop one function A from the todo list.
+  // We analyze A to see if it calls other functions.
+  // If any other functions are called and have not been analyzed, 
+  // we also analyze that function, 
+  // and then push that to the todo list.
+  // Each function is only analyzed for one time. 
+  std::set<irep_idt> todo;  // functions to be further analyzed
+  todo.insert(goto_model.get_goto_functions().entry_point());  // the analysis starts from the init function
+
+  while(!todo.empty())
   {
-    expr_type_relationt etr(spec);
+    // pop the first function in the todo list
+    irep_idt current_func_name = *todo.begin();
+    INVARIANT(all_functions.find(current_func_name) == all_functions.end(), "we should never analyze the same functino twice");
+    todo.erase(current_func_name);
+    all_functions.insert(current_func_name);
 
-    // The following is a search of functions.
-    // At each step, we pop one function A from the todo list.
-    // We analyze A to see if it calls other functions.
-    // If any other functions are called and have not been analyzed,
-    // we also analyze that function,
-    // and then push that to the todo list.
-    // Each function is only analyzed for one time.
+    const goto_functiont &current_func = goto_model.get_goto_function(current_func_name);
 
-    // functions to be further analyzed
-    std::set<irep_idt> todo;
-    // functions that have been analyzed
-    std::unordered_set<irep_idt> finished;
-    // the analysis starts from the init function
-    todo.insert(abst_spec.get_func_name());
+    // check it calls any other functions that we need to abstract
+    std::unordered_set<irep_idt> funcs_called = get_all_funcs_called(current_func);
 
-    while(!todo.empty())
+    // for each function we need to abstract, check if it's already analyzed
+    // if not, we analyze it and put it into the function_spec_map and todo
+    for(const auto &new_func_name: funcs_called)
     {
-      // pop the first function in the todo list
-      irep_idt current_func_name = *todo.begin();
-      INVARIANT(
-        finished.find(current_func_name) == finished.end(),
-        "we should never analyze the same function twice");
-      todo.erase(current_func_name);
-      finished.insert(current_func_name);
-
-      const goto_functiont &current_func =
-        goto_model.get_goto_function(current_func_name);
-
-      // check it calls any other functions that we need to abstract
-      std::unordered_set<irep_idt> funcs_called =
-        update_relation_graph_from_function(current_func, etr, goto_model);
-
-      // for each function we need to abstract, check if it's already analyzed
-      // if not, we analyze it and put it into the function_spec_map and todo
-      for(const auto &new_func_name : funcs_called)
-      {
-        if(
-          todo.find(new_func_name) == todo.end() &&
-          finished.find(new_func_name) == finished.end())
-          todo.insert(new_func_name);
-      }
+      if(todo.find(new_func_name) == todo.end() &&
+          all_functions.find(new_func_name) == all_functions.end())
+        todo.insert(new_func_name);
     }
-
-    etr.solve();
-    for(const auto &new_ent_p : etr.get_new_entities())
-      if(!spec.has_entity(new_ent_p.first))
-        spec.insert_entity(new_ent_p.first, new_ent_p.second);
-
-    all_functions = finished;
   }
 
   return all_functions;
@@ -754,6 +313,11 @@ irep_idt rrat::get_const_c_str_len_name(const irep_idt &c_str_name)
   return irep_idt(std::string(c_str_name.c_str()) + "$cstrlen$abst");
 }
 
+irep_idt rrat::get_memory_addr_name(const irep_idt &entity_name)
+{
+  return irep_idt(std::string(entity_name.c_str())+"$abst$memobj");
+}
+
 bool rrat::contains_a_function_call(const exprt &expr)
 {
   class find_functiont : public const_expr_visitort
@@ -781,67 +345,46 @@ bool rrat::contains_a_function_call(const exprt &expr)
 }
 
 std::vector<exprt>
-rrat::get_direct_access_exprs(const exprt &expr, const rra_spect::spect &spec)
+rrat::get_dereferenced_pointers(const exprt &expr)
 {
-  class find_direct_accesst : public const_expr_visitort
+  class find_dereferenced_pointerst : public const_expr_visitort
   {
   protected:
-    const irep_idt target_array;
-    std::vector<exprt> direct_accesses;
-
+    std::vector<exprt> dereferenced_pointers;
+    std::unordered_set<irep_idt> symbol_addresses;
   public:
-    explicit find_direct_accesst(const irep_idt &_target_array)
-      : target_array(_target_array)
-    {
-    }
+    find_dereferenced_pointerst() {}
     void operator()(const exprt &expr)
     {
       if(expr.id() == ID_dereference)
       {
-        INVARIANT(
-          expr.operands().size() == 1,
-          "dereference should only have one operand");
+        INVARIANT(expr.operands().size() == 1, "dereference should only have one operand");
         const exprt pointer_expr = expr.operands()[0];
-        if(
-          pointer_expr.id() == ID_plus &&
-          pointer_expr.operands().front().id() == ID_symbol &&
-          pointer_expr.operands().front().type().id() == ID_pointer)
+        if(pointer_expr.id() == ID_symbol)
         {
-          INVARIANT(
-            pointer_expr.operands().size() == 2, "plus should have 2 operands");
-          const symbol_exprt &symb =
-            to_symbol_expr(pointer_expr.operands().front());
-          // tell if the pointer is the target one
-          if(symb.get_identifier() == target_array)
-            direct_accesses.push_back(pointer_expr.operands()[1]);
+          // It only checks for identical symbols. If i+j appears in two places, it will be handled as two 
+          // different references.
+          const symbol_exprt &pointer_expr_symb = to_symbol_expr(pointer_expr);
+          if(symbol_addresses.find(pointer_expr_symb.get_identifier()) == symbol_addresses.end())
+          {
+            symbol_addresses.insert(pointer_expr_symb.get_identifier());
+            dereferenced_pointers.push_back(pointer_expr);
+          }
+        }
+        else
+        {
+          dereferenced_pointers.push_back(pointer_expr);
         }
       }
     }
-    std::vector<exprt> get_direct_accesses() const
+    std::vector<exprt> get_dereferenced_pointers() const
     {
-      return direct_accesses;
+      return dereferenced_pointers;
     }
   };
-  std::vector<exprt> result;
-  for(const auto &array : spec.get_abst_arrays())
-  {
-    const irep_idt &array_name = array.first;
-    const irep_idt array_name_abst = get_abstract_name(array_name);
-    find_direct_accesst fda(array_name_abst);
-    expr.visit(fda);
-    for(const auto &e : fda.get_direct_accesses())
-      result.push_back(e);
-  }
-  for(const auto &array : spec.get_abst_const_c_strs())
-  {
-    const irep_idt &array_name = array.first;
-    const irep_idt array_name_abst = get_abstract_name(array_name);
-    find_direct_accesst fda(array_name_abst);
-    expr.visit(fda);
-    for(const auto &e : fda.get_direct_accesses())
-      result.push_back(e);
-  }
-  return result;
+  find_dereferenced_pointerst fdp;
+  expr.visit(fdp);
+  return fdp.get_dereferenced_pointers();
 }
 
 exprt rrat::add_guard_expression_to_assert(
@@ -852,8 +395,41 @@ exprt rrat::add_guard_expression_to_assert(
   const irep_idt &current_func,
   goto_programt::instructionst &insts_before,
   goto_programt::instructionst &insts_after,
-  std::vector<symbolt> &new_symbs)
+  std::vector<symbolt> &new_symbs,
+  std::unordered_map<size_t, size_t> &insts_before_goto_target_map)
 {
+  // ======================
+  // declare is_prec
+  // is_prec=true
+  // for every spec$x: counter_spec$x = 0
+  // for every dereference deref(pointer) in assertion (the pointer should be the original one which need to be read again)
+  //   for every abst array with obj array$obj (using spec$x)
+  //     if (pointer_object(pointer) != array$obj) GOTO endif
+  //       declare abst_index
+  //       declare is_prec_ret
+  //       abst_index = abstract(pointer_offset(pointer))
+  //       is_prec_ret = is_precise(abst_index)
+  //       is_prec = is_prec && is_prec_ret
+  //       counter_spec$x++
+  //       dead is_prec_ret
+  //       dead abst_index
+  //       GOTO end ==> this is important because when two abst arrays refer to the same obj, 
+  //                    we don't want to count twice in the invariant check.
+  //     endif: SKIP
+  //   end for
+  // end for
+  // end: for every spec$x: assert(1+number of length vars+counter_spec$x<=number of concrete index in spec$x)
+  // assert(is_prec -> xxxxx)
+  // dead is_prec
+  // ======================
+  // example on why we couldn't directly run is_prec on i$abst
+  // lhs
+  // a = lhs+3
+  // a+i$abst
+  // abst_read(a+i$abst) ---->  a+conc(i$abst)
+  // pointer_offset(a+conc(i$abst)) = conc(i$abst)+3
+  // add_abst(i$abst, 3)
+
   if(contains_a_function_call(expr_before_abst))
   {
     const char *assertion_error =
@@ -861,51 +437,139 @@ exprt rrat::add_guard_expression_to_assert(
       "Currently our system doesn't support it.";
     throw assertion_error;
   }
-  // get all abstract indices in the assertion and create the new expr
-  exprt::operandst is_precise_exprs;
-  for(const auto &spec : abst_spec.get_specs())
+  
+  // declare is_prec=true
+  symbolt is_prec_symb = create_temp_var(
+    "is_prec", bool_typet(), current_func, goto_model, 
+    insts_before, insts_after, new_symbs);
+  insts_before.push_back(goto_programt::make_assignment(is_prec_symb.symbol_expr(), true_exprt()));
+
+  // for every spec$x: counter_spec$x = 0
+  const auto zero_uint = zero_initializer(unsigned_int_type(), source_locationt(), namespacet(goto_model.symbol_table));
+  CHECK_RETURN(zero_uint.has_value());
+  const constant_exprt one_uint = constant_exprt(integer2bvrep(1, unsigned_int_type().get_width()), unsigned_int_type());
+  std::vector<symbolt> spec_access_counters;
+  for(size_t i = 0; i < abst_spec.get_specs().size(); i++)
   {
-    const irep_idt is_prec_func = spec.get_precise_func();
-    std::unordered_set<std::string> accesses;
-    for(const exprt &index : get_direct_access_exprs(expr, spec))
-    {
-      // initialize the operands used by is_precise function
-      exprt::operandst operands{index};
-      push_concrete_indices_to_operands(operands, spec, goto_model);
-      // create the function call for is_precise
-      symbolt symb_precise = create_function_call(
-        is_prec_func,
-        operands,
-        current_func,
-        goto_model,
-        insts_before,
-        insts_after,
-        new_symbs);
-      typecast_exprt symb_precise_bool(
-        symb_precise.symbol_expr(), bool_typet());
-      is_precise_exprs.push_back(symb_precise_bool);
-      if(accesses.find(index.pretty()) == accesses.end())
-        accesses.insert(index.pretty());
-    }
-    INVARIANT(
-      1 + accesses.size() + spec.get_abst_lengths().size() <=
-        spec.get_shape_indices().size(),
-      "We need to have at least " +
-        std::to_string(1 + accesses.size() + spec.get_abst_lengths().size()) +
-        " concrete indices to make sure the proof is sound");
+    symbolt access_counter = create_temp_var("access_counter", unsigned_int_type(), current_func, goto_model, insts_before, insts_after, new_symbs);
+    spec_access_counters.push_back(access_counter);
+    insts_before.push_back(goto_programt::make_assignment(access_counter.symbol_expr(), *zero_uint));
   }
 
-  // the final exprt should be is_prec_all->expr
-  if(is_precise_exprs.size() > 0)
+  std::unordered_map<size_t, std::string> goto_label_map;  // goto's index in insts_before ==> labels: "0","1",..., "deft", "end"
+  std::unordered_map<std::string, size_t> label_target_map;  // labels: "0"..."end" ==> target inst's index in insts_before
+
+  size_t counter = 0;
+  // get all pointers to be dereferenced in this function
+  for(const exprt &pointer_old: get_dereferenced_pointers(expr_before_abst))
   {
-    and_exprt is_prec_all(is_precise_exprs);
-    implies_exprt final_expr(is_prec_all, expr);
-    return std::move(final_expr);
+    auto pointer = abstract_expr_read(
+      pointer_old, abst_spec, goto_model, current_func, 
+      insts_before, insts_after, new_symbs, insts_before_goto_target_map);
+    // check if the pointer matched any abstracted array
+    for(size_t spec_i=0; spec_i<abst_spec.get_specs().size(); spec_i++)
+    {
+      const auto &spec = abst_spec.get_specs()[spec_i];
+      for(const auto &ent: spec.get_abst_pointers())
+      {
+        // get array$obj for this entity
+        const irep_idt ent_pointer_obj_id = get_memory_addr_name(ent.first);
+        const exprt ent_pointer_obj =
+          goto_model.symbol_table.lookup_ref(ent_pointer_obj_id).symbol_expr();
+        // since the target inst is not inserted yet, here we use an empty place holder
+        goto_programt::targett empty_target;
+
+        // if(pointer_object(pointer) != array$obj) GOTO endif$counter
+        // guard: pointer_object(pointer) == ent$obj
+        exprt guard = notequal_exprt(pointer_object(pointer), ent_pointer_obj);
+        // insert the instruction, update goto_label_map
+        goto_label_map.insert({insts_before.size(), "endif" + std::to_string(counter)});
+        insts_before.push_back(goto_programt::make_goto(empty_target, guard));
+
+        // the dead of the tmp function calls should be add right after this block, but not the entire thing
+        goto_programt::instructionst fake_insts_after;
+
+        // abst_index = abstract(pointer_offset(pointer))
+        exprt::operandst operands_abstract{pointer_offset(pointer)};
+        push_concrete_indices_to_operands(operands_abstract, spec, goto_model);
+        auto abst_index_symb = create_function_call(
+          spec.get_abstract_func(), operands_abstract, current_func,
+          goto_model, insts_before, fake_insts_after, new_symbs);
+
+        // is_prec_ret = is_precise(abst_index)
+        exprt::operandst operands_is_prec{abst_index_symb.symbol_expr()};
+        push_concrete_indices_to_operands(operands_is_prec, spec, goto_model);
+        auto is_prec_ret_symb = create_function_call(
+          spec.get_precise_func(), operands_is_prec, current_func,
+          goto_model, insts_before, fake_insts_after, new_symbs);
+
+        // is_prec = is_prec && is_prec_ret
+        insts_before.push_back(goto_programt::make_assignment(
+          is_prec_symb.symbol_expr(),
+          and_exprt(
+            is_prec_symb.symbol_expr(),
+            typecast_exprt(is_prec_ret_symb.symbol_expr(), bool_typet()))));
+
+        // counter_spec$x += 1
+        insts_before.push_back(goto_programt::make_assignment(
+          spec_access_counters[spec_i].symbol_expr(), 
+          plus_exprt(spec_access_counters[spec_i].symbol_expr(), one_uint)));
+
+        // the dead instructions
+        insts_before.insert(insts_before.end(), fake_insts_after.begin(), fake_insts_after.end());
+
+        // insert the goto end, update goto_label map
+        goto_label_map.insert({insts_before.size(), "end"});
+        insts_before.push_back(goto_programt::make_goto(empty_target));
+
+        // endif$counter: SKIP
+        label_target_map.insert({"endif" + std::to_string(counter), insts_before.size()});
+        insts_before.push_back(goto_programt::make_skip());
+
+        counter++;
+      }
+    }
   }
-  else
+
+  // end label
+  label_target_map.insert({"end", insts_before.size()});
+  insts_before.push_back(goto_programt::make_skip());
+
+  // for every spec$x: assert(1+number of length vars+counter_spec$x<=number of concrete index in spec$x)
+  for(size_t i = 0; i < abst_spec.get_specs().size(); i++)
   {
-    return expr;
+    const auto &spec = abst_spec.get_specs()[i];
+    insts_before.push_back(goto_programt::make_assertion(binary_relation_exprt(
+      plus_exprt(
+        spec_access_counters[i].symbol_expr(), 
+        constant_exprt(
+          integer2bvrep(1+spec.get_abst_lengths().size(), unsigned_int_type().get_width()), 
+          unsigned_int_type())),
+      ID_le,
+      constant_exprt(
+        integer2bvrep(spec.get_shape_indices().size(), unsigned_int_type().get_width()), 
+        unsigned_int_type()))));
   }
+
+  // before returning, update the goto target map
+  for(auto &id_label: goto_label_map)
+  {
+    INVARIANT(
+      label_target_map.find(id_label.second) != label_target_map.end(),
+      "the label " + id_label.second + " is not defined");
+    INVARIANT(
+      insts_before_goto_target_map.find(id_label.first) ==
+        insts_before_goto_target_map.end(),
+      "instruction's target defined twice");
+    insts_before_goto_target_map.insert({id_label.first, label_target_map[id_label.second]});
+  }
+
+  // return is_prec -> xxxxx
+  implies_exprt final_expr(is_prec_symb.symbol_expr(), expr);
+  return std::move(final_expr);
+
+  // TODO: what should we do with the number of concrete indices invariant check?
+  //       it should go dynamic
 }
 
 void rrat::declare_abst_variables(
@@ -944,7 +608,7 @@ void rrat::declare_abst_variables(
   // Step 1: insert abst variables into the symbol table
   for(const rra_spect::spect &spec : abst_spec.get_specs())
   {
-    for(const auto &ent_pair : spec.get_top_level_entities())
+    for(const auto &ent_pair : spec.get_top_level_abst_entities())
       insert_abst_symbol(ent_pair.second);
   }
 
@@ -972,6 +636,44 @@ void rrat::declare_abst_variables(
 
   // Note: we don't have to handle declare and dead here.
   // They'll be handled in the main run through the instructions.
+}
+
+void rrat::declare_abst_addrs(goto_modelt &goto_model, const rra_spect &abst_spec)
+{
+  for(const auto &spec: abst_spec.get_specs())
+  {
+    // entity: (name, entityt) pair
+    for(const auto &entity: spec.get_abst_pointers())
+    {
+      pointer_typet typ = pointer_type(void_type());
+      source_locationt src_loc;
+      symbolt symb;
+      symb.type = size_type();
+      symb.location = src_loc;
+      symb.name = get_memory_addr_name(entity.first);
+      symb.mode = ID_C;
+      symbol_exprt symb_expr = symb.symbol_expr();
+
+      // Step 1: put it into the symbol table
+      if(goto_model.symbol_table.has_symbol(symb.name))
+        throw "the memory addr variable " + std::string(symb.name.c_str()) + " is already defined";
+      goto_model.symbol_table.insert(std::move(symb));
+
+      // Step 2: put it into __CPROVER_initialize which is the entry function for each goto program
+      //         note that it should be at the beginning of the init function because it will need 
+      //         to be updated in __CPROVER_initialize if the entity is a global variable
+      goto_functionst::function_mapt::iterator fct_entry =
+        goto_model.goto_functions.function_map.find(INITIALIZE_FUNCTION);
+      CHECK_RETURN(fct_entry != goto_model.goto_functions.function_map.end());
+      goto_programt &init_function = fct_entry->second.body;
+      auto first_instruction = init_function.instructions.begin();
+      const auto zero = zero_initializer(symb_expr.type(), source_locationt(), namespacet(goto_model.symbol_table));
+      CHECK_RETURN(zero.has_value());
+      goto_programt::instructiont new_inst = goto_programt::make_assignment(
+        code_assignt(symb_expr, *zero));
+      init_function.insert_before_swap(first_instruction, new_inst);
+    }
+  }
 }
 
 bool rrat::check_if_exprt_eval_to_abst_index(
@@ -1082,6 +784,58 @@ bool rrat::check_if_exprt_eval_to_abst_index(
   }
 }
 
+bool rrat::check_if_exprt_is_abst_index(
+    const exprt &expr,
+    const rra_spect &abst_spec, 
+    rra_spect::spect &spec)
+{
+  if(expr.id() == ID_symbol || expr.id() == ID_member)
+  {
+    // if it is a symbol, check whether if it is in the entity list
+    const irep_idt symb_id = get_string_id_from_exprt(expr);
+    if(abst_spec.has_index_entity(symb_id))
+    {
+      spec = abst_spec.get_spec_for_index_entity(symb_id);
+      return true;
+    }
+    else
+    {
+      return false;
+    }
+  }
+  else
+  {
+    return false;
+  }
+}
+
+bool rrat::check_if_exprt_is_abst_array(
+    const exprt &expr,
+    const rra_spect &abst_spec, 
+    rra_spect::spect &spec)
+{
+  if(expr.id() == ID_symbol || expr.id() == ID_member)
+  {
+    // if it is a symbol, check whether if it is in the entity list
+    const irep_idt symb_id = get_string_id_from_exprt(expr);
+    if(
+      abst_spec.has_array_entity(symb_id) ||
+      abst_spec.has_const_c_str_entity(symb_id))
+    {
+      spec = abst_spec.get_spec_for_array_entity(symb_id);
+      return true;
+    }
+    else
+    {
+      return false;
+    }
+  }
+  else
+  {
+    return false;
+  }
+}
+
 void rrat::push_concrete_indices_to_operands(
   exprt::operandst &operands,
   const rra_spect::spect &spec,
@@ -1171,17 +925,21 @@ symbolt rrat::create_temp_var_for_expr(
   const goto_modelt &goto_model,
   goto_programt::instructionst &insts_before,
   goto_programt::instructionst &insts_after,
-  std::vector<symbolt> &new_symbs)
+  std::vector<symbolt> &new_symbs,
+  bool cprover_prefix = false)
 {
   // determine the temp symbol's name
   std::unordered_set<irep_idt> new_symbs_name;
   for(const auto &symb : new_symbs)
     new_symbs_name.insert(symb.name);
 
-  auto get_name = [&caller, &goto_model, &new_symbs_name]() {
+  auto get_name = [&caller, &goto_model, &new_symbs_name, &cprover_prefix]() {
     // base name is "{caller}::$tmp::return_value_{callee}"
     std::string base_name =
       std::string(caller.c_str()) + "::$tmp::$abst::temp_var_for_expr";
+    if(cprover_prefix)
+      base_name = CPROVER_PREFIX + base_name;
+    
     // if base name is not defined yet, use the base name
     if(
       !goto_model.symbol_table.has_symbol(irep_idt(base_name)) &&
@@ -1218,6 +976,61 @@ symbolt rrat::create_temp_var_for_expr(
   insts_before.push_back(new_assign_inst);
 
   // instruction 3: DEAD for the temp symbol
+  auto new_dead_inst = goto_programt::make_dead(new_symb_expr);
+  insts_after.push_back(new_dead_inst);
+
+  return new_symb;
+}
+
+symbolt rrat::create_temp_var(
+  const irep_idt &name, 
+  const typet typ,
+  const irep_idt &caller, 
+  const goto_modelt &goto_model,
+  goto_programt::instructionst &insts_before,
+  goto_programt::instructionst &insts_after,
+  std::vector<symbolt> &new_symbs)
+{
+  // determine the temp symbol's name
+  std::unordered_set<irep_idt> new_symbs_name;
+  for(const auto &symb: new_symbs)
+    new_symbs_name.insert(symb.name);
+
+  auto get_name = [&caller, &goto_model, &new_symbs_name, &name]() {
+    // base name is "{caller}::$tmp::return_value_{callee}"
+    std::string base_name = std::string(caller.c_str()) +
+                            "::$tmp::$abst::" + std::string(name.c_str());
+    // if base name is not defined yet, use the base name
+    if(
+      !goto_model.symbol_table.has_symbol(irep_idt(base_name)) &&
+      new_symbs_name.find(irep_idt(base_name)) == new_symbs_name.end())
+      return irep_idt(base_name);
+
+    // otherwise use "{basename}$id" with the lowest id available
+    size_t id = 0;
+    while(goto_model.symbol_table.has_symbol(
+            irep_idt(base_name + "$" + std::to_string(id))) ||
+          new_symbs_name.find(irep_idt(base_name + "$" + std::to_string(id))) !=
+            new_symbs_name.end())
+      id++;
+
+    return irep_idt(base_name + "$" + std::to_string(id));
+  };
+  irep_idt temp_symb_name = get_name();
+
+  // define the symbol
+  symbolt new_symb;
+  new_symb.type = typ;
+  new_symb.name = temp_symb_name;
+  new_symb.mode = ID_C;
+  symbol_exprt new_symb_expr = new_symb.symbol_expr();
+  new_symbs.push_back(new_symb);
+
+  // instruction 1: DECLARE of the temp symbol
+  auto new_decl_inst = goto_programt::make_decl(code_declt(new_symb_expr));
+  insts_before.push_back(new_decl_inst);
+
+  // instruction 2: DEAD for the temp symbol 
   auto new_dead_inst = goto_programt::make_dead(new_symb_expr);
   insts_after.push_back(new_dead_inst);
 
@@ -1296,191 +1109,168 @@ exprt rrat::abstract_expr_write(
   const irep_idt &current_func,
   goto_programt::instructionst &insts_before,
   goto_programt::instructionst &insts_after,
-  std::vector<symbolt> &new_symbs)
+  std::vector<symbolt> &new_symbs, 
+  std::unordered_map<size_t, size_t> &insts_before_goto_target_map)
 {
-  if(!contains_an_entity_to_be_abstracted(expr, abst_spec))
-    return expr;
-
-  if(expr.id() == ID_symbol)
+  rra_spect::spect spec;
+  if(check_if_exprt_is_abst_index(expr, abst_spec, spec))
   {
-    // if it is a symbol, we just return the new abstract symbol
-    const symbol_exprt &symb = to_symbol_expr(expr);
-    irep_idt new_name = get_abstract_name(symb.get_identifier());
-    if(goto_model.symbol_table.has_symbol(new_name))
-    {
-      symbol_exprt new_symb_expr =
-        goto_model.symbol_table.lookup_ref(new_name).symbol_expr();
-      return std::move(new_symb_expr);
-    }
-    else
-    {
-      std::string error_code = "Abst variable " +
-                               std::string(new_name.c_str()) +
-                               " used before inserting to the symbol table";
-      throw error_code;
-    }
-  }
-  else if(expr.id() == ID_member)
-  {
-    // if it is a member access, we should run abst read on the object
+    // replace symb with symb$abst
+    // Find abstracted symbol for this expr
     INVARIANT(
-      expr.operands().size() == 1,
-      "member access should only have one operand");
-    const member_exprt &mem_expr = to_member_expr(expr);
-    const exprt &obj_expr = expr.operands()[0];
-    const irep_idt &comp_name = mem_expr.get_component_name();
-
-    exprt new_obj_expr = abstract_expr_write(
-      obj_expr,
-      abst_spec,
-      goto_model,
-      current_func,
-      insts_before,
-      insts_after,
-      new_symbs);
-
-    member_exprt new_mem_expr(new_obj_expr, comp_name, mem_expr.type());
-    return std::move(new_mem_expr);
-  }
-  else if(expr.id() == ID_dereference) // e.g. c_str[i] => *(c_str+i)
-  {
+      expr.id() == ID_symbol,
+      "let's now just assume loop iterators can't be member of objects");
+    const irep_idt symb_id = get_string_id_from_exprt(expr);
+    const irep_idt new_symb_id = get_abstract_name(symb_id);
     INVARIANT(
-      expr.operands().size() == 1, "dereference should only have 1 operand");
-    const exprt &pointer_expr = expr.operands()[0];
-    if(pointer_expr.id() == ID_plus && pointer_expr.type().id() == ID_pointer)
-    {
-      INVARIANT(
-        pointer_expr.operands().size() == 2, "plus should have 2 operands");
-      if(
-        pointer_expr.operands()[0].id() == ID_symbol &&
-        pointer_expr.operands()[0].type().id() == ID_pointer)
-      {
-        const symbol_exprt &a = to_symbol_expr(pointer_expr.operands()[0]);
-        const exprt &i = pointer_expr.operands()[1];
-        // we have 4 different cases: a$abst[i$abst], a[i$abst], a$abst[i], a[i]
-        rra_spect::spect a_spec;
-        INVARIANT(
-          !abst_spec.has_const_c_str_entity(a.get_identifier()),
-          "We shouldn't write to a const c string entity. Entity: " +
-            std::string(a.get_identifier().c_str()));
-        bool a_abs = abst_spec.has_array_entity(a.get_identifier());
-        if(a_abs)
-          a_spec = abst_spec.get_spec_for_array_entity(a.get_identifier());
-        rra_spect::spect i_spec;
-        bool i_abs = check_if_exprt_eval_to_abst_index(i, abst_spec, i_spec);
-
-        auto new_a = abstract_expr_write(
-          a,
-          abst_spec,
-          goto_model,
-          current_func,
-          insts_before,
-          insts_after,
-          new_symbs);
-        auto new_i = abstract_expr_read(
-          i,
-          abst_spec,
-          goto_model,
-          current_func,
-          insts_before,
-          insts_after,
-          new_symbs);
-        exprt new_pointer_expr(pointer_expr);
-        exprt new_expr(expr);
-
-        if(a_abs && i_abs)
-        {
-          // a[i] ==> a$abst[i$abst]
-          // actually it should be is_precise(i$abst)?a$abst[i$abst]:null
-          // but writing to an abstract location doesn't matter
-          if(!a_spec.compare_shape(i_spec))
-            throw "array and index in array[index] not using the same shape";
-          new_pointer_expr.operands()[0] = new_a;
-          new_pointer_expr.operands()[1] = new_i;
-          new_expr.operands()[0] = new_pointer_expr;
-          return new_expr;
-        }
-        else if(!a_abs && i_abs)
-        {
-          // a[i] ==> a[concretize(i)]
-          const irep_idt &conc_func = i_spec.get_concretize_func();
-          exprt::operandst operands{new_i};
-          // put the concrete indices into operands
-          push_concrete_indices_to_operands(operands, i_spec, goto_model);
-          // make the function call
-          auto new_i_symb = create_function_call(
-            conc_func,
-            operands,
-            current_func,
-            goto_model,
-            insts_before,
-            insts_after,
-            new_symbs);
-          new_pointer_expr.operands()[0] = new_a;
-          new_pointer_expr.operands()[1] = new_i_symb.symbol_expr();
-          new_expr.operands()[0] = new_pointer_expr;
-          return new_expr;
-        }
-        else if(a_abs && !i_abs)
-        {
-          // a[i] ==> a$abst[abst(i)]
-          const irep_idt &abst_func = a_spec.get_abstract_func();
-          exprt::operandst operands{new_i};
-          // put the concrete indices into operands
-          push_concrete_indices_to_operands(operands, a_spec, goto_model);
-          // make the function call
-          auto new_i_symb = create_function_call(
-            abst_func,
-            operands,
-            current_func,
-            goto_model,
-            insts_before,
-            insts_after,
-            new_symbs);
-          new_pointer_expr.operands()[0] = new_a;
-          new_pointer_expr.operands()[1] = new_i_symb.symbol_expr();
-          new_expr.operands()[0] = new_pointer_expr;
-          return new_expr;
-        }
-        else // !a_abs && !i_abs
-        {
-          // a[i] ==> a[i]
-          new_pointer_expr.operands()[0] = new_a;
-          new_pointer_expr.operands()[1] = new_i;
-          new_expr.operands()[0] = new_pointer_expr;
-          return new_expr;
-        }
-      }
-      else
-      {
-        throw "unknown plus expression as lhs";
-      }
-    }
-    else if(pointer_expr.id() == ID_symbol || pointer_expr.id() == ID_member)
-    {
-      exprt new_pointer_expr = abstract_expr_write(
-        pointer_expr,
-        abst_spec,
-        goto_model,
-        current_func,
-        insts_before,
-        insts_after,
-        new_symbs);
-      dereference_exprt new_expr(new_pointer_expr);
-      return std::move(new_expr);
-    }
-    else
-    {
-      throw "unknown dereference expression as lhs";
-    }
+      goto_model.symbol_table.has_symbol(new_symb_id),
+      "Abst variable " + std::string(new_symb_id.c_str()) +
+        " used before inserting to the symbol table");
+    symbol_exprt new_symb_expr = goto_model.symbol_table.lookup_ref(new_symb_id).symbol_expr();
+    return std::move(new_symb_expr);
   }
   else
   {
-    // This is an unknown lhs.
-    std::string error_code = "";
-    error_code += "Currently, " + std::string(expr.id().c_str()) +
-                  "cannot be abstracted as lhs.";
-    throw error_code;
+    // run abst_write on every operands
+    exprt new_expr = expr;
+    for(auto &op: new_expr.operands())
+    {
+      op = abstract_expr_write(
+        op, abst_spec, goto_model, current_func, insts_before, 
+        insts_after, new_symbs, insts_before_goto_target_map);
+    }
+    if(new_expr.id() == ID_dereference)
+    {
+      // In the previous step, we do:  
+      // expr <deref(pointer)> =======> new_expr <deref(abst_read(pointer))> 
+      // need to check if this is an abstracted array reference 
+      // ============= instructions ============= 
+      // declare result_pointer 
+      // declare abst_index 
+      // declare base_pointer
+      // base_pointer = pointer - offset(pointer)
+      // **for every array entity** 
+      // if(pointer_object(pointer) == entity1$obj) GOTO 1; 
+      // if(pointer_object(pointer) == entity2$obj) GOTO 2; 
+      // ... 
+      // GOTO deft; 
+      // 1:    
+      //      abst_index = abstract(offset(pointer)) 
+      //      result_pointer = base_pointer + abst_index 
+      //      GOTO end; 
+      // ... 
+      // deft: result_pointer = pointer
+      // end: **inst containing this deref**: replace with deref(result_pointer) 
+      // dead abst_index 
+      // dead result_pointer 
+      // =========================================
+      const exprt &pointer = new_expr.operands()[0];
+      
+      // Declare and dead for result, abst_index, base_pointer
+      symbolt result_pointer_symb = create_temp_var(
+        "result_pointer", remove_const(pointer.type()), current_func, goto_model, 
+        insts_before, insts_after, new_symbs);
+      symbolt abst_index_symb = create_temp_var(
+        "abst_index", size_type(), current_func, goto_model, 
+        insts_before, insts_after, new_symbs);
+      symbolt base_pointer_symb = create_temp_var(
+        "base_pointer", remove_const(pointer.type()), current_func, goto_model, 
+        insts_before, insts_after, new_symbs);
+
+      // base_pointer = pointer - offset(pointer)
+      insts_before.push_back(goto_programt::make_assignment(
+        base_pointer_symb.symbol_expr(),
+        minus_exprt(pointer, pointer_offset(pointer))));
+
+      std::unordered_map<size_t, std::string> goto_label_map;  // goto's index in insts_before ==> labels: "0","1",..., "deft", "end"
+      std::unordered_map<std::string, size_t> label_target_map;  // labels: "0"..."end" ==> target inst's index in insts_before
+      
+      // Go through each abst array and insert conditional goto
+      size_t counter = 0;
+      for(const auto &spec: abst_spec.get_specs())
+      {
+        for(const auto &ent: spec.get_abst_pointers())
+        {
+          // since the target inst is not inserted yet, here we use an empty place holder
+          goto_programt::targett empty_target;
+          // get the global pointer_obj var
+          const irep_idt ent_pointer_obj_id = get_memory_addr_name(ent.first);
+          const exprt ent_pointer_obj =
+            goto_model.symbol_table.lookup_ref(ent_pointer_obj_id).symbol_expr();
+          // guard: pointer_object(pointer) == ent$obj
+          exprt guard = equal_exprt(pointer_object(pointer), ent_pointer_obj);
+          // insert the instruction, update goto_label_map
+          goto_label_map.insert({insts_before.size(), std::to_string(counter)});
+          insts_before.push_back(goto_programt::make_goto(empty_target, guard));
+          counter++;
+        }
+      }
+
+      // If not matched to any, GOTO deft
+      goto_programt::targett empty_target;
+      goto_label_map.insert({insts_before.size(), "deft"});
+      insts_before.push_back(goto_programt::make_goto(empty_target));
+
+      // Go through each abst array, calculate abst_index and result 
+      counter = 0;
+      for(const auto &spec: abst_spec.get_specs())
+      {
+        for(size_t i=0; i<spec.get_abst_pointers().size(); i++)
+        {
+          // update label_target to label the starting point of this body
+          label_target_map.insert({std::to_string(counter), insts_before.size()});
+
+          // function call: abst_index = abstract(offset(pointer))
+          exprt::operandst operands{pointer_offset(pointer)};
+          push_concrete_indices_to_operands(operands, spec, goto_model);
+          symbol_exprt func_call_expr =
+            goto_model.get_symbol_table().lookup_ref(spec.get_abstract_func()).symbol_expr();
+          auto new_func_call_inst = goto_programt::make_function_call(
+            code_function_callt(abst_index_symb.symbol_expr(), func_call_expr, operands));
+          insts_before.push_back(new_func_call_inst);
+
+          // update result_pointer: result_pointer = base_pointer+abst_index
+          insts_before.push_back(goto_programt::make_assignment(
+            result_pointer_symb.symbol_expr(),
+            plus_exprt(
+              base_pointer_symb.symbol_expr(), abst_index_symb.symbol_expr())));
+
+          // GOTO end, and update goto_label_map
+          goto_label_map.insert({insts_before.size(), "end"});
+          insts_before.push_back(goto_programt::make_goto(empty_target));
+
+          counter++;
+        }
+      }
+
+      // Calculate default result_pointer (deft: result_pointer = pointer)
+      label_target_map.insert({"deft", insts_before.size()});
+      insts_before.push_back(goto_programt::make_assignment(result_pointer_symb.symbol_expr(), pointer));
+
+      // placeholder end label
+      label_target_map.insert({"end", insts_before.size()});
+      insts_before.push_back(goto_programt::make_skip());
+
+      // before returning, update the goto target map
+      for(auto &id_label: goto_label_map)
+      {
+        INVARIANT(
+          label_target_map.find(id_label.second) != label_target_map.end(),
+          "the label " + id_label.second + " is not defined");
+        INVARIANT(
+          insts_before_goto_target_map.find(id_label.first) ==
+            insts_before_goto_target_map.end(),
+          "instruction's target defined twice");
+        insts_before_goto_target_map.insert({id_label.first, label_target_map[id_label.second]});
+      }
+
+      return std::move(dereference_exprt(result_pointer_symb.symbol_expr()));
+    }
+    else
+    {
+      // just return the original expr
+      return new_expr;
+    }
   }
 }
 
@@ -1498,231 +1288,19 @@ exprt rrat::create_comparator_expr_abs_abs(
   exprt::operandst operands{orig_expr.operands()[0]};
   push_concrete_indices_to_operands(operands, spec, goto_model);
   symbolt is_prec_symb = create_function_call(
-    is_prec_func,
-    operands,
-    caller,
-    goto_model,
-    insts_before,
-    insts_after,
-    new_symbs);
-
-  // create the expr
-  // op0==op1 ? (is_precise(op0) ? orig_expr : non_det) : orig_expr
-  // we allow users to create custom plus/minus functions,
+    is_prec_func, operands, caller, goto_model,
+    insts_before, insts_after, new_symbs);
+  
+  // create the expr op0==op1 ? (is_precise(op0) ? orig_expr : non_det) : orig_expr
+  // we allow users to create custom plus/minus functions, 
   // but we use built-in comparator function for comparing two abst indices
-  // this is fine because we think this would work for most common shapes
-  // such as "*c*", "*c*c*", etc.
+  // this is fine because we think this would work for most common shapes such as "*c*", "*c*c*", etc.
   equal_exprt eq_expr_0(orig_expr.operands()[0], orig_expr.operands()[1]);
   typecast_exprt eq_expr(eq_expr_0, bool_typet());
   typecast_exprt is_prec_expr(is_prec_symb.symbol_expr(), bool_typet());
-  if_exprt t_expr(
-    is_prec_expr,
-    orig_expr,
-    side_effect_expr_nondett(bool_typet(), source_locationt()));
+  if_exprt t_expr(is_prec_expr, orig_expr, side_effect_expr_nondett(bool_typet(), source_locationt()));
   if_exprt result_expr(eq_expr, t_expr, orig_expr);
   return std::move(result_expr);
-}
-
-exprt rrat::abstract_expr_read_comparator(
-  const exprt &expr,
-  const rra_spect &abst_spec,
-  const goto_modelt &goto_model,
-  const irep_idt &current_func,
-  goto_programt::instructionst &insts_before,
-  goto_programt::instructionst &insts_after,
-  std::vector<symbolt> &new_symbs)
-{
-  // handle comparators, need to call functions if
-  // needed based on whether each operands are abstract
-  INVARIANT(
-    expr.id() == ID_le || expr.id() == ID_lt || expr.id() == ID_ge ||
-      expr.id() == ID_gt || expr.id() == ID_equal || expr.id() == ID_notequal,
-    "type of expr does not match abst_read_comparator");
-  INVARIANT(
-    expr.operands().size() == 2, "number of ops should be 2 for comparators");
-
-  rra_spect::spect spec0;
-  rra_spect::spect spec1;
-
-  bool abs0 = false;
-  bool abs1 = false;
-  if(
-    expr.operands()[0].id() == ID_pointer_offset ||
-    expr.operands()[1].id() == ID_object_size ||
-    expr.operands()[0].id() == ID_object_size)
-  {
-    // this is the case when we are checking out of bound access to arrays,
-    // we shouldn't treat the comparison as abstract
-    // TODO: this is an adhoc pattern matching fix
-    //       for the built in CBMC readable assertions
-    abs0 = false;
-    abs1 = false;
-  }
-  else
-  {
-    abs0 =
-      check_if_exprt_eval_to_abst_index(expr.operands()[0], abst_spec, spec0);
-    abs1 =
-      check_if_exprt_eval_to_abst_index(expr.operands()[1], abst_spec, spec1);
-  }
-
-  if(!abs0 && !abs1)
-  {
-    // if none of op0 and op1 is abstract index, just do plain comparision.
-    exprt new_expr(expr);
-    new_expr.operands()[0] = abstract_expr_read(
-      expr.operands()[0],
-      abst_spec,
-      goto_model,
-      current_func,
-      insts_before,
-      insts_after,
-      new_symbs);
-    new_expr.operands()[1] = abstract_expr_read(
-      expr.operands()[1],
-      abst_spec,
-      goto_model,
-      current_func,
-      insts_before,
-      insts_after,
-      new_symbs);
-    return new_expr;
-  }
-  else if(abs0 && abs1)
-  {
-    // if both of them is abstract index, we should do
-    // non-det comparison if they are at the same abst value
-    exprt new_expr(expr);
-    if(!spec0.compare_shape(spec1))
-      throw "two operands of a comparator is not of the same spect";
-    new_expr.operands()[0] = abstract_expr_read(
-      expr.operands()[0],
-      abst_spec,
-      goto_model,
-      current_func,
-      insts_before,
-      insts_after,
-      new_symbs);
-    new_expr.operands()[1] = abstract_expr_read(
-      expr.operands()[1],
-      abst_spec,
-      goto_model,
-      current_func,
-      insts_before,
-      insts_after,
-      new_symbs);
-    if(new_expr.operands()[0].type().id() != new_expr.operands()[1].type().id())
-    {
-      // this can happen in the pointer_offset > 0 case
-      // because pointer_offset is not size_t
-      new_expr.operands()[1] =
-        typecast_exprt(new_expr.operands()[1], new_expr.operands()[0].type());
-    }
-    return create_comparator_expr_abs_abs(
-      new_expr,
-      spec0,
-      goto_model,
-      current_func,
-      insts_before,
-      insts_after,
-      new_symbs);
-  }
-  else if(abs0 && !abs1)
-  {
-    // we need to make op1 abstract before
-    // calling create_comparator_expr_abs_abs
-    exprt new_expr(expr);
-    irep_idt abst_func = spec0.get_abstract_func();
-    exprt::operandst operands{abstract_expr_read(
-      expr.operands()[1],
-      abst_spec,
-      goto_model,
-      current_func,
-      insts_before,
-      insts_after,
-      new_symbs)};
-    push_concrete_indices_to_operands(operands, spec0, goto_model);
-    symbolt op1_abst_symb = create_function_call(
-      abst_func,
-      operands,
-      current_func,
-      goto_model,
-      insts_before,
-      insts_after,
-      new_symbs);
-    new_expr.operands()[0] = abstract_expr_read(
-      expr.operands()[0],
-      abst_spec,
-      goto_model,
-      current_func,
-      insts_before,
-      insts_after,
-      new_symbs);
-    new_expr.operands()[1] = op1_abst_symb.symbol_expr();
-    if(new_expr.operands()[0].type().id() != new_expr.operands()[1].type().id())
-    {
-      // this can happen in the pointer_offset > 0 case
-      // because pointer_offset is not size_t
-      new_expr.operands()[1] =
-        typecast_exprt(new_expr.operands()[1], new_expr.operands()[0].type());
-    }
-    return create_comparator_expr_abs_abs(
-      new_expr,
-      spec0,
-      goto_model,
-      current_func,
-      insts_before,
-      insts_after,
-      new_symbs);
-  }
-  else // !abs0 && abs1
-  {
-    // we need to make op0 abstract before
-    // calling create_comparator_expr_abs_abs
-    exprt new_expr(expr);
-    irep_idt abst_func = spec1.get_abstract_func();
-    exprt::operandst operands{abstract_expr_read(
-      expr.operands()[0],
-      abst_spec,
-      goto_model,
-      current_func,
-      insts_before,
-      insts_after,
-      new_symbs)};
-    push_concrete_indices_to_operands(operands, spec1, goto_model);
-    symbolt op0_abst_symb = create_function_call(
-      abst_func,
-      operands,
-      current_func,
-      goto_model,
-      insts_before,
-      insts_after,
-      new_symbs);
-    new_expr.operands()[0] = op0_abst_symb.symbol_expr();
-    if(new_expr.operands()[0].type().id() != new_expr.operands()[1].type().id())
-    {
-      // this can happen in the pointer_offset > 0 case
-      // because pointer_offset is not size_t
-      new_expr.operands()[0] =
-        typecast_exprt(new_expr.operands()[0], new_expr.operands()[1].type());
-    }
-    new_expr.operands()[1] = abstract_expr_read(
-      expr.operands()[1],
-      abst_spec,
-      goto_model,
-      current_func,
-      insts_before,
-      insts_after,
-      new_symbs);
-    return create_comparator_expr_abs_abs(
-      new_expr,
-      spec1,
-      goto_model,
-      current_func,
-      insts_before,
-      insts_after,
-      new_symbs);
-  }
 }
 
 // check whether an expr is a pointer offset
@@ -1734,628 +1312,12 @@ bool rrat::is_pointer_offset(const exprt &expr)
   }
   else if(expr.id() == ID_typecast)
   {
-    INVARIANT(
-      expr.operands().size() == 1, "typecast should only have one operand");
+    INVARIANT(expr.operands().size() == 1, "typecast should only have one operand");
     return is_pointer_offset(expr.operands()[0]);
   }
   else
   {
     return false;
-  }
-}
-
-exprt rrat::abstract_expr_read_plusminus(
-  const exprt &expr,
-  const rra_spect &abst_spec,
-  const goto_modelt &goto_model,
-  const irep_idt &current_func,
-  goto_programt::instructionst &insts_before,
-  goto_programt::instructionst &insts_after,
-  std::vector<symbolt> &new_symbs)
-{
-  // handle plus/minus, should call plus/minus function if needed
-  INVARIANT(
-    expr.id() == ID_plus || expr.id() == ID_minus || expr.id() == ID_mult,
-    "abst_read_plus_minus should get +, - or * exprs");
-  INVARIANT(
-    expr.operands().size() == 2,
-    "The number of operands should be 2 for plus/minus/mult");
-
-  rra_spect::spect spec0;
-  rra_spect::spect spec1;
-  bool abs0 =
-    check_if_exprt_eval_to_abst_index(expr.operands()[0], abst_spec, spec0);
-  bool abs1 =
-    check_if_exprt_eval_to_abst_index(expr.operands()[1], abst_spec, spec1);
-  if(!abs0 && !abs1)
-  {
-    exprt new_expr(expr);
-    new_expr.operands()[0] = abstract_expr_read(
-      expr.operands()[0],
-      abst_spec,
-      goto_model,
-      current_func,
-      insts_before,
-      insts_after,
-      new_symbs);
-    new_expr.operands()[1] = abstract_expr_read(
-      expr.operands()[1],
-      abst_spec,
-      goto_model,
-      current_func,
-      insts_before,
-      insts_after,
-      new_symbs);
-    return new_expr;
-  }
-  else if((!abs0 && abs1) || (abs0 && !abs1))
-  {
-    // couldn't do conc-abs
-    if(!abs0 && abs1 && expr.id() == ID_minus)
-      throw "we couldn't do concrete_index-abst_index right now";
-
-    // what is the spec we are using?
-    const rra_spect::spect &spec = abs0 ? spec0 : spec1;
-    // find the func name for the calculation
-    const irep_idt &calc_func_name =
-      expr.id() == ID_plus ? spec.get_addition_func()
-                           : (expr.id() == ID_minus ? spec.get_minus_func()
-                                                    : spec.get_multiply_func());
-    // define the operands {abs, num}
-    exprt op0 = abstract_expr_read(
-      abs0 ? expr.operands()[0] : expr.operands()[1],
-      abst_spec,
-      goto_model,
-      current_func,
-      insts_before,
-      insts_after,
-      new_symbs);
-    exprt op1 = abs0 ? expr.operands()[1] : expr.operands()[0];
-    exprt::operandst operands{op0, op1};
-    // put the concrete indices into operands
-    push_concrete_indices_to_operands(operands, spec, goto_model);
-    // make the function call
-    symbolt temp_var = create_function_call(
-      calc_func_name,
-      operands,
-      current_func,
-      goto_model,
-      insts_before,
-      insts_after,
-      new_symbs);
-    return std::move(temp_var.symbol_expr());
-  }
-  else
-  {
-    // this happens when we are doing pointer_offset + n$abst
-    // we can simply do the original addition
-    if(
-      is_pointer_offset(expr.operands()[0]) ||
-      is_pointer_offset(expr.operands()[1]))
-    {
-      exprt new_expr(expr);
-      new_expr.operands()[0] = abstract_expr_read(
-        expr.operands()[0],
-        abst_spec,
-        goto_model,
-        current_func,
-        insts_before,
-        insts_after,
-        new_symbs);
-      new_expr.operands()[1] = abstract_expr_read(
-        expr.operands()[1],
-        abst_spec,
-        goto_model,
-        current_func,
-        insts_before,
-        insts_after,
-        new_symbs);
-      return new_expr;
-    }
-    else // otherwise this is an error
-    {
-      throw "direct computation on two abstracted indices are prohibited";
-    }
-  }
-}
-
-exprt rrat::abstract_expr_read_dereference(
-  const exprt &expr,
-  const rra_spect &abst_spec,
-  const goto_modelt &goto_model,
-  const irep_idt &current_func,
-  goto_programt::instructionst &insts_before,
-  goto_programt::instructionst &insts_after,
-  std::vector<symbolt> &new_symbs)
-{
-  INVARIANT(
-    expr.id() == ID_dereference,
-    "abstract_expr_read_dereference should get dereference exprs");
-  INVARIANT(
-    expr.operands().size() == 1,
-    "The number of operands should be 1 for dereference");
-
-  // the pointer to be dereferenced
-  exprt pointer_expr = expr.operands()[0];
-
-  if(pointer_expr.id() == ID_symbol)
-  {
-    const symbol_exprt pointer_symb_expr = to_symbol_expr(pointer_expr);
-    const irep_idt orig_name = pointer_symb_expr.get_identifier();
-    if(abst_spec.has_entity(orig_name))
-    {
-      const irep_idt new_name = get_abstract_name(orig_name);
-      if(!goto_model.symbol_table.has_symbol(new_name))
-        throw "the abst symbol " + std::string(new_name.c_str()) +
-          " is not added to the symbol table";
-      const symbolt &abst_symb = goto_model.symbol_table.lookup_ref(new_name);
-      dereference_exprt new_expr(abst_symb.symbol_expr());
-      return std::move(new_expr);
-    }
-    else
-    {
-      return expr;
-    }
-  }
-  else if(pointer_expr.id() == ID_address_of)
-  {
-    // we should by pass the *& pair
-    INVARIANT(
-      pointer_expr.operands().size() == 1,
-      "address_of should only have one operand");
-    return abstract_expr_read(
-      pointer_expr.operands()[0],
-      abst_spec,
-      goto_model,
-      current_func,
-      insts_before,
-      insts_after,
-      new_symbs);
-  }
-  else if(pointer_expr.id() == ID_plus)
-  {
-    // TODO: we only handle the case for a$abst[i$abst].
-    // There can be other cases: a[i$abst], a$abst[i], a[i].
-    INVARIANT(
-      pointer_expr.operands().size() == 2,
-      "The number of operands should be 2 for plus/minus");
-    const exprt &base_pointer = pointer_expr.operands()[0];
-    const exprt &offset_expr = pointer_expr.operands()[1];
-    if(
-      (base_pointer.id() == ID_symbol || base_pointer.id() == ID_member) &&
-      base_pointer.type().id() == ID_pointer)
-    {
-      const irep_idt base_pointer_orig_name =
-        get_string_id_from_exprt(base_pointer);
-      const exprt new_base_pointer = abstract_expr_read(
-        base_pointer,
-        abst_spec,
-        goto_model,
-        current_func,
-        insts_before,
-        insts_after,
-        new_symbs);
-      if(
-        abst_spec.has_array_entity(base_pointer_orig_name) ||
-        abst_spec.has_const_c_str_entity(base_pointer_orig_name))
-      {
-        // a[i]  ==>   is_prec(i$abst) ? a$abst[i$abst] : nondet
-
-        // get the array's spec
-        const auto &spec =
-          abst_spec.has_array_entity(base_pointer_orig_name)
-            ? abst_spec.get_spec_for_array_entity(base_pointer_orig_name)
-            : abst_spec.get_spec_for_const_c_str_entity(base_pointer_orig_name);
-
-        // get the new offset i$abst
-        exprt new_offset = abstract_expr_read(
-          offset_expr,
-          abst_spec,
-          goto_model,
-          current_func,
-          insts_before,
-          insts_after,
-          new_symbs);
-        rra_spect::spect i_spec;
-        bool i_abs =
-          check_if_exprt_eval_to_abst_index(offset_expr, abst_spec, i_spec);
-        if(i_abs)
-        {
-          INVARIANT(
-            spec.compare_shape(i_spec),
-            "The shapes of the array and index in a[i] don't match");
-        }
-        else
-        {
-          // need to run abstract on i
-          const irep_idt abst_func = spec.get_abstract_func();
-          exprt::operandst operands{new_offset};
-          // put the concrete indices into operands
-          push_concrete_indices_to_operands(operands, spec, goto_model);
-          // make the function call
-          auto new_offset_symb = create_function_call(
-            abst_func,
-            operands,
-            current_func,
-            goto_model,
-            insts_before,
-            insts_after,
-            new_symbs);
-          new_offset = new_offset_symb.symbol_expr();
-        }
-
-        // the access a$abst[i$abst]
-        plus_exprt new_plus_expr(new_base_pointer, new_offset);
-        dereference_exprt new_access(new_plus_expr);
-
-        // the function call is_prec(i$abst)
-        exprt::operandst operands{new_offset};
-        push_concrete_indices_to_operands(operands, spec, goto_model);
-        const symbolt is_prec_symb = create_function_call(
-          spec.get_precise_func(),
-          operands,
-          current_func,
-          goto_model,
-          insts_before,
-          insts_after,
-          new_symbs);
-        const exprt is_prec = is_prec_symb.symbol_expr();
-        const typecast_exprt is_prec_bool(is_prec, bool_typet());
-
-        // the final expression is_prec(i$abst) ? a$abst[i$abst] : nondet
-        if_exprt final_expr(
-          is_prec_bool,
-          new_access,
-          side_effect_expr_nondett(expr.type(), source_locationt()));
-
-        if(abst_spec.has_const_c_str_entity(base_pointer_orig_name))
-        {
-          // if i is at the concrete first '0' location, the result must be '0'
-          // if i is smaller than the concrete first '0' location,
-          // the result must not be '0'
-          // essentially it's adding two instructions before this
-          // tmp_result = is_prec(i$abst) ? a$abst[i$abst] : nondet
-          // assumption(i$abst == first_0 =>
-          //            tmp_result == '\0' && i$abst < first_0 =>
-          //            tmp_result != '\0')
-          // a[i] ==> tmp_result
-
-          // tmp_result = is_prec(i$abst) ? a$abst[i$abst] : nondet
-          symbolt tmp_result = create_temp_var_for_expr(
-            final_expr,
-            current_func,
-            goto_model,
-            insts_before,
-            insts_after,
-            new_symbs);
-
-          // add assumption(i$abst == c_str_len =>
-          //                tmp_result == '\0' && i$abst < c_str_len =>
-          //                tmp_result != '\0')
-          // get the length variable for the const c str
-          INVARIANT(
-            goto_model.symbol_table.has_symbol(
-              get_const_c_str_len_name(base_pointer_orig_name)),
-            "The const c string variable is not found in the symbol table");
-          const exprt c_str_len =
-            goto_model.symbol_table
-              .lookup_ref(get_const_c_str_len_name(base_pointer_orig_name))
-              .symbol_expr();
-          const exprt new_offset_t =
-            typecast_exprt(new_offset, c_str_len.type());
-          const auto zero = zero_initializer(
-            tmp_result.type,
-            source_locationt(),
-            namespacet(goto_model.symbol_table));
-          CHECK_RETURN(zero.has_value());
-          const exprt first_constraint = implies_exprt(
-            equal_exprt(new_offset_t, c_str_len),
-            equal_exprt(tmp_result.symbol_expr(), *zero));
-          const exprt second_constraint = implies_exprt(
-            binary_relation_exprt(new_offset_t, ID_lt, c_str_len),
-            notequal_exprt(tmp_result.symbol_expr(), *zero));
-          const exprt constraint =
-            and_exprt(first_constraint, second_constraint);
-          auto c_str_assume_inst = goto_programt::make_assumption(constraint);
-          insts_before.push_back(c_str_assume_inst);
-          // return tmp_result
-          return tmp_result.symbol_expr();
-        }
-        else
-        {
-          return std::move(final_expr);
-        }
-      }
-      else
-      {
-        exprt new_offset = abstract_expr_read(
-          offset_expr,
-          abst_spec,
-          goto_model,
-          current_func,
-          insts_before,
-          insts_after,
-          new_symbs);
-
-        rra_spect::spect i_spec;
-        bool i_abs =
-          check_if_exprt_eval_to_abst_index(offset_expr, abst_spec, i_spec);
-        if(i_abs)
-        {
-          // need to run concretize on i
-          const irep_idt abst_func = i_spec.get_concretize_func();
-          exprt::operandst operands{new_offset};
-          // put the concrete indices into operands
-          push_concrete_indices_to_operands(operands, i_spec, goto_model);
-          // make the function call
-          auto new_offset_symb = create_function_call(
-            abst_func,
-            operands,
-            current_func,
-            goto_model,
-            insts_before,
-            insts_after,
-            new_symbs);
-          new_offset = new_offset_symb.symbol_expr();
-        }
-        else
-        {
-        } // don't need to do anything
-
-        plus_exprt new_plus_expr(new_base_pointer, new_offset);
-        dereference_exprt new_expr(new_plus_expr);
-        return std::move(new_expr);
-      }
-    }
-    else
-    {
-      throw "unknown type of dereference";
-    }
-  }
-  else
-  {
-    throw "unknown type to be dereferenced: " +
-      std::string(pointer_expr.id().c_str());
-  }
-}
-
-exprt rrat::abstract_expr_read_index(
-  const exprt &expr,
-  const rra_spect &abst_spec,
-  const goto_modelt &goto_model,
-  const irep_idt &current_func,
-  goto_programt::instructionst &insts_before,
-  goto_programt::instructionst &insts_after,
-  std::vector<symbolt> &new_symbs)
-{
-  INVARIANT(
-    expr.id() == ID_index, "abstract_expr_read_index should get index exprs");
-  INVARIANT(
-    expr.operands().size() == 2,
-    "The number of operands should be 2 for index");
-
-  const exprt &array = expr.operands()[0];
-  const exprt &index = expr.operands()[1];
-  if(
-    (array.id() == ID_symbol || array.id() == ID_member) &&
-    array.type().id() == ID_array)
-  {
-    const irep_idt array_orig_name = get_string_id_from_exprt(array);
-    const exprt new_array = abstract_expr_read(
-      array,
-      abst_spec,
-      goto_model,
-      current_func,
-      insts_before,
-      insts_after,
-      new_symbs);
-    if(
-      abst_spec.has_array_entity(array_orig_name) ||
-      abst_spec.has_const_c_str_entity(array_orig_name))
-    {
-      // a[i]  ==>   is_prec(i$abst) ? a$abst[i$abst] : nondet
-
-      // get the array's spec
-      const auto &spec =
-        abst_spec.has_array_entity(array_orig_name)
-          ? abst_spec.get_spec_for_array_entity(array_orig_name)
-          : abst_spec.get_spec_for_const_c_str_entity(array_orig_name);
-
-      // get the new offset i$abst
-      exprt new_index = abstract_expr_read(
-        index,
-        abst_spec,
-        goto_model,
-        current_func,
-        insts_before,
-        insts_after,
-        new_symbs);
-      rra_spect::spect i_spec;
-      bool i_abs = check_if_exprt_eval_to_abst_index(index, abst_spec, i_spec);
-      if(i_abs)
-      {
-        INVARIANT(
-          spec.compare_shape(i_spec),
-          "The shapes of the array and index in a[i] don't match");
-      }
-      else
-      {
-        // need to run abstract on i
-        const irep_idt abst_func = spec.get_abstract_func();
-        exprt::operandst operands{new_index};
-        // put the concrete indices into operands
-        push_concrete_indices_to_operands(operands, spec, goto_model);
-        // make the function call
-        auto new_index_symb = create_function_call(
-          abst_func,
-          operands,
-          current_func,
-          goto_model,
-          insts_before,
-          insts_after,
-          new_symbs);
-        new_index = new_index_symb.symbol_expr();
-      }
-
-      // the access a$abst[i$abst]
-      index_exprt new_access(new_array, new_index);
-
-      // the function call is_prec(i$abst)
-      exprt::operandst operands{new_index};
-      push_concrete_indices_to_operands(operands, spec, goto_model);
-      const symbolt is_prec_symb = create_function_call(
-        spec.get_precise_func(),
-        operands,
-        current_func,
-        goto_model,
-        insts_before,
-        insts_after,
-        new_symbs);
-      const exprt is_prec = is_prec_symb.symbol_expr();
-      const typecast_exprt is_prec_bool(is_prec, bool_typet());
-
-      // the final expression is_prec(i$abst) ? a$abst[i$abst] : nondet
-      if_exprt final_expr(
-        is_prec_bool,
-        new_access,
-        side_effect_expr_nondett(expr.type(), source_locationt()));
-
-      if(abst_spec.has_const_c_str_entity(array_orig_name))
-      {
-        // if i is at the concrete first '0' location, the result must be '0'
-        // if i is smaller than the concrete first '0' location,
-        // the result must not be '0'
-        // essentially it's adding two instructions before this
-        // tmp_result = is_prec(i$abst) ? a$abst[i$abst] : nondet
-        // assumption(i$abst == first_0 =>
-        //            tmp_result == '\0' && i$abst < first_0 =>
-        //            tmp_result != '\0')
-        // a[i] ==> tmp_result
-
-        // tmp_result = is_prec(i$abst) ? a$abst[i$abst] : nondet
-        symbolt tmp_result = create_temp_var_for_expr(
-          final_expr,
-          current_func,
-          goto_model,
-          insts_before,
-          insts_after,
-          new_symbs);
-
-        // add assumption(i$abst == c_str_len =>
-        //                tmp_result == '\0' && i$abst < c_str_len =>
-        //                tmp_result != '\0')
-        // get the length variable for the const c str
-        INVARIANT(
-          goto_model.symbol_table.has_symbol(
-            get_const_c_str_len_name(array_orig_name)),
-          "The const c string variable is not found in the symbol table");
-        const exprt c_str_len =
-          goto_model.symbol_table
-            .lookup_ref(get_const_c_str_len_name(array_orig_name))
-            .symbol_expr();
-        const exprt new_index_t = typecast_exprt(new_index, c_str_len.type());
-        const auto zero = zero_initializer(
-          tmp_result.type,
-          source_locationt(),
-          namespacet(goto_model.symbol_table));
-        CHECK_RETURN(zero.has_value());
-        const exprt first_constraint = implies_exprt(
-          equal_exprt(new_index_t, c_str_len),
-          equal_exprt(tmp_result.symbol_expr(), *zero));
-        const exprt second_constraint = implies_exprt(
-          binary_relation_exprt(new_index_t, ID_lt, c_str_len),
-          notequal_exprt(tmp_result.symbol_expr(), *zero));
-        const exprt constraint = and_exprt(first_constraint, second_constraint);
-        auto c_str_assume_inst = goto_programt::make_assumption(constraint);
-        insts_before.push_back(c_str_assume_inst);
-        // return tmp_result
-        return tmp_result.symbol_expr();
-      }
-      else
-      {
-        return std::move(final_expr);
-      }
-    }
-
-    else
-    {
-      exprt new_index = abstract_expr_read(
-        index,
-        abst_spec,
-        goto_model,
-        current_func,
-        insts_before,
-        insts_after,
-        new_symbs);
-
-      rra_spect::spect i_spec;
-      bool i_abs = check_if_exprt_eval_to_abst_index(index, abst_spec, i_spec);
-      if(i_abs)
-      {
-        // need to run concretize on i
-        const irep_idt abst_func = i_spec.get_concretize_func();
-        exprt::operandst operands{new_index};
-        // put the concrete indices into operands
-        push_concrete_indices_to_operands(operands, i_spec, goto_model);
-        // make the function call
-        auto new_index_symb = create_function_call(
-          abst_func,
-          operands,
-          current_func,
-          goto_model,
-          insts_before,
-          insts_after,
-          new_symbs);
-        new_index = new_index_symb.symbol_expr();
-      }
-      else
-      {
-      } // don't need to do anything
-
-      index_exprt new_expr(new_array, new_index);
-      return std::move(new_expr);
-    }
-  }
-  else
-  {
-    throw "the type of the array in an index expr is incorrect";
-  }
-}
-
-exprt rrat::abstract_expr_read_address_of(
-  const exprt &expr,
-  const rra_spect &abst_spec,
-  const goto_modelt &goto_model,
-  const irep_idt &current_func,
-  goto_programt::instructionst &insts_before,
-  goto_programt::instructionst &insts_after,
-  std::vector<symbolt> &new_symbs)
-{
-  INVARIANT(
-    expr.id() == ID_address_of,
-    "abstract_expr_read_address_of should get address_of exprs");
-  INVARIANT(
-    expr.operands().size() == 1,
-    "The number of operands should be 1 for address_of");
-
-  const exprt &entity = expr.operands()[0];
-  if(entity.id() == ID_symbol)
-  {
-    exprt new_entity = abstract_expr_read(
-      entity,
-      abst_spec,
-      goto_model,
-      current_func,
-      insts_before,
-      insts_after,
-      new_symbs);
-    address_of_exprt new_expr(new_entity);
-    return std::move(new_expr);
-  }
-  else
-  {
-    throw "we are not supporting &(address_of) for " +
-      std::string(entity.id().c_str()) + " operands.";
   }
 }
 
@@ -2366,145 +1328,194 @@ exprt rrat::abstract_expr_read(
   const irep_idt &current_func,
   goto_programt::instructionst &insts_before,
   goto_programt::instructionst &insts_after,
-  std::vector<symbolt> &new_symbs)
+  std::vector<symbolt> &new_symbs,
+  std::unordered_map<size_t, size_t> &insts_before_goto_target_map)
 {
-  if(!contains_an_entity_to_be_abstracted(expr, abst_spec))
-    return expr;
-
-  if(expr.id() == ID_symbol)
+  rra_spect::spect spec;
+  if(check_if_exprt_is_abst_index(expr, abst_spec, spec))
   {
-    // if it is a symbol, we just return the new abstract symbol
-    const symbol_exprt &symb = to_symbol_expr(expr);
-    irep_idt new_name = get_abstract_name(symb.get_identifier());
-    if(goto_model.symbol_table.has_symbol(new_name))
-    {
-      symbol_exprt new_symb_expr =
-        goto_model.symbol_table.lookup_ref(new_name).symbol_expr();
-      return std::move(new_symb_expr);
-    }
-    else
-    {
-      std::string error_code = "Abst variable " +
-                               std::string(new_name.c_str()) +
-                               " used before inserting to the symbol table";
-      throw error_code;
-    }
-  }
-  else if(expr.id() == ID_member)
-  {
-    // if it is a member access, we should run abst read on the object
-    // For example, in C: buf->length
-    // in goto: member(dereference(buf), length)
+    // TODO: what if an entity is refered elsewhere????
+    //       should do closure analysis
+    // declare conc
+    // conc = concrete(expr)
+    // **inst containing this read**: replace with conc
+    // dead conc
+    
+    // Find abstracted symbol for this expr
     INVARIANT(
-      expr.operands().size() == 1,
-      "member access should only have one operand");
-    const member_exprt &mem_expr = to_member_expr(expr);
-    const exprt &obj_expr = expr.operands()[0];
-    const irep_idt &comp_name = mem_expr.get_component_name();
+      expr.id() == ID_symbol,
+      "let's now just assume loop iterators can't be member of objects");
+    const irep_idt symb_id = get_string_id_from_exprt(expr);
+    const irep_idt new_symb_id = get_abstract_name(symb_id);
+    INVARIANT(
+      goto_model.symbol_table.has_symbol(new_symb_id),
+      "Abst variable " + std::string(new_symb_id.c_str()) +
+        " used before inserting to the symbol table");
+    symbol_exprt new_symb_expr = goto_model.symbol_table.lookup_ref(new_symb_id).symbol_expr();
 
-    exprt new_obj_expr = abstract_expr_read(
-      obj_expr,
-      abst_spec,
-      goto_model,
-      current_func,
-      insts_before,
-      insts_after,
-      new_symbs);
-
-    member_exprt new_mem_expr(new_obj_expr, comp_name, mem_expr.type());
-    return std::move(new_mem_expr);
-  }
-  else if(
-    expr.id() == ID_typecast || expr.id() == ID_and || expr.id() == ID_or ||
-    expr.id() == ID_xor || expr.id() == ID_not || expr.id() == ID_implies ||
-    expr.id() == ID_is_invalid_pointer || expr.id() == ID_is_dynamic_object ||
-    expr.id() == ID_pointer_object || expr.id() == ID_pointer_offset ||
-    expr.id() == ID_object_size || expr.id() == ID_if)
-  {
-    // those types of exprs should not be changed,
-    // just run abst_read on lower level
-    exprt new_expr(expr);
-    for(size_t i = 0; i < expr.operands().size(); i++)
-      new_expr.operands()[i] = abstract_expr_read(
-        expr.operands()[i],
-        abst_spec,
-        goto_model,
-        current_func,
-        insts_before,
-        insts_after,
-        new_symbs);
-    return new_expr;
-  }
-  else if(
-    expr.id() == ID_le || expr.id() == ID_lt || expr.id() == ID_ge ||
-    expr.id() == ID_gt || expr.id() == ID_equal || expr.id() == ID_notequal)
-  {
-    // handle comparators, need to call functions if
-    // needed based on whether each operands are abstract
-    return abstract_expr_read_comparator(
-      expr,
-      abst_spec,
-      goto_model,
-      current_func,
-      insts_before,
-      insts_after,
-      new_symbs);
-  }
-  else if(expr.id() == ID_dereference)
-  {
-    // handle dereference, need to check the structure of lower exprts
-    return abstract_expr_read_dereference(
-      expr,
-      abst_spec,
-      goto_model,
-      current_func,
-      insts_before,
-      insts_after,
-      new_symbs);
-  }
-  else if(expr.id() == ID_address_of)
-  {
-    // handle address_of, currently we only support address of symbol
-    return abstract_expr_read_address_of(
-      expr,
-      abst_spec,
-      goto_model,
-      current_func,
-      insts_before,
-      insts_after,
-      new_symbs);
-  }
-  else if(expr.id() == ID_plus || expr.id() == ID_minus || expr.id() == ID_mult)
-  {
-    // handle plus/minus, should call plus/minus function if needed
-    return abstract_expr_read_plusminus(
-      expr,
-      abst_spec,
-      goto_model,
-      current_func,
-      insts_before,
-      insts_after,
-      new_symbs);
-  }
-  else if(expr.id() == ID_index)
-  {
-    // handle array access for static arrays
-    return abstract_expr_read_index(
-      expr,
-      abst_spec,
-      goto_model,
-      current_func,
-      insts_before,
-      insts_after,
-      new_symbs);
+    const irep_idt conc_func = spec.get_concretize_func();
+    exprt::operandst operands{new_symb_expr};
+    // Put the concrete indices into operands
+    push_concrete_indices_to_operands(operands, spec, goto_model);
+    // Make the function call
+    auto conc_symb = create_function_call(conc_func, operands, current_func, goto_model, insts_before, insts_after, new_symbs);
+    return std::move(conc_symb.symbol_expr());
   }
   else
   {
-    // This type of exprt is unknown.
-    std::string error_code = "";
-    error_code += "Currently, " + std::string(expr.id().c_str()) +
-                  " cannot be abstracted in abst_read.";
-    throw error_code;
+    // run abst_read on every operands
+    exprt new_expr = expr;
+    for(auto &op: new_expr.operands())
+    {
+      op = abstract_expr_read(
+        op, abst_spec, goto_model, current_func, insts_before,
+        insts_after, new_symbs, insts_before_goto_target_map);
+    }
+    if(new_expr.id() == ID_dereference)
+    {
+      // In the previous step, we do:  
+      // expr <deref(pointer)> =======> new_expr <deref(abst_read(pointer))> 
+      // need to check if this is an abstracted array reference 
+      // TO DISCUSS: should we put these instructions into a function?
+      // ============= instructions ============= 
+      // declare result 
+      // declare abst_index 
+      // declare base_pointer
+      // base_pointer = pointer - offset(pointer)
+      // **for every array entity** 
+      // if(pointer_object(pointer) == entity1$obj) GOTO 1; 
+      // if(pointer_object(pointer) == entity2$obj) GOTO 2; 
+      // ... 
+      // GOTO deft; 
+      // 1:   abst_index = abstract(offset(pointer)) 
+      //      result = is_precise(abst_index) ? deref(base_pointer(pointer) + abst_index) : nondet 
+      //      GOTO end; 
+      // ... 
+      // deft: result = new_expr 
+      // end: **inst containing this deref**: replace with result 
+      // dead abst_index 
+      // dead result 
+      // =========================================
+      const exprt &pointer = new_expr.operands()[0];
+      
+      // Declare and dead for result, abst_index, base_pointer
+      symbolt result_symb = create_temp_var(
+        "result", remove_const(new_expr.type()), current_func, goto_model, 
+        insts_before, insts_after, new_symbs);
+      symbolt abst_index_symb = create_temp_var(
+        "abst_index", size_type(), current_func, goto_model, 
+        insts_before, insts_after, new_symbs);
+      symbolt base_pointer_symb = create_temp_var(
+        "base_pointer", remove_const(pointer.type()), current_func, goto_model, 
+        insts_before, insts_after, new_symbs);
+
+      // base_pointer = pointer - offset(pointer)
+      insts_before.push_back(goto_programt::make_assignment(
+        base_pointer_symb.symbol_expr(),
+        minus_exprt(pointer, pointer_offset(pointer))));
+
+      std::unordered_map<size_t, std::string> goto_label_map;  // goto's index in insts_before ==> labels: "0","1",..., "deft", "end"
+      std::unordered_map<std::string, size_t> label_target_map;  // labels: "0"..."end" ==> target inst's index in insts_before
+      
+      // Go through each abst array and insert conditional goto
+      size_t counter = 0;
+      for(const auto &spec: abst_spec.get_specs())
+      {
+        for(const auto &ent: spec.get_abst_pointers())
+        {
+          // since the target inst is not inserted yet, here we use an empty place holder
+          goto_programt::targett empty_target;
+          // get the global pointer_obj var
+          const irep_idt ent_pointer_obj_id = get_memory_addr_name(ent.first);
+          const exprt ent_pointer_obj =
+            goto_model.symbol_table.lookup_ref(ent_pointer_obj_id).symbol_expr();
+          // guard: pointer_object(pointer) == ent$obj
+          exprt guard = equal_exprt(pointer_object(pointer), ent_pointer_obj);
+          // insert the instruction, update goto_label_map
+          goto_label_map.insert({insts_before.size(), std::to_string(counter)});
+          insts_before.push_back(goto_programt::make_goto(empty_target, guard));
+          counter++;
+        }
+      }
+
+      // If not matched to any, GOTO deft
+      goto_programt::targett empty_target;
+      goto_label_map.insert({insts_before.size(), "deft"});
+      insts_before.push_back(goto_programt::make_goto(empty_target));
+
+      // Go through each abst array, calculate abst_index and result 
+      counter = 0;
+      for(const auto &spec: abst_spec.get_specs())
+      {
+        for(size_t i=0; i<spec.get_abst_pointers().size(); i++)
+        {
+          // update label_target to label the starting point of this body
+          label_target_map.insert({std::to_string(counter), insts_before.size()});
+
+          // function call: abst_index = abstract(offset(pointer))
+          exprt::operandst operands{pointer_offset(pointer)};
+          push_concrete_indices_to_operands(operands, spec, goto_model);
+          symbol_exprt func_call_expr =
+            goto_model.get_symbol_table().lookup_ref(spec.get_abstract_func()).symbol_expr();
+          auto new_func_call_inst = goto_programt::make_function_call(
+            code_function_callt(abst_index_symb.symbol_expr(), func_call_expr, operands));
+          insts_before.push_back(new_func_call_inst);
+
+          // update result: result = is_precise(abst_index) ? deref(base_pointer+abst_index) : nondet
+          //        first call is_precise
+          exprt::operandst operands_is_prec{abst_index_symb.symbol_expr()};
+          push_concrete_indices_to_operands(operands_is_prec, spec, goto_model);
+          //        the dead of the tmp function call should be add right after this block, but not the entire thing
+          goto_programt::instructionst fake_insts_after;
+          auto is_prec_ret = create_function_call(
+            spec.get_precise_func(), operands_is_prec, current_func,
+            goto_model, insts_before, fake_insts_after, new_symbs);
+          //        then create the instruction
+          exprt precise_val = dereference_exprt(plus_exprt(
+            base_pointer_symb.symbol_expr(), abst_index_symb.symbol_expr()));
+          exprt result_expr = if_exprt(
+            typecast_exprt(is_prec_ret.symbol_expr(), bool_typet()),
+            precise_val,
+            side_effect_expr_nondett(new_expr.type(), source_locationt()));
+          insts_before.push_back(goto_programt::make_assignment(result_symb.symbol_expr(), result_expr));
+          //        the dead instructions for the is_prec call
+          insts_before.insert(insts_before.end(), fake_insts_after.begin(), fake_insts_after.end());
+
+          // GOTO end, and update goto_label_map
+          goto_label_map.insert({insts_before.size(), "end"});
+          insts_before.push_back(goto_programt::make_goto(empty_target));
+
+          counter++;
+        }
+      }
+
+      // Calculate default result (deft: result = new_expr)
+      label_target_map.insert({"deft", insts_before.size()});
+      insts_before.push_back(goto_programt::make_assignment(result_symb.symbol_expr(), new_expr));
+
+      // placeholder end label
+      label_target_map.insert({"end", insts_before.size()});
+      insts_before.push_back(goto_programt::make_skip());
+
+      // before returning, update the goto target map
+      for(auto &id_label: goto_label_map)
+      {
+        INVARIANT(
+          label_target_map.find(id_label.second) != label_target_map.end(),
+          "the label " + id_label.second + " is not defined");
+        INVARIANT(
+          insts_before_goto_target_map.find(id_label.first) ==
+            insts_before_goto_target_map.end(),
+          "instruction's target defined twice");
+        insts_before_goto_target_map.insert({id_label.first, label_target_map[id_label.second]});
+      }
+
+      return result_symb.symbol_expr();
+    }
+    else
+    {
+      return new_expr;
+    }
   }
 }
 
@@ -2808,12 +1819,52 @@ void rrat::add_length_assumptions(
   }
 }
 
+void rrat::update_pointer_obj(
+  const exprt &lhs,
+  goto_modelt &goto_model,
+  const irep_idt &current_func,
+  goto_programt::instructionst &inst_after,
+  std::vector<symbolt> &new_symbs)
+{
+  // in this case, this instruction is writing to an abstracted array itself
+  // we need to update the global variable to keep track of the pointer_object
+  // lhs = malloc()
+  // lhs$obj = pointer_object(lhs) <==== this function insert this inst
+  // we will disable primitive check for the instruction we inserted because 
+  // it will fail when we malloc a size 0 pointer which is a FP.
+
+  // First, we need to get the global object variable exprt (obj_var)
+  const irep_idt symb_id = get_string_id_from_exprt(lhs);
+  const irep_idt obj_var_id = get_memory_addr_name(symb_id);
+  const exprt obj_var =
+    goto_model.symbol_table.lookup_ref(obj_var_id).symbol_expr();
+
+  // Create an instruction "C_PROVER_pointer = lhs". This is to bypass the pointer primitive check.
+  goto_programt::instructionst fake_insts_before;
+  goto_programt::instructionst fake_insts_after;
+  symbolt lhs_with_prefix = create_temp_var_for_expr(
+    lhs, current_func, goto_model, fake_insts_before, fake_insts_after, new_symbs, true);
+  inst_after.insert(inst_after.end(), fake_insts_before.begin(), fake_insts_before.end());
+
+  // Next, find the pointer object of the current lhs
+  exprt pointer_obj = pointer_object(lhs_with_prefix.symbol_expr());
+
+  // Create an instruction "obj_var := pointer_object(lhs)"
+  goto_programt::instructiont new_inst =
+    goto_programt::make_assignment(code_assignt(obj_var, pointer_obj));
+
+  // Insert the instruction
+  inst_after.push_back(new_inst);
+
+  inst_after.insert(inst_after.end(), fake_insts_after.begin(), fake_insts_after.end());
+}
+
 void rrat::abstract_goto_program(goto_modelt &goto_model, rra_spect &abst_spec)
 {
   // A couple of spects are initialized from the json file.
   // We should go from there and insert spects to other functions
   std::unordered_set<irep_idt> all_funcs =
-    complete_the_global_abst_spec(goto_model, abst_spec);
+    get_all_functions(goto_model);
 
   // Define the global concrete indices to be used
   define_concrete_indices(goto_model, abst_spec);
@@ -2831,10 +1882,15 @@ void rrat::abstract_goto_program(goto_modelt &goto_model, rra_spect &abst_spec)
   // Change the function parameter's name if needed
   declare_abst_variables(goto_model, all_funcs, abst_spec);
 
-  std::cout << "=========== "
-            << "Entities to be abstracted"
-            << " ==========="
-            << "\n";
+  // Declare the variables to store memory addresses
+  declare_abst_addrs(goto_model, abst_spec);
+  
+  // Probably also need to do translation from concrete to abstract somewhere
+
+  std::cout << "=========== " 
+            << "Entities to be abstracted/length entities" 
+            << " ===========" 
+            << std::endl;
   abst_spec.print_entities();
   for(auto &func_name : all_funcs)
   {
@@ -2852,6 +1908,7 @@ void rrat::abstract_goto_program(goto_modelt &goto_model, rra_spect &abst_spec)
       goto_programt::instructionst inst_before;
       goto_programt::instructionst inst_after;
       std::vector<symbolt> new_symbs;
+      std::unordered_map<size_t, size_t> insts_before_goto_target_map;
 
       // need to backup the expr for assertion
       exprt assert_orig_expr;
@@ -2861,74 +1918,46 @@ void rrat::abstract_goto_program(goto_modelt &goto_model, rra_spect &abst_spec)
       // go through conditions
       if(it->has_condition())
       {
-        if(contains_an_entity_to_be_abstracted(it->get_condition(), abst_spec))
-        {
-          format_rec(std::cout, it->get_condition()) << " ==abst_read==> ";
-          exprt new_condition = abstract_expr_read(
-            it->get_condition(),
-            abst_spec,
-            goto_model,
-            func_name,
-            inst_before,
-            inst_after,
-            new_symbs);
-          format_rec(std::cout, new_condition) << std::endl;
-          it->set_condition(new_condition);
-        }
+        format_rec(std::cout, it->get_condition()) << " ==abst_read==> ";
+        exprt new_condition = abstract_expr_read(
+          it->get_condition(), abst_spec, goto_model, func_name, 
+          inst_before, inst_after, new_symbs, insts_before_goto_target_map);
+        format_rec(std::cout, new_condition) << std::endl;
+        it->set_condition(new_condition);
       }
 
       if(it->is_function_call())
       {
         const code_function_callt fc = it->get_function_call();
         exprt new_lhs;
-        if(contains_an_entity_to_be_abstracted(fc.lhs(), abst_spec))
-        {
-          format_rec(std::cout, fc.lhs()) << " ==abst_write==> ";
-          new_lhs = abstract_expr_write(
-            fc.lhs(),
-            abst_spec,
-            goto_model,
-            func_name,
-            inst_before,
-            inst_after,
-            new_symbs);
-          format_rec(std::cout, new_lhs) << std::endl;
-        }
-        else
-        {
-          new_lhs = fc.lhs();
-        }
+        format_rec(std::cout, fc.lhs()) << " ==abst_write==> ";
+        new_lhs = abstract_expr_write(
+          fc.lhs(), abst_spec, goto_model, func_name, 
+          inst_before, inst_after, new_symbs, insts_before_goto_target_map);
+        format_rec(std::cout, new_lhs) << std::endl;
 
         code_function_callt::argumentst new_arguments;
         for(const auto &arg : fc.arguments())
         {
           exprt new_arg;
-          if(contains_an_entity_to_be_abstracted(arg, abst_spec))
-          {
-            format_rec(std::cout, arg) << " ==abst_read==> ";
-            new_arg = abstract_expr_read(
-              arg,
-              abst_spec,
-              goto_model,
-              func_name,
-              inst_before,
-              inst_after,
-              new_symbs);
-            format_rec(std::cout, new_arg) << std::endl;
-            new_arguments.push_back(new_arg);
-          }
-          else
-          {
-            new_arguments.push_back(arg);
-          }
+          format_rec(std::cout, arg) << " ==abst_read==> ";
+          new_arg = abstract_expr_read(
+            arg, abst_spec, goto_model, func_name, 
+            inst_before, inst_after, new_symbs, insts_before_goto_target_map);
+          format_rec(std::cout, new_arg) << std::endl;
+          new_arguments.push_back(new_arg);
         }
 
         rra_spect::spect lhs_spec;
         bool abs_lhs =
-          check_if_exprt_eval_to_abst_index(fc.lhs(), abst_spec, lhs_spec);
+          check_if_exprt_is_abst_index(fc.lhs(), abst_spec, lhs_spec);
         if(abs_lhs)
         {
           // in this case, we need to abstract the return value
+          // lhs = func()
+          // =========>
+          // temp_lhs = func()
+          // lhs = abstract(temp_lhs)
           symbolt tmp_lhs = create_abstract_func_after(
             new_lhs,
             lhs_spec,
@@ -2946,67 +1975,40 @@ void rrat::abstract_goto_program(goto_modelt &goto_model, rra_spect &abst_spec)
           code_function_callt new_fc(new_lhs, fc.function(), new_arguments);
           it->set_function_call(new_fc);
         }
+
+        // need to update memobj/memaddr if lhs is an abstracted array
+        // Assumption: each array entity var will only be assigned once in execution
+        //             though syntacticly it might happen multiple times in code
+        // array_a = malloc()
+        if(check_if_exprt_is_abst_array(fc.lhs(), abst_spec, lhs_spec))
+          update_pointer_obj(fc.lhs(), goto_model, func_name, inst_after, new_symbs);
+
       }
       else if(it->is_assign())
       {
         const code_assignt as = it->get_assign();
         exprt new_lhs;
-        if(contains_an_entity_to_be_abstracted(as.lhs(), abst_spec))
-        {
-          format_rec(std::cout, as.lhs()) << " ==abst_write==> ";
-          new_lhs = abstract_expr_write(
-            as.lhs(),
-            abst_spec,
-            goto_model,
-            func_name,
-            inst_before,
-            inst_after,
-            new_symbs);
-          format_rec(std::cout, new_lhs) << std::endl;
-        }
-        else
-        {
-          new_lhs = as.lhs();
-        }
+        format_rec(std::cout, as.lhs()) << " ==abst_write==> ";
+        new_lhs = abstract_expr_write(
+          as.lhs(), abst_spec, goto_model, func_name, 
+          inst_before, inst_after, new_symbs, insts_before_goto_target_map);
+        format_rec(std::cout, new_lhs) << std::endl;
 
         exprt new_rhs;
-        if(contains_an_entity_to_be_abstracted(as.rhs(), abst_spec))
-        {
-          format_rec(std::cout, as.rhs()) << " ==abst_read==> ";
-          new_rhs = abstract_expr_read(
-            as.rhs(),
-            abst_spec,
-            goto_model,
-            func_name,
-            inst_before,
-            inst_after,
-            new_symbs);
-          format_rec(std::cout, new_rhs) << std::endl;
-        }
-        else
-        {
-          new_rhs = as.rhs();
-        }
+        format_rec(std::cout, as.rhs()) << " ==abst_read==> ";
+        new_rhs = abstract_expr_read(
+          as.rhs(), abst_spec, goto_model, func_name, 
+          inst_before, inst_after, new_symbs, insts_before_goto_target_map);
+        format_rec(std::cout, new_rhs) << std::endl;
 
         // When lhs and rhs are not both abstracted, we should
         // do the translation.
         rra_spect::spect lhs_spec;
-        rra_spect::spect rhs_spec;
         bool lhs_abs =
           check_if_exprt_eval_to_abst_index(as.lhs(), abst_spec, lhs_spec);
-        bool rhs_abs =
-          check_if_exprt_eval_to_abst_index(as.rhs(), abst_spec, rhs_spec);
-        if(lhs_abs && rhs_abs)
+        if(lhs_abs)
         {
-          // don't need to do anything
-          // just check if those two specs match
-          INVARIANT(
-            lhs_spec.compare_shape(rhs_spec),
-            "The shapes used in lhs and rhs in assign don't match.");
-        }
-        else if(lhs_abs && !rhs_abs)
-        {
-          // a=b ===> a$abst = abstract(b)
+          // lhs=rhs ===> lhs$abst = abstract(rhs)
           const irep_idt abst_func = lhs_spec.get_abstract_func();
           exprt::operandst operands{new_rhs};
           // put the concrete indices into operands
@@ -3022,30 +2024,16 @@ void rrat::abstract_goto_program(goto_modelt &goto_model, rra_spect &abst_spec)
             new_symbs);
           new_rhs = new_rhs_symb.symbol_expr();
         }
-        else if(!lhs_abs && rhs_abs)
-        {
-          // a=b ===> a = concretize(b$abst)
-          const irep_idt conc_func = rhs_spec.get_concretize_func();
-          exprt::operandst operands{new_rhs};
-          // put the concrete indices into operands
-          push_concrete_indices_to_operands(operands, rhs_spec, goto_model);
-          // make the function call
-          auto new_rhs_symb = create_function_call(
-            conc_func,
-            operands,
-            func_name,
-            goto_model,
-            inst_before,
-            inst_after,
-            new_symbs);
-          new_rhs = new_rhs_symb.symbol_expr();
-        }
         else
         {
         } // don't need to do anything
 
         code_assignt new_as(new_lhs, new_rhs);
         it->set_assign(new_as);
+
+        // need to update memobj/memaddr if lhs is an abstracted array
+        if(check_if_exprt_is_abst_array(as.lhs(), abst_spec, lhs_spec))
+          update_pointer_obj(as.lhs(), goto_model, func_name, inst_after, new_symbs);
       }
       else if(it->is_return())
       {
@@ -3057,43 +2045,11 @@ void rrat::abstract_goto_program(goto_modelt &goto_model, rra_spect &abst_spec)
         {
           const exprt &re_val = re.return_value();
           exprt new_re_val;
-          if(contains_an_entity_to_be_abstracted(re_val, abst_spec))
-          {
-            format_rec(std::cout, re_val) << " ==abst_read==> ";
-            new_re_val = abstract_expr_read(
-              re_val,
-              abst_spec,
-              goto_model,
-              func_name,
-              inst_before,
-              inst_after,
-              new_symbs);
-            format_rec(std::cout, new_re_val) << std::endl;
-            rra_spect::spect spec;
-            if(check_if_exprt_eval_to_abst_index(re_val, abst_spec, spec))
-            {
-              // we assume the function will always return concrete value
-              // so we calculated a concrete value in this case
-              const irep_idt conc_func = spec.get_concretize_func();
-              exprt::operandst operands{new_re_val};
-              // put the concrete indices into operands
-              push_concrete_indices_to_operands(operands, spec, goto_model);
-              // make the function call
-              auto new_re_symb = create_function_call(
-                conc_func,
-                operands,
-                func_name,
-                goto_model,
-                inst_before,
-                inst_after,
-                new_symbs);
-              new_re_val = new_re_symb.symbol_expr();
-            }
-          }
-          else
-          {
-            new_re_val = re_val;
-          }
+          format_rec(std::cout, re_val) << " ==abst_read==> ";
+          new_re_val = abstract_expr_read(
+            re_val, abst_spec, goto_model, func_name, 
+            inst_before, inst_after, new_symbs, insts_before_goto_target_map);
+          format_rec(std::cout, new_re_val) << std::endl;
           code_returnt new_re(new_re_val);
           it->set_return(new_re);
         }
@@ -3110,7 +2066,8 @@ void rrat::abstract_goto_program(goto_modelt &goto_model, rra_spect &abst_spec)
           func_name,
           inst_before,
           inst_after,
-          new_symbs);
+          new_symbs, 
+          insts_before_goto_target_map);
         format_rec(std::cout, optim_cond) << std::endl;
         it->set_condition(optim_cond);
       }
@@ -3119,7 +2076,7 @@ void rrat::abstract_goto_program(goto_modelt &goto_model, rra_spect &abst_spec)
         // change symbol name in DECLARE instruction
         const code_declt &decl = it->get_decl();
         const symbol_tablet &symbol_table = goto_model.get_symbol_table();
-        if(abst_spec.has_entity(decl.get_identifier()))
+        if(abst_spec.has_index_entity(decl.get_identifier()))
         {
           irep_idt new_name = get_abstract_name(decl.get_identifier());
           typet typ = symbol_table.lookup_ref(new_name).type;
@@ -3133,7 +2090,7 @@ void rrat::abstract_goto_program(goto_modelt &goto_model, rra_spect &abst_spec)
         // change symbol name in DEAD instruction
         const code_deadt &dead = it->get_dead();
         const symbol_tablet &symbol_table = goto_model.get_symbol_table();
-        if(abst_spec.has_entity(dead.get_identifier()))
+        if(abst_spec.has_index_entity(dead.get_identifier()))
         {
           irep_idt new_name = get_abstract_name(dead.get_identifier());
           typet typ = symbol_table.lookup_ref(new_name).type;
@@ -3151,11 +2108,33 @@ void rrat::abstract_goto_program(goto_modelt &goto_model, rra_spect &abst_spec)
         !it->is_skip() && !it->is_other())
         throw "unknown instruction type " + std::to_string(it->type);
 
+      // the iterator for every inserted inst before it
+      std::vector<goto_programt::instructiont::targett> insts_before_its;
+
+      auto orig_it = it;
       // insert new instructions before it
       for(auto &inst : inst_before)
       {
         goto_function.body.insert_before_swap(it, inst);
         it++;
+      }
+      // get the iterators for each inserted instruction
+      for(; orig_it != it; orig_it++)
+        insts_before_its.push_back(orig_it);
+      INVARIANT(
+        insts_before_its.size() == inst_before.size(), 
+        "size of insts_before_its and inst_before should match");
+      // set up targets for all GOTO instructions
+      for(size_t i=0; i<inst_before.size(); i++)
+      {
+        if(insts_before_goto_target_map.find(i) != insts_before_goto_target_map.end())
+        {
+          auto &curr_it = insts_before_its[i];
+          // this should be a GOTO instruction with out the target being specified
+          INVARIANT(curr_it->is_goto(), "Only GOTO instruction can have a target mapping");
+          // update the target with the target map
+          curr_it->set_target(insts_before_its[insts_before_goto_target_map[i]]);
+        }
       }
 
       // insert new instructions after it

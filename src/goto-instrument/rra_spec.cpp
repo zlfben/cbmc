@@ -272,8 +272,12 @@ void rra_spect::get_entities_string(std::ostream &output) const
       output << "array: " + std::string(ent.first.c_str()) + "\n";
     for(const auto &ent : spec.get_abst_const_c_strs())
       output << "const c_str: " + std::string(ent.first.c_str()) + "\n";
-    for(const auto &ent : spec.get_abst_indices())
-      output << "index: " + std::string(ent.first.c_str()) + "\n";
+    for(const auto &ent: spec.get_abst_iterator_scalars())
+      output << "iterator scalar: " + std::string(ent.first.c_str()) + "\n";
+    for(const auto &ent: spec.get_abst_iterator_pointers())
+      output << "iterator pointer: " + std::string(ent.first.c_str()) + "\n";
+    for(const auto &ent: spec.get_abst_lengths())
+      output << "length scalar: " + std::string(ent.first.c_str()) + "\n";
   }
 }
 
@@ -293,7 +297,8 @@ void rra_spect::spect::insert_entity(
 {
   std::string name_str = _name.c_str();
   std::unordered_map<irep_idt, std::unique_ptr<entityt>>
-    *current_layer_entities = &abst_entities;
+    *current_layer_entities =
+      entity.type == entityt::LENGTH ? &length_entities : &abst_entities;
   while(!name_str.empty())
   {
     size_t arrow_pos = name_str.find("->", 0);
@@ -310,7 +315,7 @@ void rra_spect::spect::insert_entity(
           current_layer_entities->insert(
             {first_layer_name,
              std::unique_ptr<entityt>(
-               new struct_pointer_entityt(first_layer_name))});
+               new entityt(first_layer_name, entityt::STRUCT_POINTER))});
         if(
           (*current_layer_entities)[first_layer_name]->type !=
           entityt::STRUCT_POINTER)
@@ -329,7 +334,7 @@ void rra_spect::spect::insert_entity(
           current_layer_entities->end())
           current_layer_entities->insert(
             {first_layer_name,
-             std::unique_ptr<entityt>(new struct_entityt(first_layer_name))});
+             std::unique_ptr<entityt>(new entityt(first_layer_name, entityt::STRUCT))});
         if((*current_layer_entities)[first_layer_name]->type != entityt::STRUCT)
           throw "the entity " + first_layer_name +
             " doesn't seem to be a struct. " +
@@ -360,7 +365,8 @@ void rra_spect::spect::insert_entity(
 {
   std::string name_str = _name.c_str();
   std::unordered_map<irep_idt, std::unique_ptr<entityt>>
-    *current_layer_entities = &abst_entities;
+    *current_layer_entities =
+      _type == entityt::LENGTH ? &length_entities : &abst_entities;
   while(!name_str.empty())
   {
     size_t arrow_pos = name_str.find("->", 0);
@@ -377,7 +383,7 @@ void rra_spect::spect::insert_entity(
           current_layer_entities->insert(
             {first_layer_name,
              std::unique_ptr<entityt>(
-               new struct_pointer_entityt(first_layer_name))});
+               new entityt(first_layer_name, entityt::STRUCT_POINTER))});
         if(
           (*current_layer_entities)[first_layer_name]->type !=
           entityt::STRUCT_POINTER)
@@ -396,7 +402,7 @@ void rra_spect::spect::insert_entity(
           current_layer_entities->end())
           current_layer_entities->insert(
             {first_layer_name,
-             std::unique_ptr<entityt>(new struct_entityt(first_layer_name))});
+             std::unique_ptr<entityt>(new entityt(first_layer_name, entityt::STRUCT))});
         if((*current_layer_entities)[first_layer_name]->type != entityt::STRUCT)
           throw "the entity " + first_layer_name +
             " doesn't seem to be a struct." +
@@ -425,8 +431,10 @@ void rra_spect::spect::insert_entity(
 {
   if(_type == "array")
     insert_entity(_name, entityt::ARRAY);
-  else if(_type == "scalar")
-    insert_entity(_name, entityt::SCALAR);
+  else if(_type == "iterator_scalar")
+    insert_entity(_name, entityt::ITERATOR_SCALAR);
+  else if(_type == "iterator_pointer")
+    insert_entity(_name, entityt::ITERATOR_POINTER);
   else if(_type == "length")
     insert_entity(_name, entityt::LENGTH);
   else if(_type == "const_c_str")
@@ -606,11 +614,27 @@ rra_spect::spect::search_for_entities(
 }
 
 std::unordered_map<irep_idt, rra_spect::spect::entityt>
-rra_spect::spect::get_top_level_entities() const
+rra_spect::spect::get_top_level_abst_entities() const
 {
   std::unordered_map<irep_idt, entityt> result;
   for(const auto &ent : abst_entities)
     result.insert({ent.first, *(ent.second)});
+  return result;
+}
+
+std::unordered_map<irep_idt, rra_spect::spect::entityt> 
+rra_spect::spect::get_abst_pointers() const
+{
+  std::unordered_map<irep_idt, entityt> result;
+  for(const auto &ent : abst_entities)
+  {
+    std::unordered_map<irep_idt, entityt> result_array =
+      search_for_entities(*(ent.second), entityt::ARRAY, "");
+    std::unordered_map<irep_idt, entityt> result_c_str =
+      search_for_entities(*(ent.second), entityt::CONST_C_STR, "");
+    result.insert(result_array.begin(), result_array.end());
+    result.insert(result_c_str.begin(), result_c_str.end());
+  }
   return result;
 }
 
@@ -654,17 +678,27 @@ rra_spect::spect::get_abst_const_c_strs() const
 }
 
 std::unordered_map<irep_idt, rra_spect::spect::entityt>
-rra_spect::spect::get_abst_indices() const
+rra_spect::spect::get_abst_iterator_scalars() const
 {
   std::unordered_map<irep_idt, entityt> result;
   for(const auto &ent : abst_entities)
   {
     std::unordered_map<irep_idt, entityt> sub_result_scalar =
-      search_for_entities(*(ent.second), entityt::SCALAR, "");
-    std::unordered_map<irep_idt, entityt> sub_result_length =
-      search_for_entities(*(ent.second), entityt::LENGTH, "");
+      search_for_entities(*(ent.second), entityt::ITERATOR_SCALAR, "");
     result.insert(sub_result_scalar.begin(), sub_result_scalar.end());
-    result.insert(sub_result_length.begin(), sub_result_length.end());
+  }
+  return result;
+}
+
+std::unordered_map<irep_idt, rra_spect::spect::entityt>
+rra_spect::spect::get_abst_iterator_pointers() const
+{
+  std::unordered_map<irep_idt, entityt> result;
+  for(const auto &ent : abst_entities)
+  {
+    std::unordered_map<irep_idt, entityt> sub_result_scalar =
+      search_for_entities(*(ent.second), entityt::ITERATOR_POINTER, "");
+    result.insert(sub_result_scalar.begin(), sub_result_scalar.end());
   }
   return result;
 }
@@ -673,7 +707,7 @@ std::unordered_map<irep_idt, rra_spect::spect::entityt>
 rra_spect::spect::get_abst_lengths() const
 {
   std::unordered_map<irep_idt, entityt> result;
-  for(const auto &ent : abst_entities)
+  for(const auto &ent : length_entities)
   {
     std::unordered_map<irep_idt, entityt> sub_result =
       search_for_entities(*(ent.second), entityt::LENGTH, "");
@@ -744,7 +778,7 @@ rra_spect::spect::get_abst_lengths_with_expr(const namespacet &ns) const
   // e.g. "buffer", "array", "len" in buffer->array.len
   std::vector<std::vector<entityt>> all_length_paths;
   std::vector<entityt> current_path;
-  for(const auto &ent : abst_entities)
+  for(const auto &ent : length_entities)
   {
     current_path.push_back(*ent.second);
     search_all_lengths_and_generate_path(current_path, all_length_paths);
