@@ -153,3 +153,89 @@ void get_modifies(
     }
   }
 }
+
+void get_accesses_expr(
+  const local_may_aliast &local_may_alias,
+  goto_programt::const_targett t,
+  const exprt &expr,
+  accessest &accesses)
+{
+  // a class that will iterate through sub-exprs of an expr
+  // to get accessed expressions 
+  class visit_accessest : public const_expr_visitort
+  {
+  protected:
+    accessest &accesses;
+    const local_may_aliast &local_may_alias;
+    goto_programt::const_targett t;
+  
+  public:
+    explicit visit_accessest(
+      accessest &_accesses, 
+      const local_may_aliast &_local_may_alias, 
+      goto_programt::const_targett _t)
+      : accesses(_accesses),
+        local_may_alias(_local_may_alias),
+        t(_t)
+    {
+    }
+
+    void operator()(const exprt &expr)
+    {
+      if(expr.id() == ID_symbol || expr.id() == ID_member || expr.id() == ID_index)
+        accesses.insert(expr);
+      else if(expr.id()==ID_dereference)
+      {
+        const pointer_arithmetict ptr(to_dereference_expr(expr).pointer());
+        for(const auto &mod : local_may_alias.get(t, ptr.pointer))
+        {
+          if(ptr.offset.is_nil())
+            accesses.insert(dereference_exprt{mod});
+          else
+            accesses.insert(dereference_exprt{plus_exprt{mod, ptr.offset}});
+        }
+      }
+    }
+  };
+
+  visit_accessest visit_accesses(accesses, local_may_alias, t);
+  expr.visit(visit_accesses);
+}
+
+void get_accesses(
+  const local_may_aliast &local_may_alias,
+  const loopt &loop,
+  accessest &accesses)
+{
+  for(loopt::const_iterator
+      i_it=loop.begin(); i_it!=loop.end(); i_it++)
+  {
+    const goto_programt::instructiont &instruction=**i_it;
+
+    if(instruction.is_goto() || instruction.is_assert() || instruction.is_assume())
+    {
+      const exprt &expr = instruction.get_condition();
+      get_accesses_expr(local_may_alias, *i_it, expr, accesses);
+    }
+    else if(instruction.is_return())
+    {
+      if(instruction.get_return().has_return_value())
+      {
+        const exprt &ret = instruction.get_return().return_value();
+        get_accesses_expr(local_may_alias, *i_it, ret, accesses);
+      }
+    }
+    else if(instruction.is_assign())
+    {
+      const exprt &rhs = instruction.get_assign().rhs();
+      get_accesses_expr(local_may_alias, *i_it, rhs, accesses);
+    }
+    else if(instruction.is_function_call())
+    {
+      for (const auto &arg: instruction.get_function_call().arguments())
+      {
+        get_accesses_expr(local_may_alias, *i_it, arg, accesses);
+      }
+    }
+  }
+}

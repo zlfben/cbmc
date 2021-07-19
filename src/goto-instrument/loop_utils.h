@@ -17,6 +17,7 @@ Author: Daniel Kroening, kroening@kroening.com
 class local_may_aliast;
 
 typedef std::set<exprt> modifiest;
+typedef std::set<exprt> accessest;
 typedef natural_loops_mutablet::natural_loopt loopt;
 
 void get_modifies(
@@ -24,11 +25,22 @@ void get_modifies(
   const loopt &loop,
   modifiest &modifies);
 
+void get_accesses(
+  const local_may_aliast &local_may_alias,
+  const loopt &loop,
+  accessest &accesses);
+
 void get_modifies_lhs(
   const local_may_aliast &local_may_alias,
   goto_programt::const_targett t,
   const exprt &lhs,
   modifiest &modifies);
+
+void get_accesses_expr(
+  const local_may_aliast &local_may_alias,
+  goto_programt::const_targett t,
+  const exprt &expr,
+  accessest &accesses);
 
 void build_havoc_code(
   const goto_programt::targett loop_head,

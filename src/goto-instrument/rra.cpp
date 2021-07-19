@@ -1873,14 +1873,23 @@ void rrat::analyze_soundness(
     
     for (const auto &loop: natural_loops.loop_map) {
       modifiest modifies;
+      accessest accesses;
       get_modifies(local_may_alias, loop.second, modifies);
+      get_accesses(local_may_alias, loop.second, accesses);
       std::cout << "!!!!!!loop found in " 
                 << func_name
                 << " size: "
                 << loop.second.size() 
                 << std::endl;
       for (const auto &exp: modifies) {
+        std::cout << "modified: ";
         format_rec(std::cout, exp);
+        std::cout << std::endl;
+      }
+      for (const auto &exp: accesses) {
+        std::cout << "accessed: ";
+        format_rec(std::cout, exp);
+        std::cout << std::endl;
       }
     }
   }
