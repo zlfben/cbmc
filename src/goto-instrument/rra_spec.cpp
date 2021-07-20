@@ -264,6 +264,19 @@ rra_spect rra_spect::update_abst_spec(
   return new_abst_spec;
 }
 
+std::unordered_set<irep_idt> rra_spect::get_iterators() const
+{
+  std::unordered_set<irep_idt> iterators;
+  for(const auto &spec : specs)
+  {
+    for(const auto &ent: spec.get_abst_iterator_scalars())
+      iterators.insert(ent.first);
+    for(const auto &ent: spec.get_abst_iterator_pointers())
+      iterators.insert(ent.first);
+  }
+  return iterators;
+}
+
 void rra_spect::get_entities_string(std::ostream &output) const
 {
   for(const auto &spec : specs)

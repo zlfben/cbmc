@@ -202,40 +202,68 @@ void get_accesses_expr(
   expr.visit(visit_accesses);
 }
 
+void get_accesses_instr(
+  const local_may_aliast &local_may_alias,
+  goto_programt::const_targett t,
+  const goto_programt::instructiont &instruction, 
+  accessest &writes,
+  accessest &reads)
+{
+  if(instruction.is_goto() || instruction.is_assert() || instruction.is_assume())
+  {
+    const exprt &expr = instruction.get_condition();
+    get_accesses_expr(local_may_alias, t, expr, reads);
+  }
+  else if(instruction.is_return())
+  {
+    if(instruction.get_return().has_return_value())
+    {
+      const exprt &ret = instruction.get_return().return_value();
+      get_accesses_expr(local_may_alias, t, ret, reads);
+    }
+  }
+  else if(instruction.is_assign())
+  {
+    const exprt &lhs = instruction.get_assign().lhs();
+    const exprt &rhs = instruction.get_assign().rhs();
+    get_modifies_lhs(local_may_alias, t, lhs, writes);
+    get_accesses_expr(local_may_alias, t, rhs, reads);
+  }
+  else if(instruction.is_function_call())
+  {
+    const exprt &lhs = instruction.get_function_call().lhs();
+    get_modifies_lhs(local_may_alias, t, lhs, writes);
+    for (const auto &arg: instruction.get_function_call().arguments())
+      get_accesses_expr(local_may_alias, t, arg, reads);
+  }
+}
+
 void get_accesses(
   const local_may_aliast &local_may_alias,
   const loopt &loop,
-  accessest &accesses)
+  accessest &write_accesses,
+  accessest &read_accesses,
+  const accessest &iterator_bypasses)
 {
   for(loopt::const_iterator
       i_it=loop.begin(); i_it!=loop.end(); i_it++)
   {
     const goto_programt::instructiont &instruction=**i_it;
+    // reads and writes to variables in this instruction
+    accessest writes, reads;
+    get_accesses_instr(local_may_alias, *i_it, instruction, writes, reads);
 
-    if(instruction.is_goto() || instruction.is_assert() || instruction.is_assume())
+    // we can bypass the instruction 
+    // if it is a self-update of an iterator
+    // otherwise update the access set
+    if(!(writes.size() == 1 && reads.size() == 1 && 
+         *writes.begin() == *reads.begin() &&
+         iterator_bypasses.find(*writes.begin()) != iterator_bypasses.end()))
     {
-      const exprt &expr = instruction.get_condition();
-      get_accesses_expr(local_may_alias, *i_it, expr, accesses);
-    }
-    else if(instruction.is_return())
-    {
-      if(instruction.get_return().has_return_value())
-      {
-        const exprt &ret = instruction.get_return().return_value();
-        get_accesses_expr(local_may_alias, *i_it, ret, accesses);
-      }
-    }
-    else if(instruction.is_assign())
-    {
-      const exprt &rhs = instruction.get_assign().rhs();
-      get_accesses_expr(local_may_alias, *i_it, rhs, accesses);
-    }
-    else if(instruction.is_function_call())
-    {
-      for (const auto &arg: instruction.get_function_call().arguments())
-      {
-        get_accesses_expr(local_may_alias, *i_it, arg, accesses);
-      }
+      for(const auto &exp: writes)
+        write_accesses.insert(exp);
+      for(const auto &exp: reads)
+        read_accesses.insert(exp);
     }
   }
 }

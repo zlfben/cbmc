@@ -654,6 +654,9 @@ public:
     return true;
   }
 
+  // return all iterators (iterator_scalar, iterator_pointer)
+  std::unordered_set<irep_idt> get_iterators() const;
+
   // get a string containing all entity names
   void get_entities_string(std::ostream &output) const;
   // print all entities

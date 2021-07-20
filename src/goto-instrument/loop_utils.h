@@ -28,13 +28,22 @@ void get_modifies(
 void get_accesses(
   const local_may_aliast &local_may_alias,
   const loopt &loop,
-  accessest &accesses);
+  accessest &write_accesses,
+  accessest &read_accesses,
+  const accessest &iterator_bypasses=accessest());
 
 void get_modifies_lhs(
   const local_may_aliast &local_may_alias,
   goto_programt::const_targett t,
   const exprt &lhs,
   modifiest &modifies);
+
+void get_accesses_instr(
+  const local_may_aliast &local_may_alias,
+  goto_programt::const_targett t,
+  const goto_programt::instructiont &instruction, 
+  accessest &write_accesses,
+  accessest &read_accesses);
 
 void get_accesses_expr(
   const local_may_aliast &local_may_alias,

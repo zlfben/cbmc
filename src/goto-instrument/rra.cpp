@@ -1859,6 +1859,57 @@ void rrat::update_pointer_obj(
   inst_after.insert(inst_after.end(), fake_insts_after.begin(), fake_insts_after.end());
 }
 
+void rrat::analyze_soundness_loop(
+    const local_may_aliast &local_may_alias,
+    const loopt &loop,
+    const accessest &iterator_bypasses)
+{
+  // step 1: go through loop, find all modified variables
+  accessest writes_all, reads_all;
+  get_accesses(
+    local_may_alias, 
+    loop, 
+    writes_all, reads_all, 
+    iterator_bypasses);
+
+  // step 2: go through each instruction, check violations
+  // variables that has been written within iteration
+  accessest writes_within_iteration;
+  for(loopt::const_iterator
+      i_it=loop.begin(); i_it!=loop.end(); i_it++)
+  {
+    const goto_programt::instructiont &instruction=**i_it;
+    // reads and writes to variables in this instruction
+    accessest writes, reads;
+    get_accesses_instr(local_may_alias, *i_it, instruction, writes, reads);
+
+    // step 2.1: if the instruction is a target, it is possible
+    //           to jump here from elsewhere, should clear 
+    //           writes_within_iteration
+    if(instruction.is_target())
+      writes_within_iteration.clear();
+
+    // step 2.2 check violations
+    for(const auto &expr_read: reads)
+    {
+      // if variable is modified within loop, 
+      // but not modified within current iteration, 
+      // it is a true dependence
+      if(writes_all.find(expr_read) != writes_all.end() && 
+         writes_within_iteration.find(expr_read) == writes_within_iteration.end())
+      {
+        std::cout << "!!!!!Dependence found for variable ";
+        format_rec(std::cout, expr_read);
+        std::cout << std::endl;
+      }
+    }
+
+    // step 2.3 update writes_within_iteration
+    for(const auto &expr_write: writes)
+      writes_within_iteration.insert(expr_write);
+  }
+}
+
 void rrat::analyze_soundness(
     goto_modelt &goto_model,
     std::unordered_set<irep_idt> &all_funcs,
@@ -1866,31 +1917,29 @@ void rrat::analyze_soundness(
 {
   auto &goto_functions = goto_model.goto_functions;
 
+  // get all iterators for loops
+  // instructions that only update iterators without 
+  // accessing other variables should be skipped 
+  accessest bypass_iterators;
+  const auto unordered_iterators = abst_spec.get_iterators();
+  for(const auto &iterator_id: unordered_iterators)
+  {
+    const symbolt iterator_symb =
+      goto_model.get_symbol_table().lookup_ref(iterator_id);
+    bypass_iterators.insert(iterator_symb.symbol_expr());
+  }
+  
   for (const auto &func_name: all_funcs) {
     auto goto_func = goto_functions.function_map.find(func_name);
     natural_loops_mutablet natural_loops(goto_func->second.body);
     local_may_aliast local_may_alias(goto_func->second);
     
     for (const auto &loop: natural_loops.loop_map) {
-      modifiest modifies;
-      accessest accesses;
-      get_modifies(local_may_alias, loop.second, modifies);
-      get_accesses(local_may_alias, loop.second, accesses);
-      std::cout << "!!!!!!loop found in " 
-                << func_name
-                << " size: "
-                << loop.second.size() 
-                << std::endl;
-      for (const auto &exp: modifies) {
-        std::cout << "modified: ";
-        format_rec(std::cout, exp);
-        std::cout << std::endl;
-      }
-      for (const auto &exp: accesses) {
-        std::cout << "accessed: ";
-        format_rec(std::cout, exp);
-        std::cout << std::endl;
-      }
+      analyze_soundness_loop(
+        local_may_alias, 
+        loop.second, 
+        bypass_iterators);
+      
     }
   }
 }

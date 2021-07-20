@@ -32,7 +32,9 @@ Author: Adrian Palacios accorell@amazon.com
 #include <util/json.h>
 #include <util/options.h>
 #include <util/ui_message.h>
-
+#include <analyses/natural_loops.h>
+#include <analyses/local_may_alias.h>
+#include <goto-instrument/loop_utils.h>
 #include <goto-programs/goto_model.h>
 
 #include "rra_spec.h"
@@ -354,6 +356,12 @@ protected:
     goto_programt::instructionst &inst_after,
     std::vector<symbolt> &new_symbs);
   
+  // analyze soundness of a certain loop
+  static void analyze_soundness_loop(
+    const local_may_aliast &local_may_alias,
+    const loopt &loop,
+    const accessest &iterator_bypasses=accessest());
+
   // this function analyze the soundness 
   // of abstraction. It checks whether we
   // have dependences in loops. If so, 
