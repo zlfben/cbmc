@@ -662,6 +662,9 @@ public:
   // print all entities
   void print_entities() const;
 
+  // get the times for which loops should be unwinded
+  unsigned get_unwind_times() const;
+
 protected:
   std::vector<spect> specs;
   irep_idt function; // function name, no need to have path

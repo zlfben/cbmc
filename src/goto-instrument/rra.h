@@ -309,6 +309,13 @@ protected:
   // check whether an expr is a pointer offset
   static bool is_pointer_offset(const exprt &expr);
 
+  // check whether an expression (concrete) is at a 
+  // precise location. return an expression typed boolean
+  static exprt check_prec_expr(
+    const exprt &expr, 
+    const rra_spect::spect &spec, 
+    const goto_modelt &goto_model);
+
   /// \param expr: the expression to be read
   /// \param abst_spec: the abstration information for the current function
   /// \param goto_model: the goto_model

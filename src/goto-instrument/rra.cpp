@@ -30,7 +30,10 @@ Author: Adrian Palacios accorell@amazon.com
 #include <util/pointer_expr.h>
 #include <analyses/natural_loops.h>
 #include <analyses/local_may_alias.h>
-#include <goto-instrument/loop_utils.h>
+
+#include "loop_utils.h"
+#include "unwind.h"
+#include "unwindset.h"
 
 irep_idt rrat::get_string_id_from_exprt(const exprt &expr)
 {
@@ -405,14 +408,8 @@ exprt rrat::add_guard_expression_to_assert(
   // for every dereference deref(pointer) in assertion (the pointer should be the original one which need to be read again)
   //   for every abst array with obj array$obj (using spec$x)
   //     if (pointer_object(pointer) != array$obj) GOTO endif
-  //       declare abst_index
-  //       declare is_prec_ret
-  //       abst_index = abstract(pointer_offset(pointer))
-  //       is_prec_ret = is_precise(abst_index)
-  //       is_prec = is_prec && is_prec_ret
+  //       is_prec = is_prec && is_prec(pointer_offset(pointer))
   //       counter_spec$x++
-  //       dead is_prec_ret
-  //       dead abst_index
   //       GOTO end ==> this is important because when two abst arrays refer to the same obj, 
   //                    we don't want to count twice in the invariant check.
   //     endif: SKIP
@@ -486,37 +483,18 @@ exprt rrat::add_guard_expression_to_assert(
         goto_label_map.insert({insts_before.size(), "endif" + std::to_string(counter)});
         insts_before.push_back(goto_programt::make_goto(empty_target, guard));
 
-        // the dead of the tmp function calls should be add right after this block, but not the entire thing
-        goto_programt::instructionst fake_insts_after;
-
-        // abst_index = abstract(pointer_offset(pointer))
-        exprt::operandst operands_abstract{pointer_offset(pointer)};
-        push_concrete_indices_to_operands(operands_abstract, spec, goto_model);
-        auto abst_index_symb = create_function_call(
-          spec.get_abstract_func(), operands_abstract, current_func,
-          goto_model, insts_before, fake_insts_after, new_symbs);
-
-        // is_prec_ret = is_precise(abst_index)
-        exprt::operandst operands_is_prec{abst_index_symb.symbol_expr()};
-        push_concrete_indices_to_operands(operands_is_prec, spec, goto_model);
-        auto is_prec_ret_symb = create_function_call(
-          spec.get_precise_func(), operands_is_prec, current_func,
-          goto_model, insts_before, fake_insts_after, new_symbs);
-
-        // is_prec = is_prec && is_prec_ret
+        // is_prec = is_prec && is_prec(pointer_offset(pointer))
+        exprt is_prec = check_prec_expr(pointer_offset(pointer), spec, goto_model);
         insts_before.push_back(goto_programt::make_assignment(
           is_prec_symb.symbol_expr(),
           and_exprt(
             is_prec_symb.symbol_expr(),
-            typecast_exprt(is_prec_ret_symb.symbol_expr(), bool_typet()))));
+            typecast_exprt(is_prec, bool_typet()))));
 
         // counter_spec$x += 1
         insts_before.push_back(goto_programt::make_assignment(
           spec_access_counters[spec_i].symbol_expr(), 
           plus_exprt(spec_access_counters[spec_i].symbol_expr(), one_uint)));
-
-        // the dead instructions
-        insts_before.insert(insts_before.end(), fake_insts_after.begin(), fake_insts_after.end());
 
         // insert the goto end, update goto_label map
         goto_label_map.insert({insts_before.size(), "end"});
@@ -1143,128 +1121,8 @@ exprt rrat::abstract_expr_write(
     {
       // In the previous step, we do:  
       // expr <deref(pointer)> =======> new_expr <deref(abst_read(pointer))> 
-      // need to check if this is an abstracted array reference 
-      // ============= instructions ============= 
-      // declare result_pointer 
-      // declare abst_index 
-      // declare base_pointer
-      // base_pointer = pointer - offset(pointer)
-      // **for every array entity** 
-      // if(pointer_object(pointer) == entity1$obj) GOTO 1; 
-      // if(pointer_object(pointer) == entity2$obj) GOTO 2; 
-      // ... 
-      // GOTO deft; 
-      // 1:    
-      //      abst_index = abstract(offset(pointer)) 
-      //      result_pointer = base_pointer + abst_index 
-      //      GOTO end; 
-      // ... 
-      // deft: result_pointer = pointer
-      // end: **inst containing this deref**: replace with deref(result_pointer) 
-      // dead abst_index 
-      // dead result_pointer 
-      // =========================================
       const exprt &pointer = new_expr.operands()[0];
-      
-      // Declare and dead for result, abst_index, base_pointer
-      symbolt result_pointer_symb = create_temp_var(
-        "result_pointer", remove_const(pointer.type()), current_func, goto_model, 
-        insts_before, insts_after, new_symbs);
-      symbolt abst_index_symb = create_temp_var(
-        "abst_index", size_type(), current_func, goto_model, 
-        insts_before, insts_after, new_symbs);
-      symbolt base_pointer_symb = create_temp_var(
-        "base_pointer", remove_const(pointer.type()), current_func, goto_model, 
-        insts_before, insts_after, new_symbs);
-
-      // base_pointer = pointer - offset(pointer)
-      insts_before.push_back(goto_programt::make_assignment(
-        base_pointer_symb.symbol_expr(),
-        minus_exprt(pointer, pointer_offset(pointer))));
-
-      std::unordered_map<size_t, std::string> goto_label_map;  // goto's index in insts_before ==> labels: "0","1",..., "deft", "end"
-      std::unordered_map<std::string, size_t> label_target_map;  // labels: "0"..."end" ==> target inst's index in insts_before
-      
-      // Go through each abst array and insert conditional goto
-      size_t counter = 0;
-      for(const auto &spec: abst_spec.get_specs())
-      {
-        for(const auto &ent: spec.get_abst_pointers())
-        {
-          // since the target inst is not inserted yet, here we use an empty place holder
-          goto_programt::targett empty_target;
-          // get the global pointer_obj var
-          const irep_idt ent_pointer_obj_id = get_memory_addr_name(ent.first);
-          const exprt ent_pointer_obj =
-            goto_model.symbol_table.lookup_ref(ent_pointer_obj_id).symbol_expr();
-          // guard: pointer_object(pointer) == ent$obj
-          exprt guard = equal_exprt(pointer_object(pointer), ent_pointer_obj);
-          // insert the instruction, update goto_label_map
-          goto_label_map.insert({insts_before.size(), std::to_string(counter)});
-          insts_before.push_back(goto_programt::make_goto(empty_target, guard));
-          counter++;
-        }
-      }
-
-      // If not matched to any, GOTO deft
-      goto_programt::targett empty_target;
-      goto_label_map.insert({insts_before.size(), "deft"});
-      insts_before.push_back(goto_programt::make_goto(empty_target));
-
-      // Go through each abst array, calculate abst_index and result 
-      counter = 0;
-      for(const auto &spec: abst_spec.get_specs())
-      {
-        for(size_t i=0; i<spec.get_abst_pointers().size(); i++)
-        {
-          // update label_target to label the starting point of this body
-          label_target_map.insert({std::to_string(counter), insts_before.size()});
-
-          // function call: abst_index = abstract(offset(pointer))
-          exprt::operandst operands{pointer_offset(pointer)};
-          push_concrete_indices_to_operands(operands, spec, goto_model);
-          symbol_exprt func_call_expr =
-            goto_model.get_symbol_table().lookup_ref(spec.get_abstract_func()).symbol_expr();
-          auto new_func_call_inst = goto_programt::make_function_call(
-            code_function_callt(abst_index_symb.symbol_expr(), func_call_expr, operands));
-          insts_before.push_back(new_func_call_inst);
-
-          // update result_pointer: result_pointer = base_pointer+abst_index
-          insts_before.push_back(goto_programt::make_assignment(
-            result_pointer_symb.symbol_expr(),
-            plus_exprt(
-              base_pointer_symb.symbol_expr(), abst_index_symb.symbol_expr())));
-
-          // GOTO end, and update goto_label_map
-          goto_label_map.insert({insts_before.size(), "end"});
-          insts_before.push_back(goto_programt::make_goto(empty_target));
-
-          counter++;
-        }
-      }
-
-      // Calculate default result_pointer (deft: result_pointer = pointer)
-      label_target_map.insert({"deft", insts_before.size()});
-      insts_before.push_back(goto_programt::make_assignment(result_pointer_symb.symbol_expr(), pointer));
-
-      // placeholder end label
-      label_target_map.insert({"end", insts_before.size()});
-      insts_before.push_back(goto_programt::make_skip());
-
-      // before returning, update the goto target map
-      for(auto &id_label: goto_label_map)
-      {
-        INVARIANT(
-          label_target_map.find(id_label.second) != label_target_map.end(),
-          "the label " + id_label.second + " is not defined");
-        INVARIANT(
-          insts_before_goto_target_map.find(id_label.first) ==
-            insts_before_goto_target_map.end(),
-          "instruction's target defined twice");
-        insts_before_goto_target_map.insert({id_label.first, label_target_map[id_label.second]});
-      }
-
-      return std::move(dereference_exprt(result_pointer_symb.symbol_expr()));
+      return std::move(dereference_exprt(pointer));
     }
     else
     {
@@ -1321,6 +1179,30 @@ bool rrat::is_pointer_offset(const exprt &expr)
   }
 }
 
+// check whether an expression (concrete) is at a 
+// precise location. return an expression typed boolean
+exprt rrat::check_prec_expr(
+  const exprt &expr, 
+  const rra_spect::spect &spec, 
+  const goto_modelt &goto_model)
+{
+  exprt::operandst or_exprs;
+  for(const auto &conc : spec.get_shape_indices())
+  {
+    INVARIANT(
+      goto_model.get_symbol_table().has_symbol(conc),
+      "Symbol " + std::string(spec.get_length_index_name().c_str()) +
+        " not defined");
+    const symbolt conc_index =
+      goto_model.get_symbol_table().lookup_ref(conc);
+    or_exprs.push_back(
+      equal_exprt(
+        typecast_exprt(expr, conc_index.symbol_expr().type()), 
+        conc_index.symbol_expr()));
+  }
+  return std::move(or_exprt(or_exprs));
+}
+
 exprt rrat::abstract_expr_read(
   const exprt &expr,
   const rra_spect &abst_spec,
@@ -1334,8 +1216,6 @@ exprt rrat::abstract_expr_read(
   rra_spect::spect spec;
   if(check_if_exprt_is_abst_index(expr, abst_spec, spec))
   {
-    // TODO: what if an entity is refered elsewhere????
-    //       should do closure analysis
     // declare conc
     // conc = concrete(expr)
     // **inst containing this read**: replace with conc
@@ -1375,44 +1255,30 @@ exprt rrat::abstract_expr_read(
     {
       // In the previous step, we do:  
       // expr <deref(pointer)> =======> new_expr <deref(abst_read(pointer))> 
+      // pointer is now abst_read(pointer)
       // need to check if this is an abstracted array reference 
       // TO DISCUSS: should we put these instructions into a function?
       // ============= instructions ============= 
-      // declare result 
-      // declare abst_index 
-      // declare base_pointer
-      // base_pointer = pointer - offset(pointer)
+      // declare result
       // **for every array entity** 
       // if(pointer_object(pointer) == entity1$obj) GOTO 1; 
       // if(pointer_object(pointer) == entity2$obj) GOTO 2; 
       // ... 
       // GOTO deft; 
-      // 1:   abst_index = abstract(offset(pointer)) 
-      //      result = is_precise(abst_index) ? deref(base_pointer(pointer) + abst_index) : nondet 
+      // 1:   
+      //      result = is_precise(offset(pointer)) ? *pointer : nondet 
       //      GOTO end; 
       // ... 
       // deft: result = new_expr 
       // end: **inst containing this deref**: replace with result 
-      // dead abst_index 
       // dead result 
       // =========================================
       const exprt &pointer = new_expr.operands()[0];
       
-      // Declare and dead for result, abst_index, base_pointer
+      // Declare and dead for result
       symbolt result_symb = create_temp_var(
         "result", remove_const(new_expr.type()), current_func, goto_model, 
         insts_before, insts_after, new_symbs);
-      symbolt abst_index_symb = create_temp_var(
-        "abst_index", size_type(), current_func, goto_model, 
-        insts_before, insts_after, new_symbs);
-      symbolt base_pointer_symb = create_temp_var(
-        "base_pointer", remove_const(pointer.type()), current_func, goto_model, 
-        insts_before, insts_after, new_symbs);
-
-      // base_pointer = pointer - offset(pointer)
-      insts_before.push_back(goto_programt::make_assignment(
-        base_pointer_symb.symbol_expr(),
-        minus_exprt(pointer, pointer_offset(pointer))));
 
       std::unordered_map<size_t, std::string> goto_label_map;  // goto's index in insts_before ==> labels: "0","1",..., "deft", "end"
       std::unordered_map<std::string, size_t> label_target_map;  // labels: "0"..."end" ==> target inst's index in insts_before
@@ -1452,34 +1318,16 @@ exprt rrat::abstract_expr_read(
           // update label_target to label the starting point of this body
           label_target_map.insert({std::to_string(counter), insts_before.size()});
 
-          // function call: abst_index = abstract(offset(pointer))
-          exprt::operandst operands{pointer_offset(pointer)};
-          push_concrete_indices_to_operands(operands, spec, goto_model);
-          symbol_exprt func_call_expr =
-            goto_model.get_symbol_table().lookup_ref(spec.get_abstract_func()).symbol_expr();
-          auto new_func_call_inst = goto_programt::make_function_call(
-            code_function_callt(abst_index_symb.symbol_expr(), func_call_expr, operands));
-          insts_before.push_back(new_func_call_inst);
-
-          // update result: result = is_precise(abst_index) ? deref(base_pointer+abst_index) : nondet
+          // update result: result = is_precise(offset(pointer)) ? *pointer : nondet 
           //        first call is_precise
-          exprt::operandst operands_is_prec{abst_index_symb.symbol_expr()};
-          push_concrete_indices_to_operands(operands_is_prec, spec, goto_model);
-          //        the dead of the tmp function call should be add right after this block, but not the entire thing
-          goto_programt::instructionst fake_insts_after;
-          auto is_prec_ret = create_function_call(
-            spec.get_precise_func(), operands_is_prec, current_func,
-            goto_model, insts_before, fake_insts_after, new_symbs);
+          exprt is_prec = check_prec_expr(pointer_offset(pointer), spec, goto_model);
+
           //        then create the instruction
-          exprt precise_val = dereference_exprt(plus_exprt(
-            base_pointer_symb.symbol_expr(), abst_index_symb.symbol_expr()));
           exprt result_expr = if_exprt(
-            typecast_exprt(is_prec_ret.symbol_expr(), bool_typet()),
-            precise_val,
+            typecast_exprt(is_prec, bool_typet()),
+            new_expr,
             side_effect_expr_nondett(new_expr.type(), source_locationt()));
           insts_before.push_back(goto_programt::make_assignment(result_symb.symbol_expr(), result_expr));
-          //        the dead instructions for the is_prec call
-          insts_before.insert(insts_before.end(), fake_insts_after.begin(), fake_insts_after.end());
 
           // GOTO end, and update goto_label_map
           goto_label_map.insert({insts_before.size(), "end"});
@@ -2242,4 +2090,19 @@ void rrat::abstract_goto_program(goto_modelt &goto_model, rra_spect &abst_spec)
       }
     }
   }
+
+  // update location numbers
+  goto_model.goto_functions.update();
+  
+  // unwind loops here for enough times
+  unwindsett unwindset;
+  unsigned unwind_times = abst_spec.get_unwind_times();
+  unwindset.parse_unwind(std::to_string(unwind_times));
+  goto_unwindt::unwind_strategyt unwind_strategy=
+    goto_unwindt::unwind_strategyt::ASSUME;
+  std::cout << "Unwinding loops for: "
+            << unwind_times
+            << " times" << std::endl;
+  goto_unwindt goto_unwind;
+    goto_unwind(goto_model, unwindset, unwind_strategy);
 }

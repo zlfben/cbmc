@@ -304,6 +304,15 @@ void rra_spect::print_entities() const
   std::cout << output.str();
 }
 
+unsigned rra_spect::get_unwind_times() const
+{
+  unsigned unwind_times = 0;
+  for(const auto &spec: specs)
+    if(unwind_times < spec.get_shape_type().length())
+      unwind_times = spec.get_shape_type().length();
+  return unwind_times;
+}
+
 void rra_spect::spect::insert_entity(
   const irep_idt &_name,
   const rra_spect::spect::entityt &entity)
