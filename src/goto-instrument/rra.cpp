@@ -1113,7 +1113,7 @@ exprt rrat::abstract_expr_write(
     exprt new_expr = expr;
     for(auto &op: new_expr.operands())
     {
-      op = abstract_expr_write(
+      op = abstract_expr_read(
         op, abst_spec, goto_model, current_func, insts_before, 
         insts_after, new_symbs, insts_before_goto_target_map);
     }
@@ -1184,23 +1184,44 @@ bool rrat::is_pointer_offset(const exprt &expr)
 exprt rrat::check_prec_expr(
   const exprt &expr, 
   const rra_spect::spect &spec, 
-  const goto_modelt &goto_model)
+  const goto_modelt &goto_model,
+  bool is_conc)
 {
   exprt::operandst or_exprs;
   for(const auto &conc : spec.get_shape_indices())
   {
     INVARIANT(
       goto_model.get_symbol_table().has_symbol(conc),
-      "Symbol " + std::string(spec.get_length_index_name().c_str()) +
+      "Symbol " + std::string(conc.c_str()) +
         " not defined");
+    irep_idt correct_conc = is_conc ? conc : spec.get_abst_index_name(conc);
     const symbolt conc_index =
-      goto_model.get_symbol_table().lookup_ref(conc);
+      goto_model.get_symbol_table().lookup_ref(correct_conc);
     or_exprs.push_back(
       equal_exprt(
         typecast_exprt(expr, conc_index.symbol_expr().type()), 
         conc_index.symbol_expr()));
   }
   return std::move(or_exprt(or_exprs));
+}
+
+
+exprt rrat::check_index_is_last(
+  const exprt &expr, 
+  const rra_spect::spect spec, 
+  const goto_modelt &goto_model)
+{
+  const auto &shape_indices = spec.get_shape_indices();
+  irep_idt last_index = shape_indices.back();
+  irep_idt last_index_abst = spec.get_abst_index_name(last_index);
+  INVARIANT(
+    goto_model.get_symbol_table().has_symbol(last_index_abst),
+    "Symbol " + std::string(last_index_abst.c_str()) +
+      " not defined");
+  const symbolt last_index_abst_symb = 
+    goto_model.get_symbol_table().lookup_ref(last_index_abst);
+  return std::move(binary_relation_exprt(
+    expr, ID_gt, last_index_abst_symb.symbol_expr()));
 }
 
 exprt rrat::abstract_expr_read(
@@ -1274,91 +1295,91 @@ exprt rrat::abstract_expr_read(
       // dead result 
       // =========================================
       const exprt &pointer = new_expr.operands()[0];
+      return std::move(dereference_exprt(pointer));
+      // // Declare and dead for result
+      // symbolt result_symb = create_temp_var(
+      //   "result", remove_const(new_expr.type()), current_func, goto_model, 
+      //   insts_before, insts_after, new_symbs);
+
+      // std::unordered_map<size_t, std::string> goto_label_map;  // goto's index in insts_before ==> labels: "0","1",..., "deft", "end"
+      // std::unordered_map<std::string, size_t> label_target_map;  // labels: "0"..."end" ==> target inst's index in insts_before
       
-      // Declare and dead for result
-      symbolt result_symb = create_temp_var(
-        "result", remove_const(new_expr.type()), current_func, goto_model, 
-        insts_before, insts_after, new_symbs);
+      // // Go through each abst array and insert conditional goto
+      // size_t counter = 0;
+      // for(const auto &spec: abst_spec.get_specs())
+      // {
+      //   for(const auto &ent: spec.get_abst_pointers())
+      //   {
+      //     // since the target inst is not inserted yet, here we use an empty place holder
+      //     goto_programt::targett empty_target;
+      //     // get the global pointer_obj var
+      //     const irep_idt ent_pointer_obj_id = get_memory_addr_name(ent.first);
+      //     const exprt ent_pointer_obj =
+      //       goto_model.symbol_table.lookup_ref(ent_pointer_obj_id).symbol_expr();
+      //     // guard: pointer_object(pointer) == ent$obj
+      //     exprt guard = equal_exprt(pointer_object(pointer), ent_pointer_obj);
+      //     // insert the instruction, update goto_label_map
+      //     goto_label_map.insert({insts_before.size(), std::to_string(counter)});
+      //     insts_before.push_back(goto_programt::make_goto(empty_target, guard));
+      //     counter++;
+      //   }
+      // }
 
-      std::unordered_map<size_t, std::string> goto_label_map;  // goto's index in insts_before ==> labels: "0","1",..., "deft", "end"
-      std::unordered_map<std::string, size_t> label_target_map;  // labels: "0"..."end" ==> target inst's index in insts_before
-      
-      // Go through each abst array and insert conditional goto
-      size_t counter = 0;
-      for(const auto &spec: abst_spec.get_specs())
-      {
-        for(const auto &ent: spec.get_abst_pointers())
-        {
-          // since the target inst is not inserted yet, here we use an empty place holder
-          goto_programt::targett empty_target;
-          // get the global pointer_obj var
-          const irep_idt ent_pointer_obj_id = get_memory_addr_name(ent.first);
-          const exprt ent_pointer_obj =
-            goto_model.symbol_table.lookup_ref(ent_pointer_obj_id).symbol_expr();
-          // guard: pointer_object(pointer) == ent$obj
-          exprt guard = equal_exprt(pointer_object(pointer), ent_pointer_obj);
-          // insert the instruction, update goto_label_map
-          goto_label_map.insert({insts_before.size(), std::to_string(counter)});
-          insts_before.push_back(goto_programt::make_goto(empty_target, guard));
-          counter++;
-        }
-      }
+      // // If not matched to any, GOTO deft
+      // goto_programt::targett empty_target;
+      // goto_label_map.insert({insts_before.size(), "deft"});
+      // insts_before.push_back(goto_programt::make_goto(empty_target));
 
-      // If not matched to any, GOTO deft
-      goto_programt::targett empty_target;
-      goto_label_map.insert({insts_before.size(), "deft"});
-      insts_before.push_back(goto_programt::make_goto(empty_target));
+      // // Go through each abst array, calculate abst_index and result 
+      // counter = 0;
+      // for(const auto &spec: abst_spec.get_specs())
+      // {
+      //   for(size_t i=0; i<spec.get_abst_pointers().size(); i++)
+      //   {
+      //     // update label_target to label the starting point of this body
+      //     label_target_map.insert({std::to_string(counter), insts_before.size()});
 
-      // Go through each abst array, calculate abst_index and result 
-      counter = 0;
-      for(const auto &spec: abst_spec.get_specs())
-      {
-        for(size_t i=0; i<spec.get_abst_pointers().size(); i++)
-        {
-          // update label_target to label the starting point of this body
-          label_target_map.insert({std::to_string(counter), insts_before.size()});
+      //     // update result: result = is_precise(offset(pointer)) ? *pointer : nondet 
+      //     //        first call is_precise
+      //     exprt is_prec = check_prec_expr(pointer_offset(pointer), spec, goto_model);
 
-          // update result: result = is_precise(offset(pointer)) ? *pointer : nondet 
-          //        first call is_precise
-          exprt is_prec = check_prec_expr(pointer_offset(pointer), spec, goto_model);
+      //     //        then create the instruction
+      //     exprt result_expr = if_exprt(
+      //       typecast_exprt(is_prec, bool_typet()),
+      //       new_expr,
+      //       side_effect_expr_nondett(new_expr.type(), source_locationt()));
+      //     insts_before.push_back(goto_programt::make_assignment(result_symb.symbol_expr(), result_expr));
 
-          //        then create the instruction
-          exprt result_expr = if_exprt(
-            typecast_exprt(is_prec, bool_typet()),
-            new_expr,
-            side_effect_expr_nondett(new_expr.type(), source_locationt()));
-          insts_before.push_back(goto_programt::make_assignment(result_symb.symbol_expr(), result_expr));
+      //     // GOTO end, and update goto_label_map
+      //     goto_label_map.insert({insts_before.size(), "end"});
+      //     insts_before.push_back(goto_programt::make_goto(empty_target));
 
-          // GOTO end, and update goto_label_map
-          goto_label_map.insert({insts_before.size(), "end"});
-          insts_before.push_back(goto_programt::make_goto(empty_target));
+      //     counter++;
+      //   }
+      // }
 
-          counter++;
-        }
-      }
+      // // Calculate default result (deft: result = new_expr)
+      // label_target_map.insert({"deft", insts_before.size()});
+      // insts_before.push_back(goto_programt::make_assignment(result_symb.symbol_expr(), new_expr));
 
-      // Calculate default result (deft: result = new_expr)
-      label_target_map.insert({"deft", insts_before.size()});
-      insts_before.push_back(goto_programt::make_assignment(result_symb.symbol_expr(), new_expr));
+      // // placeholder end label
+      // label_target_map.insert({"end", insts_before.size()});
+      // insts_before.push_back(goto_programt::make_skip());
 
-      // placeholder end label
-      label_target_map.insert({"end", insts_before.size()});
-      insts_before.push_back(goto_programt::make_skip());
+      // // before returning, update the goto target map
+      // for(auto &id_label: goto_label_map)
+      // {
+      //   INVARIANT(
+      //     label_target_map.find(id_label.second) != label_target_map.end(),
+      //     "the label " + id_label.second + " is not defined");
+      //   INVARIANT(
+      //     insts_before_goto_target_map.find(id_label.first) ==
+      //       insts_before_goto_target_map.end(),
+      //     "instruction's target defined twice");
+      //   insts_before_goto_target_map.insert({id_label.first, label_target_map[id_label.second]});
+      // }
 
-      // before returning, update the goto target map
-      for(auto &id_label: goto_label_map)
-      {
-        INVARIANT(
-          label_target_map.find(id_label.second) != label_target_map.end(),
-          "the label " + id_label.second + " is not defined");
-        INVARIANT(
-          insts_before_goto_target_map.find(id_label.first) ==
-            insts_before_goto_target_map.end(),
-          "instruction's target defined twice");
-        insts_before_goto_target_map.insert({id_label.first, label_target_map[id_label.second]});
-      }
-
-      return result_symb.symbol_expr();
+      // return result_symb.symbol_expr();
     }
     else
     {
@@ -1406,6 +1427,64 @@ void rrat::define_concrete_indices(
         "last instruction in function should be END_FUNCTION");
       goto_programt::instructiont new_inst = goto_programt::make_assignment(
         code_assignt(symb_expr, side_effect_expr_nondett(index_type, src_loc)));
+      init_function.insert_before_swap(last_instruction, new_inst);
+    }
+  }
+}
+
+void rrat::define_abstrated_concrete_indices(
+  goto_modelt &goto_model, 
+  const rra_spect &abst_spec)
+{
+  for(const auto &spec : abst_spec.get_specs())
+  {
+    for(const irep_idt &index : spec.get_shape_indices())
+    {
+      irep_idt abst_index = spec.get_abst_index_name(index);
+      // define the "index" in the global scope
+      // Step 0: Define the symbolt. what is the type/location of this variable?
+      // The type should be size_t, which is unsigned_long_int_type
+      // mode should be C
+      unsignedbv_typet index_type = unsigned_long_int_type();
+      source_locationt src_loc;
+      symbolt symb;
+      symb.type = index_type;
+      symb.location = src_loc;
+      symb.name = abst_index;
+      symb.mode = ID_C;
+      symbol_exprt symb_expr = symb.symbol_expr();
+
+      // Step 1: put it into the symbol table
+      if(goto_model.symbol_table.has_symbol(abst_index))
+        throw "the concrete index variable " + std::string(abst_index.c_str()) +
+          " is already defined (abstracted space)";
+      goto_model.symbol_table.insert(std::move(symb));
+
+      // Step 2: put it into __CPROVER_initialize
+      // cncrt$abst = abstract(cncrt)
+      goto_functionst::function_mapt::iterator fct_entry =
+        goto_model.goto_functions.function_map.find(INITIALIZE_FUNCTION);
+      CHECK_RETURN(fct_entry != goto_model.goto_functions.function_map.end());
+      goto_programt &init_function = fct_entry->second.body;
+      auto last_instruction = std::prev(init_function.instructions.end());
+      DATA_INVARIANT(
+        last_instruction->is_end_function(),
+        "last instruction in function should be END_FUNCTION");
+
+      DATA_INVARIANT(
+        goto_model.symbol_table.has_symbol(index),
+        "the concrete index variable " + std::string(index.c_str()) +
+        " should be defined");
+      const irep_idt abst_func = spec.get_abstract_func();
+      const symbolt &orig_symb = goto_model.symbol_table.lookup_ref(index);
+      exprt::operandst operands{orig_symb.symbol_expr()};
+      // put the concrete indices into operands
+      push_concrete_indices_to_operands(operands, spec, goto_model);
+      // make the function call
+      symbol_exprt func_call_expr =
+        goto_model.get_symbol_table().lookup_ref(abst_func).symbol_expr();
+      auto new_inst = goto_programt::make_function_call(
+        code_function_callt(symb_expr, func_call_expr, operands));
       init_function.insert_before_swap(last_instruction, new_inst);
     }
   }
@@ -1539,130 +1618,74 @@ void rrat::add_length_assumptions(
   {
     for(const auto &lp : spec.get_abst_lengths_with_expr(ns))
     {
-      const irep_idt func_name = abst_spec.get_func_name();
-
-      // TODO: currently we are assuming every entities in the
-      // json file belong to the same function. That may not be the case.
-      auto &function = goto_model.goto_functions.function_map.at(func_name);
-      // if this variable is a local varible
-      bool is_local = false;
-
       // go through each instruction in the function to find the declare
-      Forall_goto_program_instructions(it, function.body)
+      for(auto &func_pair: goto_model.goto_functions.function_map)
       {
-        if(it->is_decl() || it->is_assign())
+        auto &function = func_pair.second;
+        Forall_goto_program_instructions(it, function.body)
         {
-          irep_idt var_name;
-          if(it->is_decl())
+          if(it->is_decl() || it->is_assign())
           {
-            const code_declt &decl = it->get_decl();
-            var_name = decl.get_identifier();
-          }
-          else if(it->is_assign())
-          {
-            const code_assignt &assn = it->get_assign();
-            if(is_entity_expr(assn.lhs()))
-              var_name = get_string_id_from_exprt(assn.lhs());
-            else
-              continue;
-          }
-          else
-          {
-            continue;
-          }
-
-          // check if this declares the symbol containing the length
-          // note that this symbol can be the length variable itself
-          // or a struct containing the length variable
-          if(var_name == lp.first)
-          {
-            // need to add an assumption after this inst
-            INVARIANT(
-              goto_model.get_symbol_table().has_symbol(var_name),
-              "Symbol " + std::string(var_name.c_str()) + " not defined");
-
+            irep_idt var_name;
             if(it->is_decl())
-              is_local = true;
-
-            // define the assumption instruction
-            const exprt length_expr = lp.second;
-            exprt::operandst assumption_exprs;
-            for(const auto &conc : spec.get_shape_indices())
             {
-              INVARIANT(
-                goto_model.get_symbol_table().has_symbol(conc),
-                "Symbol " + std::string(spec.get_length_index_name().c_str()) +
-                  " not defined");
-              const symbolt conc_index_expr =
-                goto_model.get_symbol_table().lookup_ref(conc);
-              assumption_exprs.push_back(
-                equal_exprt(length_expr, conc_index_expr.symbol_expr()));
+              const code_declt &decl = it->get_decl();
+              var_name = decl.get_identifier();
+            }
+            else if(it->is_assign())
+            {
+              const code_assignt &assn = it->get_assign();
+              if(is_entity_expr(assn.lhs()))
+                var_name = get_string_id_from_exprt(assn.lhs());
+              else
+                continue;
+            }
+            else
+            {
+              continue;
             }
 
-            // the value of the length variable should be
-            // one of the concrete indices
-            or_exprt assumption_expr(assumption_exprs);
-            auto new_assumption =
-              goto_programt::make_assumption(assumption_expr);
+            // check if this declares the symbol containing the length
+            // note that this symbol can be the length variable itself
+            // or a struct containing the length variable
+            if(var_name == lp.first)
+            {
+              // need to add an assumption after this inst
+              INVARIANT(
+                goto_model.get_symbol_table().has_symbol(var_name),
+                "Symbol " + std::string(var_name.c_str()) + " not defined");
 
-            // insert it
-            function.body.insert_after(it, new_assumption);
-            std::cout << "Added length assumption after the decl/assign: ";
-            format_rec(std::cout, assumption_expr) << std::endl;
-            it++;
+              // define the assumption instruction
+              const exprt length_expr = lp.second;
+              exprt::operandst assumption_exprs;
+              for(const auto &conc : spec.get_shape_indices())
+              {
+                INVARIANT(
+                  goto_model.get_symbol_table().has_symbol(conc),
+                  "Symbol " + std::string(spec.get_length_index_name().c_str()) +
+                    " not defined");
+                const symbolt conc_index_expr =
+                  goto_model.get_symbol_table().lookup_ref(conc);
+                assumption_exprs.push_back(
+                  equal_exprt(length_expr, conc_index_expr.symbol_expr()));
+              }
+
+              // the value of the length variable should be
+              // one of the concrete indices
+              or_exprt assumption_expr(assumption_exprs);
+              auto new_assumption =
+                goto_programt::make_assumption(assumption_expr);
+
+              // insert it
+              function.body.insert_after(it, new_assumption);
+              std::cout << "Added length assumption after the decl/assign: ";
+              format_rec(std::cout, assumption_expr) << std::endl;
+              it++;
+            }
           }
         }
       }
-
-      // if it is not a local variable, the assumption should be added at
-      // the end of the global INITIAL function
-      if(!is_local)
-      {
-        // find the CPROVER_INITIAL function
-        goto_functionst::function_mapt::iterator fct_entry =
-          goto_model.goto_functions.function_map.find(INITIALIZE_FUNCTION);
-        CHECK_RETURN(fct_entry != goto_model.goto_functions.function_map.end());
-        goto_programt &init_function = fct_entry->second.body;
-        auto last_instruction = std::prev(init_function.instructions.end());
-        DATA_INVARIANT(
-          last_instruction->is_end_function(),
-          "last instruction in function should be END_FUNCTION");
-
-        // define the assumption instruction
-        INVARIANT(
-          goto_model.get_symbol_table().has_symbol(lp.first),
-          "Symbol " + std::string(lp.first.c_str()) + " not defined");
-        INVARIANT(
-          goto_model.get_symbol_table().has_symbol(
-            spec.get_length_index_name()),
-          "Symbol " + std::string(spec.get_length_index_name().c_str()) +
-            " not defined");
-        // define the assumption instruction
-        const exprt length_expr = lp.second;
-        exprt::operandst assumption_exprs;
-        for(const auto &conc : spec.get_shape_indices())
-        {
-          INVARIANT(
-            goto_model.get_symbol_table().has_symbol(conc),
-            "Symbol " + std::string(spec.get_length_index_name().c_str()) +
-              " not defined");
-          const symbolt conc_index_expr =
-            goto_model.get_symbol_table().lookup_ref(conc);
-          assumption_exprs.push_back(
-            equal_exprt(length_expr, conc_index_expr.symbol_expr()));
-        }
-
-        // the value of the length variable should be
-        // one of the concrete indices
-        or_exprt assumption_expr(assumption_exprs);
-        auto new_assumption = goto_programt::make_assumption(assumption_expr);
-
-        // insert it
-        std::cout
-          << "Added length assumption in the beginning of the function: ";
-        format_rec(std::cout, assumption_expr) << std::endl;
-        init_function.insert_before_swap(last_instruction, new_assumption);
-      }
+      
     }
   }
 }
@@ -1792,6 +1815,89 @@ void rrat::analyze_soundness(
   }
 }
 
+bool rrat::check_if_inst_is_iterator_update(
+  goto_programt::instructiont::targett it, 
+  goto_modelt &goto_model, 
+  const rra_spect &abst_spec,
+  rra_spect::spect &spec)
+{
+  if(!it->is_assign())
+    return false;
+  
+  const code_assignt as = it->get_assign();
+  const exprt &lhs = as.lhs();
+  const exprt &rhs = as.rhs();
+
+  if(check_if_exprt_is_abst_index(lhs, abst_spec, spec) && rhs.id() == ID_plus)
+  {
+    if(rhs.operands()[0].id() == ID_symbol && rhs.operands()[1].id() == ID_constant)
+    {
+      irep_idt lhs_symb_name = to_symbol_expr(lhs).get_identifier();
+      irep_idt rhs_symb_name = to_symbol_expr(rhs.operands()[0]).get_identifier();
+      irep_idt rhs_value = to_constant_expr(rhs.operands()[1]).get_value();
+      return lhs_symb_name == rhs_symb_name && std::string(rhs_value.c_str()) == "1";
+    }
+    else
+      return false;
+  }
+  else
+    return false;
+}
+
+void rrat::rewrite_iterator_update(
+  goto_programt::instructiont::targett it, 
+  goto_modelt &goto_model, 
+  const rra_spect::spect &spec)
+{
+  INVARIANT(it->is_assign(), "iterator update should be an assign");
+  const code_assignt as = it->get_assign();
+  const exprt &lhs = as.lhs();
+  const exprt &rhs = as.rhs();
+
+  INVARIANT(
+    lhs.id() == ID_symbol, 
+    "lhs of iterator update should be a symbol");
+  INVARIANT(
+    rhs.id() == ID_plus,
+    "rhs of iterator update should be a plus");
+  INVARIANT(
+    rhs.operands()[0].id() == ID_symbol && rhs.operands()[1].id() == ID_constant,
+    "rhs of iterator update should be a symbol + constant");
+  
+  irep_idt lhs_symb_name = to_symbol_expr(lhs).get_identifier();
+  irep_idt rhs_symb_name = to_symbol_expr(rhs.operands()[0]).get_identifier();
+  irep_idt rhs_value = to_constant_expr(rhs.operands()[1]).get_value();
+  exprt one_constant = rhs.operands()[1];
+  INVARIANT(
+    lhs_symb_name == rhs_symb_name,
+    "lhs and rhs of iterator update use the same symbol");
+  INVARIANT(
+    std::string(rhs_value.c_str()) == "1",
+    "we only support i = i+1 in iterator update");
+  
+  irep_idt lhs_symb_name_abst = get_abstract_name(lhs_symb_name);
+  INVARIANT(
+      goto_model.symbol_table.has_symbol(lhs_symb_name_abst),
+      "Abst variable " + std::string(lhs_symb_name_abst.c_str()) +
+        " used before inserting to the symbol table");
+  // new lhs should be the abstracted one
+  symbol_exprt new_lhs = 
+    goto_model.symbol_table.lookup_ref(lhs_symb_name_abst).symbol_expr();
+  
+  exprt is_prec = check_prec_expr(new_lhs, spec, goto_model, false);
+  exprt is_last = check_index_is_last(new_lhs, spec, goto_model);
+  exprt plus_one = plus_exprt(new_lhs, one_constant);
+
+  exprt condition = or_exprt(
+    is_prec,
+    and_exprt(
+      not_exprt(is_last),
+      side_effect_expr_nondett(bool_typet(), source_locationt())));
+  
+  exprt new_rhs = if_exprt(condition, plus_one, new_lhs);
+  it->set_assign(code_assignt(new_lhs, new_rhs));
+}
+
 void rrat::abstract_goto_program(goto_modelt &goto_model, rra_spect &abst_spec)
 {
   // A couple of spects are initialized from the json file.
@@ -1807,6 +1913,9 @@ void rrat::abstract_goto_program(goto_modelt &goto_model, rra_spect &abst_spec)
 
   // Insert the assumptions about concrete indices
   insert_shape_assumptions(goto_model, abst_spec);
+
+  // Get abstracted version of the concrete indices
+  define_abstrated_concrete_indices(goto_model, abst_spec);
 
   // Define the const c_string length symbols
   define_const_c_str_lengths(goto_model, abst_spec);
@@ -1840,6 +1949,13 @@ void rrat::abstract_goto_program(goto_modelt &goto_model, rra_spect &abst_spec)
       goto_model.goto_functions.function_map.at(func_name);
     Forall_goto_program_instructions(it, goto_function.body)
     {
+      rra_spect::spect it_update_spec;
+      if(check_if_inst_is_iterator_update(it, goto_model, abst_spec, it_update_spec))
+      {
+        rewrite_iterator_update(it, goto_model, it_update_spec);
+        continue;
+      }
+
       // go through all expressions
       goto_programt::instructionst inst_before;
       goto_programt::instructionst inst_after;

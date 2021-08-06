@@ -508,6 +508,11 @@ public:
       return shape.get_indices();
     }
 
+    static irep_idt get_abst_index_name(const irep_idt index)
+    {
+      return irep_idt(std::string(index.c_str())+"$abst");
+    }
+
     void set_spect_index(const size_t &_index)
     {
       spect_index = _index;

@@ -314,8 +314,16 @@ protected:
   static exprt check_prec_expr(
     const exprt &expr, 
     const rra_spect::spect &spec, 
-    const goto_modelt &goto_model);
+    const goto_modelt &goto_model,
+    bool is_conc=true);
 
+  // check whether an expression (abstract) is at the 
+  // last possible abstract location
+  static exprt check_index_is_last(
+    const exprt &expr, 
+    const rra_spect::spect spec, 
+    const goto_modelt &goto_model);
+  
   /// \param expr: the expression to be read
   /// \param abst_spec: the abstration information for the current function
   /// \param goto_model: the goto_model
@@ -350,6 +358,10 @@ protected:
     goto_modelt &goto_model,
     const rra_spect &abst_spec);
 
+  // for each concrete index, define the abstracted transformation of them
+  static void 
+  define_abstrated_concrete_indices(goto_modelt &goto_model, const rra_spect &abst_spec);
+
   // insert the assumptions about the shape's concrete indices
   static void
   insert_shape_assumptions(goto_modelt &goto_model, const rra_spect &abst_spec);
@@ -377,6 +389,19 @@ protected:
     goto_modelt &goto_model,
     std::unordered_set<irep_idt> &all_funcs,
     const rra_spect &abst_spec);
+  
+  // check if an instruction is an iterator update (i.e. i=i+1)
+  static bool check_if_inst_is_iterator_update(
+    goto_programt::instructiont::targett it, 
+    goto_modelt &goto_model, 
+    const rra_spect &abst_spec,
+    rra_spect::spect &spec);
+
+  // rewrite an iterator update without calling functions
+  static void rewrite_iterator_update(
+    goto_programt::instructiont::targett it, 
+    goto_modelt &goto_model, 
+    const rra_spect::spect &spec);
 
 public:
   // link abst functions to goto programs
