@@ -1,0 +1,948 @@
+\documentclass[12pt]{report}
+\usepackage[]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{fullpage}
+\usepackage[color]{coqdoc}
+\usepackage{amsmath,amssymb}
+\usepackage{url,xcolor}
+\newlength\tindent
+\setlength{\tindent}{\parindent}
+\setlength{\parindent}{0pt}
+\renewcommand{\indent}{\hspace*{\tindent}}
+\usepackage{titlesec}
+
+\titleformat{\chapter}[display]
+  {\normalfont\bfseries}{}{0pt}{\Huge}
+
+\setcounter{secnumdepth}{0}
+
+\begin{document}
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% This file has been automatically generated with the command
+%% coqdoc --latex --glob-from SymbEx.glob SymbEx.v 
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\coqlibrary{SymbEx}{Library }{SymbEx}
+
+\begin{coqdoccode}
+\end{coqdoccode}
+\section{Introduction}
+
+ This file contains the symbolic execution semantics for \coqdocvar{goto}.
+    The semantics are given in a structural operational style and
+    use symbolic expressions to represent sets of values. 
+\begin{coqdoccode}
+\coqdocemptyline
+\coqdocnoindent
+\coqdockw{From} \coqdocvar{CompCert} \coqdockw{Require} \coqdockw{Export} \coqdocvar{Coqlib} \coqdocvar{Maps} \coqdocvar{Smallstep}.\coqdoceol
+\coqdocnoindent
+\coqdockw{From} \coqdocvar{Utils}    \coqdockw{Require} \coqdockw{Export} \coqdocvar{Defns} \coqdocvar{Values}.\coqdoceol
+\coqdocindent{7.00em}
+\coqdockw{Require} \coqdockw{Export} \coqdocvar{Relations}.\coqdoceol
+\coqdocnoindent
+\coqdockw{From} \coqdocvar{GOTO}     \coqdockw{Require} \coqdockw{Import} \coqdocvar{Language}.\coqdoceol
+\coqdocnoindent
+\coqdockw{Import} \coqdocvar{Val} \coqdocvar{ListNotations}.\coqdoceol
+\coqdocemptyline
+\coqdocnoindent
+\coqdockw{Close} \coqdockw{Scope} \coqdocvar{Z}.\coqdoceol
+\coqdocnoindent
+\coqdockw{Local Open} \coqdockw{Scope} \coqdocvar{positive}.\coqdoceol
+\coqdocnoindent
+\coqdockw{Local Open} \coqdockw{Scope} \coqdocvar{goto\_scope}.\coqdoceol
+\coqdocemptyline
+\end{coqdoccode}
+Symbolic expressions are used to represent path constraints.
+ 
+\begin{coqdoccode}
+\coqdocnoindent
+\coqdockw{Inductive} \coqdocvar{sexpr} : \coqdockw{Type} :=\coqdoceol
+\coqdocindent{1.00em}
+\ensuremath{|} \coqdocvar{Ssymbol}: \coqdocvar{symbol} \ensuremath{\rightarrow} \coqdocvar{sexpr}\coqdoceol
+\coqdocnoindent
+\coqdoceol
+\coqdocindent{1.00em}
+\ensuremath{|} \coqdocvar{Svalue} : \coqdocvar{val}  \ensuremath{\rightarrow} \coqdocvar{sexpr}\coqdoceol
+\coqdocindent{1.00em}
+\coqdoceol
+\coqdocindent{1.00em}
+\ensuremath{|} \coqdocvar{Suop}   : \coqdocvar{uoperation} \ensuremath{\rightarrow} \coqdocvar{sexpr} \ensuremath{\rightarrow} \coqdocvar{sexpr}\coqdoceol
+\coqdocindent{1.00em}
+\ensuremath{|} \coqdocvar{Sbop}   : \coqdocvar{boperation} \ensuremath{\rightarrow} \coqdocvar{sexpr} \ensuremath{\rightarrow} \coqdocvar{sexpr} \ensuremath{\rightarrow} \coqdocvar{sexpr}\coqdoceol
+\coqdocindent{1.00em}
+\ensuremath{|} \coqdocvar{Scomp}  : \coqdocvar{comparison} \ensuremath{\rightarrow} \coqdocvar{sexpr} \ensuremath{\rightarrow} \coqdocvar{sexpr} \ensuremath{\rightarrow} \coqdocvar{sexpr}\coqdoceol
+\coqdocindent{1.00em}
+.\coqdoceol
+\coqdocemptyline
+\end{coqdoccode}
+some definitions/notations for convenience.
+ 
+\begin{coqdoccode}
+\coqdocnoindent
+\coqdockw{Definition} \coqdocvar{Sfalse} := \coqdocvar{Svalue} \coqdocvar{Vfalse}.\coqdoceol
+\coqdocnoindent
+\coqdockw{Coercion} \coqdocvar{Ssymbol} : \coqdocvar{symbol} >-> \coqdocvar{sexpr}.\coqdoceol
+\coqdocnoindent
+\coqdockw{Notation} "! a" := (\coqdocvar{Suop} \coqdocvar{Onot} \coqdocvar{a}) (\coqdoctac{at} \coqdockw{level} 5) : \coqdocvar{goto\_scope}.\coqdoceol
+\coqdocemptyline
+\end{coqdoccode}
+\section{The Parameterized SAT solver}
+
+ We parameterize our semantics by a solver. This serves two purposes
+
+\begin{itemize}
+\item  To avoid expensive computation in the Coq system. (Which it is not designed for anyway) 
+
+\item  To close the modeling gap, since real SymbEx systems also make calls to external solvers.
+
+\end{itemize}
+
+
+    This module type (signature) requires entailment |= and then defines several other relavent
+    concepts.
+
+
+    \textcolor{blue}{\textbf{Code elided}}.
+
+
+
+\begin{coqdoccode}
+\coqdocnoindent
+\coqdockw{Module} \coqdockw{Type} \coqdocvar{Solver}.\coqdoceol
+\coqdocemptyline
+\end{coqdoccode}
+\coqdocvar{satisfies\_single} \coqdocvar{G} \coqdocvar{b} asks if a set of formulas
+      (\coqdocvar{list} \coqdocvar{sexpr}), G, entails a formula b. \coqdocvar{inl}s
+      reprsent a ``yes'' answer (and \coqdocvar{inr}s the converse).
+
+
+      This will be the notion upon which we define the others.
+      (Sat of a list, validity checking for single sexprs \& lists)
+
+
+  
+\begin{coqdoccode}
+\coqdocindent{1.00em}
+\coqdockw{Parameter} \coqdocvar{satisfies\_single} : \coqdocvar{list} \coqdocvar{sexpr} \ensuremath{\rightarrow} \coqdocvar{sexpr} \ensuremath{\rightarrow} \coqdocvar{sum} \coqdocvar{sexpr} \coqdocvar{sexpr}.\coqdoceol
+\coqdocemptyline
+\end{coqdoccode}
+The adhoc polymorphic functions we wanted. See \coqdocvar{Satisfies} \& \coqdocvar{True\_in}
+
+
+  
+\begin{coqdoccode}
+\coqdocindent{1.00em}
+\coqdockw{Notation} "x     'satIn' G" := (  \coqdocvar{satisfies} \coqdocvar{G} \coqdocvar{x}) (\coqdoctac{at} \coqdockw{level} 70) : \coqdocvar{goto\_scope}.\coqdoceol
+\coqdocindent{1.00em}
+\coqdockw{Notation} "x 'aintSatIn' G" := (\~{} \coqdocvar{satisfies} \coqdocvar{G} \coqdocvar{x}) (\coqdoctac{at} \coqdockw{level} 70) : \coqdocvar{goto\_scope}.\coqdoceol
+\coqdocemptyline
+\coqdocindent{1.00em}
+\coqdockw{Notation} "G |=  x" := (  \coqdocvar{true\_in} \coqdocvar{G} \coqdocvar{x}) (\coqdoctac{at} \coqdockw{level} 70) : \coqdocvar{goto\_scope}.\coqdoceol
+\coqdocindent{1.00em}
+\coqdockw{Notation} "G |/= x" := (\~{} \coqdocvar{true\_in} \coqdocvar{G} \coqdocvar{x}) (\coqdoctac{at} \coqdockw{level} 70) : \coqdocvar{goto\_scope}.\coqdoceol
+\coqdocemptyline
+\coqdocnoindent
+\coqdockw{End}         \coqdocvar{Solver}.\coqdoceol
+\coqdocemptyline
+\end{coqdoccode}
+\section{The SymbEx semantics; a functor taking a \texorpdfstring{\protect}{Solver}\coqdocvar{Solver}.}
+
+
+
+
+      The semantics are operational, so we define program points/states.
+      The two key elements in a state are
+
+\begin{itemize}
+\item  the environment, which maps program variables to their symbolic
+        expressions
+
+\item  a \coqdocvar{list} \coqdocvar{sexpr}, representing the path constraint. This is expressed
+        in terms of symbolic expression.
+
+\end{itemize}
+
+
+      Example: Say that program variables $x,\ y,\ \& z$ are mapped to symbols
+      \$a,\ \$b,\ \$c respectively. If we do the assignment $x = y+z$
+      then x is remapped from \$a to \$b + \$c. if we then assert
+      that x is greater than 0, we add \$b + \$c > 0 to the path
+      constraint.
+
+
+      I make no attempt to perform optimization/be clever over solver
+      queries or in building the path constraint. The artefact only ensures
+      the modelling of the model checking is sound i.e. asserts fail when they
+      should and vice versa. This is mainly because I have no domain expertise.
+      It is also not clear whether this is the right artefact to model that
+      kind of thing. 
+\begin{coqdoccode}
+\coqdocemptyline
+\coqdocnoindent
+\coqdockw{Module} \coqdocvar{Semantics} (\coqdockw{Import} \coqdocvar{solver}: \coqdocvar{Solver}).\coqdoceol
+\coqdocindent{1.00em}
+\coqdockw{Open} \coqdockw{Scope} \coqdocvar{error\_monad\_scope}.\coqdoceol
+\coqdocindent{1.00em}
+\coqdockw{Definition} \coqdocvar{genv} := \coqdocvar{PTree.t} \coqdocvar{function}.\coqdoceol
+\coqdocindent{1.00em}
+\coqdockw{Definition} \coqdocvar{env}  := \coqdocvar{PTree.t} \coqdocvar{sexpr}.\coqdoceol
+\coqdocemptyline
+\end{coqdoccode}
+Abstract stack definition 
+\begin{coqdoccode}
+\coqdocemptyline
+\coqdocindent{1.00em}
+\coqdockw{Inductive} \coqdocvar{stack} : \coqdockw{Type} :=\coqdoceol
+\coqdocindent{2.00em}
+\ensuremath{|} \coqdocvar{Stackframe}: \coqdoceol
+\coqdocindent{4.00em}
+\coqdockw{\ensuremath{\forall}} (\coqdocvar{dst\_in\_caller}   : \coqdocvar{ident}     )\coqdoceol
+\coqdocindent{7.50em}
+(\coqdocvar{caller}          : \coqdocvar{function}  )\coqdoceol
+\coqdocindent{7.50em}
+(\coqdocvar{returnsite}      : \coqdocvar{code}      )\coqdoceol
+\coqdocindent{7.50em}
+(\coqdocvar{callers\_env}     : \coqdocvar{env}       )\coqdoceol
+\coqdocindent{7.50em}
+(\coqdocvar{stk}             : \coqdocvar{stack}     ),\coqdoceol
+\coqdocindent{4.00em}
+\coqdocvar{stack}\coqdoceol
+\coqdocindent{2.00em}
+\ensuremath{|} \coqdocvar{Stknil} : \coqdocvar{stack}.\coqdoceol
+\coqdocemptyline
+\end{coqdoccode}
+We have structural small-step semantics, representing
+        transitions between states. There are three main
+        program states that appear in the transitions: 
+
+
+
+\begin{itemize}
+\item  \coqdocvar{State} \coqdocvar{f} \coqdocvar{pc} \coqdocvar{E} \coqdocvar{cs} \coqdocvar{G} \coqdocvar{i}
+        describes intra-function program points.
+        \coqdocvar{f} is the currently executing function.
+        \coqdocvar{pc} is a list of instructions, the first of which
+        is the next instruction.
+        \coqdocvar{E} maps variables to their symbolic values at the
+        current program point.
+
+\item  \coqdocvar{Callstate} \coqdocvar{f} \coqdocvar{args} \coqdocvar{cs} \coqdocvar{G} \coqdocvar{i}
+        is a liminal a program point in between a caller and
+        callee. It is an abstraction of control passing
+        between the former and latter.
+        \coqdocvar{f} is the callee.
+        \coqdocvar{args} are the arguments passed to the callee.
+
+\item  \coqdocvar{Returnstate} \coqdocvar{rv} \coqdocvar{cs} \coqdocvar{G} \coqdocvar{i}
+        similar to \coqdocvar{Callstates} but for returns. An
+        abstraction of control passing from callee
+        to caller.
+        \coqdocvar{rv} is the (symbolic) return value.
+
+
+        Common to all these states are:
+        \coqdocvar{cs}, the (abstract) callstack.
+        \coqdocvar{G}, a \coqdocvar{list} \coqdocvar{sexpr} representing the path constraints.
+        \coqdocvar{i}, a fresh symbol. Used to ensure correctness of
+        \coqdocvar{GDecl}
+
+
+        We also have two failure states \coqdocvar{Inconsistent\_with}
+        \& \coqdocvar{Assrt\_failure}. The former is the result of an
+        \coqdocvar{assume} \coqdocvar{gd} instruction when \coqdocvar{gd} is inconsistent
+        with \coqdocvar{G}. The latter is the result of \coqdoctac{assert} \coqdocvar{gd}
+        where \coqdocvar{G} |/= \coqdocvar{gd}.
+
+\end{itemize}
+
+
+      
+\begin{coqdoccode}
+\coqdocemptyline
+\coqdocindent{1.00em}
+\coqdockw{Inductive} \coqdocvar{state} : \coqdockw{Type} :=\coqdoceol
+\coqdocindent{2.00em}
+\ensuremath{|} \coqdocvar{State} :\coqdoceol
+\coqdocindent{4.00em}
+\coqdockw{\ensuremath{\forall}} (\coqdocvar{curr\_fn}          : \coqdocvar{function}    )\coqdoceol
+\coqdocindent{7.50em}
+(\coqdocvar{pc}               : \coqdocvar{code}        )\coqdoceol
+\coqdocindent{7.50em}
+(\coqdocvar{environment}      : \coqdocvar{env}         )\coqdoceol
+\coqdocindent{7.50em}
+(\coqdocvar{callstk}          : \coqdocvar{stack}       )\coqdoceol
+\coqdocindent{7.50em}
+(\coqdocvar{path\_constraints} : \coqdocvar{list} \coqdocvar{sexpr}  )\coqdoceol
+\coqdocindent{7.50em}
+(\coqdocvar{symbol\_counter}   : \coqdocvar{symbol}      ),\coqdoceol
+\coqdocindent{4.00em}
+\coqdocvar{state}\coqdoceol
+\coqdocindent{2.00em}
+\ensuremath{|} \coqdocvar{Callstate} :\coqdoceol
+\coqdocindent{4.00em}
+\coqdockw{\ensuremath{\forall}} (\coqdocvar{callee}           : \coqdocvar{function}    )\coqdoceol
+\coqdocindent{7.50em}
+(\coqdocvar{args\_to\_cee}      : \coqdocvar{list} \coqdocvar{sexpr}  )\coqdoceol
+\coqdocindent{7.50em}
+(\coqdocvar{callstk}          : \coqdocvar{stack}       )\coqdoceol
+\coqdocindent{7.50em}
+(\coqdocvar{path\_constraints} : \coqdocvar{list} \coqdocvar{sexpr}  )\coqdoceol
+\coqdocindent{7.50em}
+(\coqdocvar{symbol\_counter}   : \coqdocvar{symbol}      ),\coqdoceol
+\coqdocindent{4.00em}
+\coqdocvar{state}\coqdoceol
+\coqdocindent{2.00em}
+\ensuremath{|} \coqdocvar{Returnstate} :\coqdoceol
+\coqdocindent{4.00em}
+\coqdockw{\ensuremath{\forall}} (\coqdocvar{ret\_val}          : \coqdocvar{sexpr}     )\coqdoceol
+\coqdocindent{7.50em}
+(\coqdocvar{callstk}          : \coqdocvar{stack}     )\coqdoceol
+\coqdocindent{7.50em}
+(\coqdocvar{path\_constraints} : \coqdocvar{list} \coqdocvar{sexpr})\coqdoceol
+\coqdocindent{7.50em}
+(\coqdocvar{symbol\_counter}   : \coqdocvar{symbol}    ),\coqdoceol
+\coqdocindent{4.00em}
+\coqdocvar{state}\coqdoceol
+\coqdocindent{2.00em}
+\ensuremath{|} \coqdocvar{Inconsistent\_with} :\coqdoceol
+\coqdocindent{4.00em}
+\coqdockw{\ensuremath{\forall}} (\coqdocvar{path\_constraints} : \coqdocvar{list} \coqdocvar{sexpr})\coqdoceol
+\coqdocindent{7.50em}
+(\coqdocvar{asspn}            : \coqdocvar{sexpr}     ),\coqdoceol
+\coqdocindent{4.00em}
+\coqdocvar{state}\coqdoceol
+\coqdocindent{2.00em}
+\ensuremath{|} \coqdocvar{Assrt\_failure} :\coqdoceol
+\coqdocindent{4.00em}
+\coqdockw{\ensuremath{\forall}} (\coqdocvar{path\_constraints} : \coqdocvar{list} \coqdocvar{sexpr})\coqdoceol
+\coqdocindent{7.50em}
+(\coqdocvar{failed\_assrt}     : \coqdocvar{list} \coqdocvar{sexpr}),\coqdoceol
+\coqdocindent{4.00em}
+\coqdocvar{state}.\coqdoceol
+\coqdocemptyline
+\end{coqdoccode}
+Some functions to translate program variables (\coqdocvar{expr}s) to
+      symbolic expressions (\coqdocvar{sexpr}s), given an environment \coqdocvar{E}.
+
+
+      \textcolor{blue}{\textbf{Code elided}}.
+
+
+      
+\begin{coqdoccode}
+\coqdocemptyline
+\coqdocindent{1.00em}
+\coqdockw{Section} \coqdocvar{Symbolize}.\coqdoceol
+\coqdocindent{1.00em}
+\coqdockw{End}     \coqdocvar{Sybmolize2}.\coqdoceol
+\coqdocemptyline
+\end{coqdoccode}
+We will use events to trace the instructions executed
+      in a program.
+
+
+       
+\begin{coqdoccode}
+\coqdocindent{1.00em}
+\coqdockw{Inductive} \coqdocvar{event} : \coqdockw{Type} :=\coqdoceol
+\coqdocindent{2.00em}
+\ensuremath{|} \coqdocvar{Estep}: \coqdocvar{positive} \ensuremath{\rightarrow} \coqdocvar{instr} \ensuremath{\rightarrow} \coqdocvar{event}.\coqdoceol
+\coqdocindent{1.00em}
+\coqdockw{Definition} \coqdocvar{trace} := \coqdocvar{list} \coqdocvar{event}.\coqdoceol
+\coqdocemptyline
+\end{coqdoccode}
+\subsection{The transition relations.}
+
+
+        We split these up for clarity and also to be able
+        to ``mix-\&-match'' them as we like
+
+
+        
+\begin{coqdoccode}
+\coqdocemptyline
+\coqdocindent{1.00em}
+\coqdockw{Section} \coqdocvar{RELSEM}.\coqdoceol
+\coqdocindent{2.00em}
+\coqdockw{Variable} \coqdocvar{ge}: \coqdocvar{genv}.\coqdoceol
+\coqdocindent{2.00em}
+\coqdockw{Open} \coqdockw{Scope} \coqdocvar{goto\_scope}.\coqdoceol
+\coqdocemptyline
+\coqdocemptyline
+\end{coqdoccode}
+Transitions for intra-procedural computation \& control flow.
+
+
+     
+\begin{coqdoccode}
+\coqdocindent{2.00em}
+\coqdockw{Inductive} \coqdocvar{step} : \coqdocvar{state} \ensuremath{\rightarrow} \coqdocvar{trace} \ensuremath{\rightarrow} \coqdocvar{state} \ensuremath{\rightarrow} \coqdockw{Prop} :=\coqdoceol
+\coqdocnoindent
+\coqdoceol
+\coqdocindent{3.00em}
+\end{coqdoccode}
+\coqdocvar{Gskip} advances the pc.
+
+
+       
+\begin{coqdoccode}
+\coqdocindent{3.00em}
+\ensuremath{|} \coqdocvar{step\_skip} : \coqdockw{\ensuremath{\forall}} \coqdocvar{f} \coqdocvar{pc} \coqdocvar{pc'} \coqdocvar{E} \coqdocvar{cs} \coqdocvar{G} \coqdocvar{s},\coqdoceol
+\coqdocindent{5.00em}
+\coqdocvar{pc} = \coqdocvar{Gskip} :: \coqdocvar{pc'} \ensuremath{\rightarrow}\coqdoceol
+\coqdocindent{5.00em}
+\coqdocvar{step}\coqdoceol
+\coqdocindent{6.00em}
+(\coqdocvar{State} \coqdocvar{f} \coqdocvar{pc}  \coqdocvar{E} \coqdocvar{cs} \coqdocvar{G} \coqdocvar{s}) [\coqdocvar{Estep} 1 \coqdocvar{Gskip}]\coqdoceol
+\coqdocindent{6.00em}
+(\coqdocvar{State} \coqdocvar{f} \coqdocvar{pc'} \coqdocvar{E} \coqdocvar{cs} \coqdocvar{G} \coqdocvar{s})\coqdoceol
+\coqdocnoindent
+\coqdoceol
+\coqdocindent{3.00em}
+\end{coqdoccode}
+\coqdocvar{Gdecl} introduces a fresh variable, and maps
+          it to a fresh symbol. If the variable is not
+          fresh, the machine gets stuck.
+
+
+          (this is a design decision easily changed.)
+
+
+      
+\begin{coqdoccode}
+\coqdocindent{3.00em}
+\ensuremath{|} \coqdocvar{step\_decl} : \coqdockw{\ensuremath{\forall}} \coqdocvar{f} \coqdocvar{pc} \coqdocvar{pc'} \coqdocvar{cs} \coqdocvar{E} \coqdocvar{E'} \coqdocvar{G} \coqdocvar{s} \coqdocvar{x},\coqdoceol
+\coqdocindent{5.00em}
+\coqdocvar{pc} = \coqdocvar{Gdecl} \coqdocvar{x} :: \coqdocvar{pc'} \ensuremath{\rightarrow}\coqdoceol
+\coqdocindent{5.00em}
+\coqdocvar{E'} = \coqdocvar{PTree.set\_only\_fresh} \coqdocvar{x} (\coqdocvar{Ssymbol} \coqdocvar{s}) \coqdocvar{E} \ensuremath{\rightarrow}\coqdoceol
+\coqdocindent{5.00em}
+\coqdocvar{step} \coqdoceol
+\coqdocindent{6.00em}
+(\coqdocvar{State} \coqdocvar{f} \coqdocvar{pc}  \coqdocvar{E}  \coqdocvar{cs} \coqdocvar{G}  \coqdocvar{s}   ) [\coqdocvar{Estep} 1 (\coqdocvar{Gdecl} \coqdocvar{x})]\coqdoceol
+\coqdocindent{6.00em}
+(\coqdocvar{State} \coqdocvar{f} \coqdocvar{pc'} \coqdocvar{E'} \coqdocvar{cs} \coqdocvar{G} (\coqdocvar{s}+1))\coqdoceol
+\coqdocnoindent
+\coqdoceol
+\coqdocindent{3.00em}
+\end{coqdoccode}
+\coqdocvar{Gdead} removes its variable mapping in the environment.
+
+
+       
+\begin{coqdoccode}
+\coqdocindent{3.00em}
+\ensuremath{|} \coqdocvar{step\_dead} : \coqdockw{\ensuremath{\forall}} \coqdocvar{f} \coqdocvar{pc} \coqdocvar{pc'} \coqdocvar{cs} \coqdocvar{E} \coqdocvar{E'} \coqdocvar{G} \coqdocvar{s} \coqdocvar{x} \coqdocvar{\_xx},\coqdoceol
+\coqdocindent{5.00em}
+\coqdocvar{pc} = \coqdocvar{Gdead} \coqdocvar{x} :: \coqdocvar{pc'} \ensuremath{\rightarrow}\coqdoceol
+\coqdocindent{5.00em}
+\coqdocvar{E} ! \coqdocvar{x} = \coqdocvar{Some} \coqdocvar{\_xx} \ensuremath{\rightarrow}\coqdoceol
+\coqdocindent{5.00em}
+\coqdocvar{E'} = \coqdocvar{PTree.remove} \coqdocvar{x} \coqdocvar{E} \ensuremath{\rightarrow}\coqdoceol
+\coqdocindent{5.00em}
+\coqdocvar{step} \coqdoceol
+\coqdocindent{6.00em}
+(\coqdocvar{State} \coqdocvar{f} \coqdocvar{pc}  \coqdocvar{E}  \coqdocvar{cs} \coqdocvar{G} \coqdocvar{s}) [\coqdocvar{Estep} 1 (\coqdocvar{Gdead} \coqdocvar{x})]\coqdoceol
+\coqdocindent{6.00em}
+(\coqdocvar{State} \coqdocvar{f} \coqdocvar{pc'} \coqdocvar{E'} \coqdocvar{cs} \coqdocvar{G} \coqdocvar{s})\coqdoceol
+\coqdocnoindent
+\coqdoceol
+\coqdocindent{3.00em}
+\end{coqdoccode}
+\coqdocvar{Gassign} updates the (symbolic) mapping of the variable.
+          Let \$x denote the symbol $x$ (which does not necessarily
+          have any relation to the variable $x$).
+          e.g. if $E\ x \mapsto \$x$ \& $E\ y \mapsto \$z + \$w$,
+          \coqdocvar{Gassign} \coqdocvar{x} (\coqdocvar{x} + \coqdocvar{y}) will update E to E', where
+          $E'\ x \mapsto \$x + \$z + \$w$
+          This negates the need to reason about SSA.
+
+
+           
+\begin{coqdoccode}
+\coqdocindent{3.00em}
+\ensuremath{|} \coqdocvar{step\_assign} : \coqdockw{\ensuremath{\forall}} \coqdocvar{f} \coqdocvar{pc} \coqdocvar{pc'} \coqdocvar{cs} \coqdocvar{E} \coqdocvar{E'} \coqdocvar{G} \coqdocvar{s} \coqdocvar{x} \coqdocvar{e} \coqdocvar{e'},\coqdoceol
+\coqdocindent{5.00em}
+\coqdocvar{pc} = \coqdocvar{Gassign} \coqdocvar{x} \coqdocvar{e} :: \coqdocvar{pc'} \ensuremath{\rightarrow}\coqdoceol
+\coqdocindent{5.00em}
+\coqdocvar{symbolize} \coqdocvar{E} \coqdocvar{e} = \coqdocvar{OK} \coqdocvar{e'} \ensuremath{\rightarrow}\coqdoceol
+\coqdocindent{5.00em}
+\coqdocvar{E'} = \coqdocvar{E} ! \coqdocvar{x} \ensuremath{\leftarrow} \coqdocvar{e'} \ensuremath{\rightarrow}\coqdoceol
+\coqdocindent{5.00em}
+\coqdocvar{step} \coqdoceol
+\coqdocindent{6.00em}
+(\coqdocvar{State} \coqdocvar{f} \coqdocvar{pc}  \coqdocvar{E}  \coqdocvar{cs} \coqdocvar{G} \coqdocvar{s}) [\coqdocvar{Estep} 1 (\coqdocvar{Gassign} \coqdocvar{x} \coqdocvar{e})]\coqdoceol
+\coqdocindent{6.00em}
+(\coqdocvar{State} \coqdocvar{f} \coqdocvar{pc'} \coqdocvar{E'} \coqdocvar{cs} \coqdocvar{G} \coqdocvar{s})\coqdoceol
+\coqdocnoindent
+\coqdoceol
+\coqdocindent{3.00em}
+\end{coqdoccode}
+\coqdocvar{Ggoto}s can make two possible transitions.
+          This rule makes a jump (of a goto) and adds the
+          guard to the path constraints.
+
+
+          This is one of a pair of a non-deterministic
+          (in the TOC sense) rules, where we do make the
+          jump. Note we do not evaluate the guard, this is
+          the case we assume it is satisfied.
+
+
+           
+\begin{coqdoccode}
+\coqdocindent{3.00em}
+\ensuremath{|} \coqdocvar{step\_goto\_jump} : \coqdockw{\ensuremath{\forall}} \coqdocvar{f} \coqdocvar{pc} \coqdocvar{pc'} \coqdocvar{cs} \coqdocvar{E} \coqdocvar{G} \coqdocvar{G'} \coqdocvar{s} \coqdocvar{gd} \coqdocvar{gd'} \coqdocvar{lbl} \coqdocvar{xx},\coqdoceol
+\coqdocindent{5.00em}
+\coqdocvar{pc}  = \coqdocvar{Ggoto} \coqdocvar{gd} \coqdocvar{lbl} :: \coqdocvar{xx} \ensuremath{\rightarrow}\coqdoceol
+\coqdocindent{5.00em}
+\coqdocvar{pc'} = \coqdocvar{jump\_to\_label} \coqdocvar{f} \coqdocvar{lbl} \ensuremath{\rightarrow}\coqdoceol
+\coqdocindent{5.00em}
+\coqdocvar{symbolize} \coqdocvar{E} \coqdocvar{gd} = \coqdocvar{OK} \coqdocvar{gd'} \ensuremath{\rightarrow}\coqdoceol
+\coqdocindent{5.00em}
+\coqdocvar{G'} = \coqdocvar{gd'} :: \coqdocvar{G} \ensuremath{\rightarrow}\coqdoceol
+\coqdocindent{5.00em}
+\coqdocvar{step} \coqdoceol
+\coqdocindent{6.00em}
+(\coqdocvar{State} \coqdocvar{f} \coqdocvar{pc}  \coqdocvar{E} \coqdocvar{cs} \coqdocvar{G}  \coqdocvar{s}) [\coqdocvar{Estep} 1 (\coqdocvar{Ggoto} \coqdocvar{gd} \coqdocvar{lbl})]\coqdoceol
+\coqdocindent{6.00em}
+(\coqdocvar{State} \coqdocvar{f} \coqdocvar{pc'} \coqdocvar{E} \coqdocvar{cs} \coqdocvar{G'} \coqdocvar{s})\coqdoceol
+\coqdocnoindent
+\coqdoceol
+\coqdocindent{3.00em}
+\end{coqdoccode}
+\coqdocvar{Ggoto}s can make two possible transitions.
+          This rule falls through a goto (i.e. does not jump to
+          its target) and adds the negation of its guard to the
+          path constraints.
+
+
+          It is one of a pair of non-deterministic rules.
+          See \coqdocvar{step\_goto\_jump}.
+
+
+           
+\begin{coqdoccode}
+\coqdocindent{3.00em}
+\ensuremath{|} \coqdocvar{step\_goto\_fall\_through} : \coqdockw{\ensuremath{\forall}} \coqdocvar{f} \coqdocvar{pc} \coqdocvar{pc'} \coqdocvar{cs} \coqdocvar{E} \coqdocvar{G} \coqdocvar{G'} \coqdocvar{s} \coqdocvar{gd} \coqdocvar{gd'} \coqdocvar{xx},\coqdoceol
+\coqdocindent{5.00em}
+\coqdocvar{pc} = \coqdocvar{Ggoto} \coqdocvar{gd} \coqdocvar{xx} :: \coqdocvar{pc'} \ensuremath{\rightarrow}\coqdoceol
+\coqdocindent{5.00em}
+\coqdocvar{symbolize} \coqdocvar{E} \coqdocvar{gd} = \coqdocvar{OK} \coqdocvar{gd'} \ensuremath{\rightarrow}\coqdoceol
+\coqdocindent{5.00em}
+\coqdocvar{G'} = (!\coqdocvar{gd'}) :: \coqdocvar{G} \ensuremath{\rightarrow}\coqdoceol
+\coqdocindent{5.00em}
+\coqdocvar{step} \coqdoceol
+\coqdocindent{6.00em}
+(\coqdocvar{State} \coqdocvar{f} \coqdocvar{pc}  \coqdocvar{E} \coqdocvar{cs} \coqdocvar{G}  \coqdocvar{s}) [\coqdocvar{Estep} 2 (\coqdocvar{Ggoto} \coqdocvar{gd} \coqdocvar{xx})]\coqdoceol
+\coqdocindent{6.00em}
+(\coqdocvar{State} \coqdocvar{f} \coqdocvar{pc'} \coqdocvar{E} \coqdocvar{cs} \coqdocvar{G'} \coqdocvar{s})\coqdoceol
+\coqdocnoindent
+\coqdoceol
+\coqdocnoindent
+\coqdoceol
+\coqdocnoindent
+\coqdoceol
+\coqdocindent{3.00em}
+\coqdoceol
+\coqdocindent{3.00em}
+\coqdoceol
+\coqdocnoindent
+\coqdoceol
+\coqdocnoindent
+\coqdoceol
+\coqdocindent{3.00em}
+\end{coqdoccode}
+\coqdocvar{Gassume} adds an assumption to the path constraints,
+          if their conjunction is consistent (according to
+          the solver).
+
+
+           
+\begin{coqdoccode}
+\coqdocindent{3.00em}
+\ensuremath{|} \coqdocvar{step\_assume} : \coqdockw{\ensuremath{\forall}} \coqdocvar{f} \coqdocvar{pc} \coqdocvar{pc'} \coqdocvar{cs} \coqdocvar{E} \coqdocvar{G} \coqdocvar{G'} \coqdocvar{s} \coqdocvar{gd} \coqdocvar{gd'},\coqdoceol
+\coqdocindent{5.00em}
+\coqdocvar{pc} = \coqdocvar{Gassume} \coqdocvar{gd} :: \coqdocvar{pc'} \ensuremath{\rightarrow}\coqdoceol
+\coqdocindent{5.00em}
+\coqdocvar{symbolize} \coqdocvar{E} \coqdocvar{gd} = \coqdocvar{OK} \coqdocvar{gd'} \ensuremath{\rightarrow}\coqdoceol
+\coqdocindent{5.00em}
+\coqdocvar{G'} = \coqdocvar{gd'} :: \coqdocvar{G} \ensuremath{\rightarrow}\coqdoceol
+\coqdocindent{5.00em}
+\coqdocvar{G'} |/= \coqdocvar{Sfalse} \ensuremath{\rightarrow}\coqdoceol
+\coqdocindent{5.00em}
+\coqdocvar{step} \coqdoceol
+\coqdocindent{6.00em}
+(\coqdocvar{State} \coqdocvar{f} \coqdocvar{pc}  \coqdocvar{E} \coqdocvar{cs} \coqdocvar{G}  \coqdocvar{s}) [\coqdocvar{Estep} 1 (\coqdocvar{Gassume} \coqdocvar{gd})]\coqdoceol
+\coqdocindent{6.00em}
+(\coqdocvar{State} \coqdocvar{f} \coqdocvar{pc'} \coqdocvar{E} \coqdocvar{cs} \coqdocvar{G'} \coqdocvar{s})\coqdoceol
+\coqdocnoindent
+\coqdoceol
+\coqdocindent{3.00em}
+\end{coqdoccode}
+\coqdocvar{Gassume} of an assumption that is inconsistent with
+          the path constraints, transitions the machine
+          to an error state.
+
+
+           
+\begin{coqdoccode}
+\coqdocindent{3.00em}
+\ensuremath{|} \coqdocvar{step\_assume\_Incon} : \coqdockw{\ensuremath{\forall}} \coqdocvar{f} \coqdocvar{pc} \coqdocvar{pc'} \coqdocvar{cs} \coqdocvar{E} \coqdocvar{G} \coqdocvar{s} \coqdocvar{gd} \coqdocvar{gd'},\coqdoceol
+\coqdocindent{5.00em}
+\coqdocvar{pc} = \coqdocvar{Gassume} \coqdocvar{gd} :: \coqdocvar{pc'} \ensuremath{\rightarrow}\coqdoceol
+\coqdocindent{5.00em}
+\coqdocvar{symbolize} \coqdocvar{E} \coqdocvar{gd} = \coqdocvar{OK} \coqdocvar{gd'} \ensuremath{\rightarrow}\coqdoceol
+\coqdocindent{5.00em}
+\coqdocvar{gd'} :: \coqdocvar{G} |= \coqdocvar{Sfalse} \ensuremath{\rightarrow}\coqdoceol
+\coqdocindent{5.00em}
+\coqdocvar{step} \coqdoceol
+\coqdocindent{6.00em}
+(\coqdocvar{State} \coqdocvar{f} \coqdocvar{pc} \coqdocvar{E} \coqdocvar{cs} \coqdocvar{G} \coqdocvar{s}) [\coqdocvar{Estep} 2 (\coqdocvar{Gassume} \coqdocvar{gd})]\coqdoceol
+\coqdocindent{6.00em}
+(\coqdocvar{Inconsistent\_with} \coqdocvar{G} \coqdocvar{gd'})\coqdoceol
+\coqdocnoindent
+\coqdoceol
+\coqdocindent{3.00em}
+\end{coqdoccode}
+\coqdocvar{Gassert} checks (with the solver) if its guard \coqdocvar{gd},
+          holds. If so, we advance the PC.
+
+
+           
+\begin{coqdoccode}
+\coqdocindent{3.00em}
+\ensuremath{|} \coqdocvar{step\_assert} : \coqdockw{\ensuremath{\forall}} \coqdocvar{f} \coqdocvar{pc} \coqdocvar{pc'} \coqdocvar{cs} \coqdocvar{E} \coqdocvar{G} \coqdocvar{s} \coqdocvar{gd} \coqdocvar{gd'},\coqdoceol
+\coqdocindent{5.00em}
+\coqdocvar{pc} = \coqdocvar{Gassert} \coqdocvar{gd} :: \coqdocvar{pc'} \ensuremath{\rightarrow}\coqdoceol
+\coqdocindent{5.00em}
+\coqdocvar{symbolize} \coqdocvar{E} \coqdocvar{gd} = \coqdocvar{OK} \coqdocvar{gd'} \ensuremath{\rightarrow}\coqdoceol
+\coqdocindent{5.00em}
+\coqdocvar{G} |= \coqdocvar{gd'} \ensuremath{\rightarrow}\coqdoceol
+\coqdocindent{5.00em}
+\coqdoceol
+\coqdocindent{5.00em}
+\coqdocvar{step} \coqdoceol
+\coqdocindent{6.00em}
+(\coqdocvar{State} \coqdocvar{f} \coqdocvar{pc}  \coqdocvar{E} \coqdocvar{cs} \coqdocvar{G} \coqdocvar{s}) [\coqdocvar{Estep} 1 (\coqdocvar{Gassert} \coqdocvar{gd})]\coqdoceol
+\coqdocindent{6.00em}
+(\coqdocvar{State} \coqdocvar{f} \coqdocvar{pc'} \coqdocvar{E} \coqdocvar{cs} \coqdocvar{G} \coqdocvar{s})\coqdoceol
+\coqdocindent{6.00em}
+\coqdoceol
+\coqdocindent{6.00em}
+\coqdoceol
+\coqdocnoindent
+\coqdoceol
+\coqdocindent{3.00em}
+\end{coqdoccode}
+If the guard \coqdocvar{gd}, does not hold, the machine moves
+          to an error state. see \coqdocvar{step\_assert}.
+
+
+           
+\begin{coqdoccode}
+\coqdocindent{3.00em}
+\ensuremath{|} \coqdocvar{step\_assert\_fail} : \coqdockw{\ensuremath{\forall}} \coqdocvar{f} \coqdocvar{pc} \coqdocvar{pc'} \coqdocvar{cs} \coqdocvar{E} \coqdocvar{G} \coqdocvar{s} \coqdocvar{gd} \coqdocvar{gd'},\coqdoceol
+\coqdocindent{5.00em}
+\coqdocvar{pc} = \coqdocvar{Gassert} \coqdocvar{gd} :: \coqdocvar{pc'} \ensuremath{\rightarrow}\coqdoceol
+\coqdocindent{5.00em}
+\coqdocvar{symbolize} \coqdocvar{E} \coqdocvar{gd} = \coqdocvar{OK} \coqdocvar{gd'} \ensuremath{\rightarrow}\coqdoceol
+\coqdocindent{5.00em}
+\coqdocvar{G} |/= \coqdocvar{gd'} \ensuremath{\rightarrow}\coqdoceol
+\coqdocindent{5.00em}
+\coqdocvar{step} \coqdoceol
+\coqdocindent{6.00em}
+(\coqdocvar{State} \coqdocvar{f} \coqdocvar{pc} \coqdocvar{E} \coqdocvar{cs} \coqdocvar{G} \coqdocvar{s}) [\coqdocvar{Estep} 2 (\coqdocvar{Gassert} \coqdocvar{gd})]\coqdoceol
+\coqdocindent{6.00em}
+(\coqdocvar{Assrt\_failure} \coqdocvar{G} [ \coqdocvar{gd'}]).\coqdoceol
+\coqdocemptyline
+\end{coqdoccode}
+Transitions for ``regular'' inter-procedural control flow.
+        i.e. the Regular Call and return steps.
+
+
+        
+\begin{coqdoccode}
+\coqdocindent{2.00em}
+\coqdockw{Inductive} \coqdocvar{RegCalls} : \coqdocvar{state} \ensuremath{\rightarrow} \coqdocvar{trace} \ensuremath{\rightarrow} \coqdocvar{state} \ensuremath{\rightarrow} \coqdockw{Prop} :=\coqdoceol
+\coqdocnoindent
+\coqdoceol
+\coqdocindent{3.00em}
+\ensuremath{|} \coqdocvar{step\_call} : \coqdockw{\ensuremath{\forall}} \coqdocvar{cer} \coqdocvar{pc} \coqdocvar{cs} \coqdocvar{E} \coqdocvar{G} \coqdocvar{s} \coqdocvar{cee} \coqdocvar{sargs} \coqdocvar{x} \coqdocvar{pc'} \coqdocvar{cee\_id} \coqdocvar{args},\coqdoceol
+\coqdocindent{5.00em}
+\coqdocvar{pc} = \coqdocvar{Gcall} \coqdocvar{x} \coqdocvar{cee\_id} \coqdocvar{args} \coqdocvar{false} :: \coqdocvar{pc'} \ensuremath{\rightarrow}\coqdoceol
+\coqdocindent{5.00em}
+\coqdocvar{ge} ! \coqdocvar{cee\_id} = \coqdocvar{Some} \coqdocvar{cee} \ensuremath{\rightarrow}\coqdoceol
+\coqdocindent{5.00em}
+\coqdocvar{OK} \coqdocvar{sargs} = \coqdocvar{E} \#\# \coqdocvar{args} \ensuremath{\rightarrow}\coqdoceol
+\coqdocindent{5.00em}
+\coqdocvar{RegCalls} \coqdoceol
+\coqdocindent{6.00em}
+(\coqdocvar{State} \coqdocvar{cer} \coqdocvar{pc} \coqdocvar{E} \coqdocvar{cs} \coqdocvar{G} \coqdocvar{s}) [\coqdocvar{Estep} 1 (\coqdocvar{Gcall} \coqdocvar{x} \coqdocvar{cee\_id} \coqdocvar{args} \coqdocvar{false})]\coqdoceol
+\coqdocindent{6.00em}
+(\coqdocvar{Callstate} \coqdocvar{cee} \coqdocvar{sargs} (\coqdocvar{Stackframe} \coqdocvar{x} \coqdocvar{cer} \coqdocvar{pc'} \coqdocvar{E} \coqdocvar{cs}) \coqdocvar{G} \coqdocvar{s})\coqdoceol
+\coqdocnoindent
+\coqdoceol
+\coqdocindent{3.00em}
+\ensuremath{|} \coqdocvar{step\_pass\_control} : \coqdockw{\ensuremath{\forall}} \coqdocvar{f} \coqdocvar{sargs} \coqdocvar{cs} \coqdocvar{G} \coqdocvar{s} \coqdocvar{E} \coqdocvar{xx},\coqdoceol
+\coqdocindent{5.00em}
+\coqdocvar{E} = \coqdocvar{init\_sparams} \coqdocvar{f}.(\coqdocvar{params}) \coqdocvar{sargs} \ensuremath{\rightarrow}\coqdoceol
+\coqdocindent{5.00em}
+\coqdocvar{RegCalls} \coqdoceol
+\coqdocindent{6.00em}
+(\coqdocvar{Callstate} \coqdocvar{f} \coqdocvar{sargs} \coqdocvar{cs} \coqdocvar{G} \coqdocvar{s}) [\coqdocvar{Estep} 3 \coqdocvar{xx}]\coqdoceol
+\coqdocindent{6.00em}
+(\coqdocvar{State} \coqdocvar{f} \coqdocvar{f}.(\coqdocvar{body}) \coqdocvar{E} \coqdocvar{cs} \coqdocvar{G} \coqdocvar{s})\coqdoceol
+\coqdocnoindent
+\coqdoceol
+\coqdocindent{3.00em}
+\ensuremath{|} \coqdocvar{step\_return} : \coqdockw{\ensuremath{\forall}} \coqdocvar{f} \coqdocvar{pc} \coqdocvar{cs} \coqdocvar{E} \coqdocvar{G} \coqdocvar{s} \coqdocvar{srv} \coqdocvar{e} \coqdocvar{xx},\coqdoceol
+\coqdocindent{5.00em}
+\coqdocvar{pc} = \coqdocvar{Greturn} \coqdocvar{e} :: \coqdocvar{xx} \ensuremath{\rightarrow}\coqdoceol
+\coqdocindent{5.00em}
+\coqdocvar{OK} \coqdocvar{srv} = \coqdocvar{symbolize} \coqdocvar{E} \coqdocvar{e} \ensuremath{\rightarrow}\coqdoceol
+\coqdocindent{5.00em}
+\coqdocvar{RegCalls} \coqdoceol
+\coqdocindent{6.00em}
+(\coqdocvar{State} \coqdocvar{f} \coqdocvar{pc} \coqdocvar{E} \coqdocvar{cs} \coqdocvar{G} \coqdocvar{s}) [\coqdocvar{Estep} 1 (\coqdocvar{Greturn} \coqdocvar{e})]\coqdoceol
+\coqdocindent{6.00em}
+(\coqdocvar{Returnstate} \coqdocvar{srv} \coqdocvar{cs} \coqdocvar{G} \coqdocvar{s})\coqdoceol
+\coqdocnoindent
+\coqdoceol
+\coqdocindent{3.00em}
+\ensuremath{|} \coqdocvar{step\_return\_control} : \coqdockw{\ensuremath{\forall}} \coqdocvar{srv} \coqdocvar{x} \coqdocvar{cer} \coqdocvar{rs} \coqdocvar{E} \coqdocvar{cs} \coqdocvar{G} \coqdocvar{s} \coqdocvar{f} \coqdocvar{E'} \coqdocvar{xx},\coqdoceol
+\coqdocindent{5.00em}
+\coqdocvar{Some} \coqdocvar{E'} = \coqdocvar{PTree.set\_only\_stale} \coqdocvar{x} \coqdocvar{srv} \coqdocvar{E} \ensuremath{\rightarrow}\coqdoceol
+\coqdocindent{5.00em}
+\coqdocvar{RegCalls} \coqdoceol
+\coqdocindent{6.00em}
+(\coqdocvar{Returnstate} \coqdocvar{srv} (\coqdocvar{Stackframe} \coqdocvar{x} \coqdocvar{cer} \coqdocvar{rs} \coqdocvar{E} \coqdocvar{cs}) \coqdocvar{G} \coqdocvar{s}) [\coqdocvar{Estep} 4 \coqdocvar{xx}]\coqdoceol
+\coqdocindent{6.00em}
+(\coqdocvar{State} \coqdocvar{f} \coqdocvar{rs} \coqdocvar{E} \coqdocvar{cs} \coqdocvar{G} \coqdocvar{s}).\coqdoceol
+\coqdocemptyline
+\end{coqdoccode}
+Transitions that abstract a function by using its contract instead.
+        i.e. steps that perform Contract Replacement.
+
+
+         
+\begin{coqdoccode}
+\coqdocindent{2.00em}
+\coqdockw{Inductive} \coqdocvar{ConRep} : \coqdocvar{state} \ensuremath{\rightarrow} \coqdocvar{trace} \ensuremath{\rightarrow} \coqdocvar{state} \ensuremath{\rightarrow} \coqdockw{Prop} :=\coqdoceol
+\coqdocnoindent
+\coqdoceol
+\coqdocindent{3.00em}
+\ensuremath{|} \coqdocvar{step\_fn\_contract} : \coqdockw{\ensuremath{\forall}} \coqdocvar{cer} \coqdocvar{pc} \coqdocvar{pc'} \coqdocvar{E} \coqdocvar{cs} \coqdocvar{G} \coqdocvar{s}\coqdoceol
+\coqdocindent{17.00em}
+\coqdocvar{x} \coqdocvar{cee\_id} \coqdocvar{args} \coqdocvar{cee} \coqdocvar{sargs}\coqdoceol
+\coqdocindent{17.00em}
+\coqdocvar{E\_req} \coqdocvar{cee\_requires} \coqdocvar{E\_ens}\coqdoceol
+\coqdocindent{17.00em}
+\coqdocvar{cee\_ensures} \coqdocvar{s'},\coqdoceol
+\coqdocindent{3.00em}
+\coqdoceol
+\coqdocindent{5.00em}
+\coqdocvar{pc} = \coqdocvar{Gcall} \coqdocvar{x} \coqdocvar{cee\_id} \coqdocvar{args} \coqdocvar{true} :: \coqdocvar{pc'} \ensuremath{\rightarrow}\coqdoceol
+\coqdocindent{5.00em}
+\coqdocvar{ge} ! \coqdocvar{cee\_id} = \coqdocvar{Some} \coqdocvar{cee} \ensuremath{\rightarrow}\coqdoceol
+\coqdocnoindent
+\coqdoceol
+\coqdocindent{5.00em}
+\end{coqdoccode}
+Check the pre-conditions
+          
+\begin{coqdoccode}
+\coqdocindent{5.00em}
+\coqdocvar{OK} \coqdocvar{sargs} = \coqdocvar{E} \#\# \coqdocvar{args} \ensuremath{\rightarrow}\coqdoceol
+\coqdocindent{5.00em}
+\coqdocvar{E\_req} = \coqdocvar{init\_sparams} \coqdocvar{cee}.(\coqdocvar{params}) \coqdocvar{sargs} \ensuremath{\rightarrow}\coqdoceol
+\coqdocindent{5.00em}
+\coqdocvar{OK} \coqdocvar{cee\_requires} = \coqdocvar{symbolize\_list} \coqdocvar{E\_req} \coqdocvar{cee}.(\coqdocvar{requires}) \ensuremath{\rightarrow}\coqdoceol
+\coqdocindent{5.00em}
+\coqdocvar{G} |= \coqdocvar{cee\_requires} \ensuremath{\rightarrow}\coqdoceol
+\coqdocindent{5.00em}
+\coqdoceol
+\coqdocnoindent
+\coqdoceol
+\coqdocindent{5.00em}
+\end{coqdoccode}
+assume the post-condition
+          
+\begin{coqdoccode}
+\coqdocindent{5.00em}
+\coqdocvar{E\_ens} = \coqdocvar{build\_ensure\_env} \coqdocvar{s} \coqdocvar{cee}.(\coqdocvar{params}) \coqdocvar{sargs} \ensuremath{\rightarrow}\coqdoceol
+\coqdocindent{5.00em}
+\coqdocvar{OK} \coqdocvar{cee\_ensures} = \coqdocvar{symbolize\_list} \coqdocvar{E\_ens} \coqdocvar{cee}.(\coqdocvar{ensures}) \ensuremath{\rightarrow}\coqdoceol
+\coqdocindent{5.00em}
+\coqdocvar{s'} = \coqdocvar{s} + \coqdocvar{Pos.of\_nat} (\coqdocvar{List.length} \coqdocvar{sargs}) + 1 \ensuremath{\rightarrow}\coqdoceol
+\coqdocindent{5.00em}
+\coqdocvar{ConRep} \coqdoceol
+\coqdocindent{6.00em}
+(\coqdocvar{State} \coqdocvar{cer} \coqdocvar{pc}   \coqdocvar{E}                      \coqdocvar{cs}                 \coqdocvar{G}   \coqdocvar{s}    ) [\coqdocvar{Estep} 1 (\coqdocvar{Gcall} \coqdocvar{x} \coqdocvar{cee\_id} \coqdocvar{args} \coqdocvar{true})]\coqdoceol
+\coqdocindent{6.00em}
+(\coqdocvar{State} \coqdocvar{cer} \coqdocvar{pc'} (\coqdocvar{E} ! \coqdocvar{x} \ensuremath{\leftarrow} (\coqdocvar{Ssymbol} \coqdocvar{s'})) \coqdocvar{cs} (\coqdocvar{cee\_ensures} ++ \coqdocvar{G}) (\coqdocvar{s'}+1))\coqdoceol
+\coqdocnoindent
+\coqdoceol
+\coqdocindent{3.00em}
+\ensuremath{|} \coqdocvar{step\_fn\_contract\_fail} : \coqdockw{\ensuremath{\forall}} \coqdocvar{cer} \coqdocvar{pc} \coqdocvar{E} \coqdocvar{cs} \coqdocvar{G} \coqdocvar{s} \coqdocvar{cee\_requires} \coqdocvar{x}\coqdoceol
+\coqdocindent{19.50em}
+\coqdocvar{cee\_id} \coqdocvar{args} \coqdocvar{cee} \coqdocvar{sargs} \coqdocvar{E\_req} \coqdocvar{xx},\coqdoceol
+\coqdocindent{5.00em}
+\coqdocvar{pc} = \coqdocvar{Gcall} \coqdocvar{x} \coqdocvar{cee\_id} \coqdocvar{args} \coqdocvar{true} :: \coqdocvar{xx} \ensuremath{\rightarrow}\coqdoceol
+\coqdocindent{5.00em}
+\coqdocvar{ge} ! \coqdocvar{cee\_id} = \coqdocvar{Some} \coqdocvar{cee} \ensuremath{\rightarrow}\coqdoceol
+\coqdocnoindent
+\coqdoceol
+\coqdocindent{5.00em}
+\end{coqdoccode}
+Check the pre-conditions
+           
+\begin{coqdoccode}
+\coqdocindent{5.00em}
+\coqdocvar{OK} \coqdocvar{sargs} = \coqdocvar{E} \#\# \coqdocvar{args} \ensuremath{\rightarrow}\coqdoceol
+\coqdocindent{5.00em}
+\coqdocvar{E\_req} = \coqdocvar{init\_sparams} \coqdocvar{cee}.(\coqdocvar{params}) \coqdocvar{sargs} \ensuremath{\rightarrow}\coqdoceol
+\coqdocindent{5.00em}
+\coqdocvar{OK} \coqdocvar{cee\_requires} = \coqdocvar{symbolize\_list} \coqdocvar{E\_req} \coqdocvar{cee}.(\coqdocvar{requires}) \ensuremath{\rightarrow}\coqdoceol
+\coqdocindent{5.00em}
+\coqdocvar{G} |/= \coqdocvar{cee\_requires} \ensuremath{\rightarrow}\coqdoceol
+\coqdocindent{5.00em}
+\coqdocvar{ConRep} \coqdoceol
+\coqdocindent{6.00em}
+(\coqdocvar{State} \coqdocvar{cer} \coqdocvar{pc} \coqdocvar{E} \coqdocvar{cs} \coqdocvar{G} \coqdocvar{s}) [\coqdocvar{Estep} 2 (\coqdocvar{Gcall} \coqdocvar{x} \coqdocvar{cee\_id} \coqdocvar{args} \coqdocvar{true})]\coqdoceol
+\coqdocindent{6.00em}
+(\coqdocvar{Assrt\_failure} \coqdocvar{G} (\coqdocvar{get\_failed} \coqdocvar{G} \coqdocvar{cee\_requires})).\coqdoceol
+\coqdocemptyline
+\coqdocemptyline
+\coqdocemptyline
+\end{coqdoccode}
+Combination of intra-procedural steps with regular calls.
+    
+\begin{coqdoccode}
+\coqdocindent{2.00em}
+\coqdockw{Inductive} \coqdocvar{stepRC} : \coqdocvar{state} \ensuremath{\rightarrow} \coqdocvar{trace} \ensuremath{\rightarrow} \coqdocvar{state} \ensuremath{\rightarrow} \coqdockw{Prop} :=\coqdoceol
+\coqdocindent{3.00em}
+\ensuremath{|} \coqdocvar{RC\_intraPCF} : \coqdockw{\ensuremath{\forall}} \coqdocvar{SI} \coqdocvar{t} \coqdocvar{SO},\coqdoceol
+\coqdocindent{5.00em}
+\coqdocvar{step} \coqdocvar{SI} \coqdocvar{t} \coqdocvar{SO} \ensuremath{\rightarrow}\coqdoceol
+\coqdocindent{5.00em}
+\coqdocvar{stepRC} \coqdocvar{SI} \coqdocvar{t} \coqdocvar{SO}\coqdoceol
+\coqdocindent{3.00em}
+\ensuremath{|} \coqdocvar{RC\_interPCF} : \coqdockw{\ensuremath{\forall}} \coqdocvar{SI} \coqdocvar{t} \coqdocvar{SO},\coqdoceol
+\coqdocindent{5.00em}
+\coqdocvar{RegCalls} \coqdocvar{SI} \coqdocvar{t} \coqdocvar{SO} \ensuremath{\rightarrow}\coqdoceol
+\coqdocindent{5.00em}
+\coqdocvar{stepRC} \coqdocvar{SI} \coqdocvar{t} \coqdocvar{SO}.\coqdoceol
+\coqdocemptyline
+\end{coqdoccode}
+Combination of intra-procedural steps with contract replacement.
+    
+\begin{coqdoccode}
+\coqdocindent{2.00em}
+\coqdockw{Inductive} \coqdocvar{stepCR} : \coqdocvar{state} \ensuremath{\rightarrow} \coqdocvar{trace} \ensuremath{\rightarrow} \coqdocvar{state} \ensuremath{\rightarrow} \coqdockw{Prop} :=\coqdoceol
+\coqdocindent{3.00em}
+\ensuremath{|} \coqdocvar{CR\_intraPCF} : \coqdockw{\ensuremath{\forall}} \coqdocvar{SI} \coqdocvar{t} \coqdocvar{SO},\coqdoceol
+\coqdocindent{5.00em}
+\coqdocvar{step} \coqdocvar{SI} \coqdocvar{t} \coqdocvar{SO} \ensuremath{\rightarrow}\coqdoceol
+\coqdocindent{5.00em}
+\coqdocvar{stepCR} \coqdocvar{SI} \coqdocvar{t} \coqdocvar{SO}\coqdoceol
+\coqdocindent{3.00em}
+\ensuremath{|} \coqdocvar{CR\_replacement} : \coqdockw{\ensuremath{\forall}} \coqdocvar{SI} \coqdocvar{t} \coqdocvar{SO},\coqdoceol
+\coqdocindent{5.00em}
+\coqdocvar{ConRep} \coqdocvar{SI} \coqdocvar{t} \coqdocvar{SO} \ensuremath{\rightarrow}\coqdoceol
+\coqdocindent{5.00em}
+\coqdocvar{stepCR} \coqdocvar{SI} \coqdocvar{t} \coqdocvar{SO}.\coqdoceol
+\coqdocemptyline
+\coqdocindent{1.00em}
+\coqdockw{End}     \coqdocvar{RELSEM}.\coqdoceol
+\coqdocemptyline
+\end{coqdoccode}
+\subsection{Program runs / execution}
+
+
+
+
+        The follow are some definitions that allow us to
+        talk about program runs and verifications concepts.
+
+
+        \chrc{still need to properly define "replacement"}
+  
+
+ Initial and final states, used to define program runs.
+    
+\begin{coqdoccode}
+\coqdocemptyline
+\coqdocindent{1.00em}
+\coqdockw{Inductive} \coqdocvar{initial\_state} (\coqdocvar{p} : \coqdocvar{program}) : \coqdocvar{state} \ensuremath{\rightarrow} \coqdockw{Prop} :=\coqdoceol
+\coqdocindent{2.00em}
+\ensuremath{|} \coqdocvar{initial\_state\_intro} : \coqdockw{\ensuremath{\forall}} \coqdocvar{main\_id} \coqdocvar{main},\coqdoceol
+\coqdocindent{4.00em}
+\coqdocvar{List.hd\_error} \coqdocvar{p} = \coqdocvar{Some} (\coqdocvar{main\_id},\coqdocvar{main}) \ensuremath{\rightarrow}\coqdoceol
+\coqdocindent{4.00em}
+\coqdocvar{initial\_state} \coqdocvar{p} (\coqdocvar{Callstate} \coqdocvar{main} [] \coqdocvar{Stknil} [] 1\%\coqdocvar{positive}).\coqdoceol
+\coqdocemptyline
+\coqdocindent{1.00em}
+\coqdockw{Inductive} \coqdocvar{final\_state} : \coqdocvar{state} \ensuremath{\rightarrow} \coqdockw{Prop} :=\coqdoceol
+\coqdocindent{2.00em}
+\ensuremath{|} \coqdocvar{fs\_regular} : \coqdockw{\ensuremath{\forall}} \coqdocvar{xx1} \coqdocvar{xx2} \coqdocvar{xx3},\coqdoceol
+\coqdocindent{4.00em}
+\coqdocvar{final\_state} (\coqdocvar{Returnstate} \coqdocvar{xx1} \coqdocvar{Stknil} \coqdocvar{xx2} \coqdocvar{xx3})\coqdoceol
+\coqdocindent{2.00em}
+\ensuremath{|} \coqdocvar{fs\_IW} : \coqdockw{\ensuremath{\forall}} \coqdocvar{xx1} \coqdocvar{xx2},\coqdoceol
+\coqdocindent{4.00em}
+\coqdocvar{final\_state} (\coqdocvar{Inconsistent\_with} \coqdocvar{xx1} \coqdocvar{xx2})\coqdoceol
+\coqdocindent{2.00em}
+\ensuremath{|} \coqdocvar{fs\_AF} : \coqdockw{\ensuremath{\forall}} \coqdocvar{xx1} \coqdocvar{xx2},\coqdoceol
+\coqdocindent{4.00em}
+\coqdocvar{final\_state} (\coqdocvar{Assrt\_failure} \coqdocvar{xx1} \coqdocvar{xx2}).\coqdoceol
+\coqdocemptyline
+\end{coqdoccode}
+Defines the transitive closure of step relations
+  
+\begin{coqdoccode}
+\coqdocindent{1.00em}
+\coqdockw{Local} \coqdockw{Definition} \coqdocvar{Star} :=\coqdoceol
+\coqdocindent{2.00em}
+@\coqdocvar{star} \coqdocvar{genv} \coqdocvar{state} \coqdocvar{event}.\coqdoceol
+\coqdocemptyline
+\coqdocindent{1.00em}
+\coqdockw{Definition} \coqdocvar{not\_AF} \coqdocvar{S} : \coqdockw{Prop} :=\coqdoceol
+\coqdocindent{2.00em}
+\coqdockw{\ensuremath{\forall}} \coqdocvar{xx1} \coqdocvar{xx2}, \coqdocvar{S} \ensuremath{\not=} \coqdocvar{Assrt\_failure} \coqdocvar{xx1} \coqdocvar{xx2}.\coqdoceol
+\coqdocemptyline
+\end{coqdoccode}
+State \coqdocvar{S}, under transition system \coqdocvar{stp},
+      does not reach an assertion failure state.
+  
+\begin{coqdoccode}
+\coqdocindent{1.00em}
+\coqdockw{Definition} \coqdocvar{no\_failure\_from} \coqdocvar{stp} \coqdocvar{S} :=\coqdoceol
+\coqdocindent{2.00em}
+\coqdockw{\ensuremath{\forall}} \coqdocvar{ge} \coqdocvar{t} \coqdocvar{FS} \coqdocvar{xx1} \coqdocvar{xx2},\coqdoceol
+\coqdocindent{2.00em}
+\coqdocvar{Star} \coqdocvar{stp} \coqdocvar{ge} \coqdocvar{S} \coqdocvar{t} \coqdocvar{FS} \ensuremath{\rightarrow}\coqdoceol
+\coqdocindent{2.00em}
+\coqdocvar{final\_state} \coqdocvar{FS} \ensuremath{\rightarrow}\coqdoceol
+\coqdocindent{2.00em}
+\coqdocvar{FS} \ensuremath{\not=} \coqdocvar{Assrt\_failure} \coqdocvar{xx1} \coqdocvar{xx2}.\coqdoceol
+\coqdocemptyline
+\end{coqdoccode}
+A program is considered verified if it does
+      not enter an assertion failure state.
+  
+\begin{coqdoccode}
+\coqdocindent{1.00em}
+\coqdockw{Definition} \coqdocvar{verifiedP} \coqdocvar{stp} (\coqdocvar{p}: \coqdocvar{program}) :=\coqdoceol
+\coqdocindent{2.00em}
+\coqdockw{\ensuremath{\forall}} \coqdocvar{SI},\coqdoceol
+\coqdocindent{2.00em}
+\coqdocvar{initial\_state} \coqdocvar{p} \coqdocvar{SI} \ensuremath{\rightarrow}\coqdoceol
+\coqdocindent{2.00em}
+\coqdocvar{no\_failure\_from} \coqdocvar{stp} \coqdocvar{SI}.\coqdoceol
+\coqdocemptyline
+\coqdocemptyline
+\coqdocnoindent
+\coqdockw{End}    \coqdocvar{Semantics}.\coqdoceol
+\coqdocemptyline
+\end{coqdoccode}
+\end{document}

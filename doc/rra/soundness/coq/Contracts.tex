@@ -1,0 +1,556 @@
+\documentclass[12pt]{report}
+\usepackage[]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{fullpage}
+\usepackage[color]{coqdoc}
+\usepackage{amsmath,amssymb}
+\usepackage{url,xcolor}
+\newlength\tindent
+\setlength{\tindent}{\parindent}
+\setlength{\parindent}{0pt}
+\renewcommand{\indent}{\hspace*{\tindent}}
+\usepackage{titlesec}
+
+\titleformat{\chapter}[display]
+  {\normalfont\bfseries}{}{0pt}{\Huge}
+
+\setcounter{secnumdepth}{0}
+
+\begin{document}
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% This file has been automatically generated with the command
+%% coqdoc --latex --glob-from Contracts.glob Contracts.v 
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\coqlibrary{Contracts}{Library }{Contracts}
+
+\begin{coqdoccode}
+\coqdocnoindent
+\coqdockw{From} \coqdocvar{GOTO} \coqdockw{Require} \coqdockw{Import} \coqdocvar{Language} \coqdocvar{SymbEx}.\coqdoceol
+\coqdocindent{5.00em}
+\coqdockw{Require} \coqdockw{Import} \coqdocvar{List}.\coqdoceol
+\coqdocnoindent
+\coqdockw{Import} \coqdocvar{ListNotations}.\coqdoceol
+\coqdocemptyline
+\coqdocnoindent
+\coqdockw{Local Open} \coqdockw{Scope} \coqdocvar{positive}.\coqdoceol
+\coqdocnoindent
+\coqdockw{Local Open} \coqdockw{Scope} \coqdocvar{gotop}.\coqdoceol
+\coqdocemptyline
+\end{coqdoccode}
+\section{Introduction}
+
+ This file defines the ``theory'' necessary to reason about contracts.
+
+
+    It mainly defines the concepts of the sets of values symbolic
+    expressions will represent, and overapproximations. In general, A
+    will be an overapproximation of B if A is a larger set of values
+    than B. We will make this notion precise for symbolic expressions;
+    program states, programs etc.
+
+
+    This is relevant because is it sound (wrt to verification) to
+    model check an overapproximation of a program. i.e. If an
+    overapproximate program does not fail some assertion,
+    neither will the original program fail that assertion.
+    
+\begin{coqdoccode}
+\coqdocemptyline
+\coqdocnoindent
+\coqdockw{Module} \coqdocvar{Functor} (\coqdocvar{sat}: \coqdocvar{Solver}).\coqdoceol
+\coqdocindent{1.00em}
+\coqdockw{Module} \coqdockw{Import} \coqdocvar{Sem} := (\coqdocvar{SymbEx.Semantics} \coqdocvar{sat}).\coqdoceol
+\coqdocindent{1.00em}
+\coqdockw{Local} \coqdockw{Notation} "M \# x"      := (\coqdocvar{PMap.get} \coqdocvar{x} \coqdocvar{M}) (\coqdoctac{at} \coqdockw{level} 5).\coqdoceol
+\coqdocindent{1.00em}
+\coqdockw{Local} \coqdockw{Notation} "M \# x <- v" := (\coqdocvar{PMap.set} \coqdocvar{x} \coqdocvar{v} \coqdocvar{M}) (\coqdoctac{at} \coqdockw{level} 5, \coqdocvar{x} \coqdoctac{at} \coqdocvar{next} \coqdockw{level}).\coqdoceol
+\coqdocemptyline
+\end{coqdoccode}
+\subsection{Sets}
+
+
+
+
+      The following two sections define sets and how to calculate
+      the set of values a program variable has, from the path constraint.\\
+
+
+      \chrc{ Mike, Jim, re the following code.
+      let's ignore it for now, it is too gnarly.
+      We can do a deep dive next time / further down the road.
+      Skip to [End SetsOfVals] after you read the following examples.}\\
+
+
+      Sets can be defined as predicates.
+      The set $A \triangleq \{x: int\ |\ x < 2\}$ in set-builder
+      notation can be rewritten more directly as a predicate
+      like so: $\text{fun } x: \text{int} \Rightarrow x < 2$.
+
+
+      In general, the clauses can also mention other, ostensibly,
+      unbound variables. e.g.:
+
+
+      \[B \triangleq \{x\ |\ x = a + b + c \land 1 < a < 10 \land \ 
+      3 < b < 8 \ldots \}\]
+
+
+      These variables are really existentially quantified:
+
+
+      \[B \triangleq \text{fun } x \Rightarrow \exists a\ b\ c. \
+      x = a + b + c \land 1 < a < 10 \land 3 < b < 8 \ldots \]
+
+
+      So we can describe the set of values a \texttt{goto} program
+      variable, $u$, has:
+      \[\text{values of } u \triangleq \{x\ |\ x = E\ !\ u \land \langle \text{path constraint} \rangle\}\]
+      Where $E ! u$ denotes the lookup of variable u in the environment, returning some symbolic expression.
+
+
+      To capture relations between multiple program varibles $t,\ u,\ v$,
+      we can look at the sets of values of tuples of these varibles. e.g.
+      \[ \{ x, y, z\ |\ x = E\ !\ t \land y = E\ !\ u \land z = E\ !\ v \land \langle \text{path constraint} \rangle\}\]
+
+
+      To see why this is relevant, consider 2 programs, $P1$ and $P2$, each with variables $x,\ y \& z$.
+      In both programs each variable belongs to the set $\{0,\ 1\}$. Additionally, let $P2$ have the following
+      constraint on its variables: $x+y+z=1$. Then $P1$ is an overapproximation of $P2$ because in $P1$
+      all the variables could be 1, while this is not possible in $P2$.
+
+
+      
+\begin{coqdoccode}
+\coqdocemptyline
+\coqdocindent{1.00em}
+\coqdockw{Section} \coqdocvar{substitutions}.\coqdoceol
+\coqdocindent{2.00em}
+\coqdockw{Definition} \coqdocvar{substitution} := \coqdocvar{PMap.t} \coqdocvar{int64}.\coqdoceol
+\coqdocindent{2.00em}
+\coqdockw{Variable} (\coqdocvar{S}: \coqdocvar{substitution}).\coqdoceol
+\coqdocemptyline
+\end{coqdoccode}
+Do substitution, treating the \coqdocvar{sexpr} as a value.
+    
+\begin{coqdoccode}
+\coqdocindent{2.00em}
+\coqdockw{Fixpoint} \coqdocvar{subst\_v} \coqdocvar{se} : \coqdocvar{int64} :=\coqdoceol
+\coqdocindent{3.00em}
+\coqdockw{match} \coqdocvar{se} \coqdockw{with}\coqdoceol
+\coqdocindent{3.00em}
+\ensuremath{|} \coqdocvar{Ssymbol} \coqdocvar{x}       \ensuremath{\Rightarrow} (\coqdocvar{S} \# \coqdocvar{x})\coqdoceol
+\coqdocindent{3.00em}
+\ensuremath{|} \coqdocvar{Svalue} (\coqdocvar{Vint} \coqdocvar{x}) \ensuremath{\Rightarrow} \coqdocvar{x}\coqdoceol
+\coqdocindent{3.00em}
+\ensuremath{|} \coqdocvar{Suop} \coqdocvar{op} \coqdocvar{s}       \ensuremath{\Rightarrow} (\coqdocvar{uop\_to\_int64op} \coqdocvar{op}) (\coqdocvar{subst\_v} \coqdocvar{s})\coqdoceol
+\coqdocindent{3.00em}
+\ensuremath{|} \coqdocvar{Sbop} \coqdocvar{op} \coqdocvar{l} \coqdocvar{r}     \ensuremath{\Rightarrow} (\coqdocvar{bop\_to\_int64op} \coqdocvar{op}) (\coqdocvar{subst\_v} \coqdocvar{l}) (\coqdocvar{subst\_v} \coqdocvar{r})\coqdoceol
+\coqdocindent{3.00em}
+\ensuremath{|} \coqdocvar{Scomp} \coqdocvar{c} \coqdocvar{l} \coqdocvar{r}     \ensuremath{\Rightarrow} \coqdockw{if} \coqdocvar{Int64.cmp} \coqdocvar{c} (\coqdocvar{subst\_v} \coqdocvar{l}) (\coqdocvar{subst\_v} \coqdocvar{r})\coqdoceol
+\coqdocindent{14.00em}
+\coqdockw{then} \coqdocvar{Int64.one} \coqdockw{else} \coqdocvar{Int64.zero}\coqdoceol
+\coqdocindent{3.00em}
+\coqdockw{end}.\coqdoceol
+\coqdocemptyline
+\end{coqdoccode}
+Do substitution, treating the \coqdocvar{sexpr} as a boolean
+        (Really, a \coqdockw{Prop}).
+        
+\begin{coqdoccode}
+\coqdocindent{2.00em}
+\coqdockw{Definition} \coqdocvar{subst\_P} \coqdocvar{se} : \coqdockw{Prop} :=\coqdoceol
+\coqdocindent{3.00em}
+\coqdockw{match} \coqdocvar{se} \coqdockw{with}\coqdoceol
+\coqdocindent{3.00em}
+\ensuremath{|} \coqdocvar{Ssymbol} \coqdocvar{x}       \ensuremath{\Rightarrow} \coqdocvar{Int64.lt} (\coqdocvar{Int64.zero}) (\coqdocvar{S} \# \coqdocvar{x})       = \coqdocvar{true}\coqdoceol
+\coqdocindent{3.00em}
+\ensuremath{|} \coqdocvar{Svalue} (\coqdocvar{Vint} \coqdocvar{v}) \ensuremath{\Rightarrow} \coqdocvar{Int64.lt} (\coqdocvar{Int64.zero}) \coqdocvar{v}             = \coqdocvar{true}\coqdoceol
+\coqdocindent{3.00em}
+\ensuremath{|} \coqdocvar{Suop} \coqdocvar{\_} \coqdocvar{\_}\coqdoceol
+\coqdocindent{3.00em}
+\ensuremath{|} \coqdocvar{Sbop} \coqdocvar{\_} \coqdocvar{\_} \coqdocvar{\_}      \ensuremath{\Rightarrow} \coqdocvar{Int64.lt} (\coqdocvar{Int64.zero}) (\coqdocvar{subst\_v} \coqdocvar{se})  = \coqdocvar{true}\coqdoceol
+\coqdocindent{3.00em}
+\ensuremath{|} \coqdocvar{Scomp} \coqdocvar{c} \coqdocvar{l} \coqdocvar{r}     \ensuremath{\Rightarrow} \coqdocvar{Int64.cmp} \coqdocvar{c} (\coqdocvar{subst\_v} \coqdocvar{l}) (\coqdocvar{subst\_v} \coqdocvar{r}) = \coqdocvar{true}\coqdoceol
+\coqdocindent{3.00em}
+\coqdockw{end}.\coqdoceol
+\coqdocemptyline
+\end{coqdoccode}
+Our subset/inclusion notion.
+    
+\begin{coqdoccode}
+\coqdocindent{2.00em}
+\coqdockw{Fixpoint} \coqdocvar{subst\_conseq} \coqdocvar{lst} :=\coqdoceol
+\coqdocindent{3.00em}
+\coqdockw{match} \coqdocvar{lst} \coqdockw{with}\coqdoceol
+\coqdocindent{3.00em}
+\ensuremath{|} [\coqdocvar{x}]    \ensuremath{\Rightarrow} \coqdocvar{subst\_P} \coqdocvar{x}\coqdoceol
+\coqdocindent{3.00em}
+\ensuremath{|} \coqdocvar{h} :: \coqdocvar{t} \ensuremath{\Rightarrow} \coqdocvar{subst\_P} \coqdocvar{h} \ensuremath{\land} \coqdocvar{subst\_conseq} \coqdocvar{t}\coqdoceol
+\coqdocindent{3.00em}
+\ensuremath{|} []     \ensuremath{\Rightarrow} \coqdocvar{True}\coqdoceol
+\coqdocindent{3.00em}
+\coqdockw{end}.\coqdoceol
+\coqdocemptyline
+\coqdocindent{2.00em}
+\coqdockw{Fixpoint} \coqdocvar{subst\_antece} \coqdocvar{lst} \coqdocvar{conseq} : \coqdockw{Prop} :=\coqdoceol
+\coqdocindent{3.00em}
+\coqdockw{match} \coqdocvar{lst} \coqdockw{with}\coqdoceol
+\coqdocindent{3.00em}
+\ensuremath{|} \coqdocvar{h} :: \coqdocvar{t} \ensuremath{\Rightarrow} (\coqdocvar{subst\_P} \coqdocvar{h}) \ensuremath{\rightarrow} \coqdocvar{subst\_antece} \coqdocvar{t} \coqdocvar{conseq}\coqdoceol
+\coqdocindent{3.00em}
+\ensuremath{|} []     \ensuremath{\Rightarrow} \coqdocvar{conseq}\coqdoceol
+\coqdocindent{3.00em}
+\coqdockw{end}.\coqdoceol
+\coqdocemptyline
+\coqdocindent{1.00em}
+\coqdockw{End}     \coqdocvar{substitutions}.\coqdoceol
+\coqdocemptyline
+\coqdocindent{1.00em}
+\coqdockw{Section} \coqdocvar{SetsOfVals}.\coqdoceol
+\coqdocindent{2.00em}
+\coqdockw{Fixpoint} \coqdocvar{setof} (\coqdocvar{n}: \coqdocvar{nat}) :=\coqdoceol
+\coqdocindent{3.00em}
+\coqdockw{match} \coqdocvar{n} \coqdockw{with}\coqdoceol
+\coqdocindent{3.00em}
+\ensuremath{|} \coqdocvar{S} \coqdocvar{m} \ensuremath{\Rightarrow} \coqdocvar{int64} \ensuremath{\rightarrow} \coqdocvar{setof} \coqdocvar{m}\coqdoceol
+\coqdocindent{3.00em}
+\ensuremath{|} \coqdocvar{O}   \ensuremath{\Rightarrow} \coqdockw{Prop}\coqdoceol
+\coqdocindent{3.00em}
+\coqdockw{end}.\coqdoceol
+\coqdocemptyline
+\coqdocindent{2.00em}
+\coqdockw{Definition} \coqdoctac{set} := \coqdocvar{setof} 1.\coqdoceol
+\coqdocemptyline
+\coqdocindent{2.00em}
+\coqdockw{Definition} \coqdocvar{subsetof} \coqdocvar{n} (\coqdocvar{A} \coqdocvar{B}: \coqdocvar{setof} \coqdocvar{n}) : \coqdockw{Prop}.\coqdoceol
+\coqdocindent{2.00em}
+\coqdockw{Proof}.\coqdoceol
+\coqdocindent{3.00em}
+\coqdoctac{induction} \coqdocvar{n} \coqdockw{as} [| \coqdocvar{m} \coqdocvar{IH}]; \coqdoctac{simpl} \coqdoctac{in} *;\coqdoceol
+\coqdocindent{3.00em}
+[ \coqdoctac{exact} (\coqdocvar{A} \ensuremath{\rightarrow} \coqdocvar{B})\coqdoceol
+\coqdocindent{3.00em}
+\ensuremath{|} \coqdoctac{exact} (\coqdockw{\ensuremath{\forall}} \coqdocvar{x}, \coqdocvar{IH} (\coqdocvar{A} \coqdocvar{x}) (\coqdocvar{B} \coqdocvar{x}))].\coqdoceol
+\coqdocindent{2.00em}
+\coqdockw{Defined}.\coqdoceol
+\coqdocindent{2.00em}
+\coqdockw{Definition} \coqdocvar{subset} := \coqdocvar{subsetof} 1.\coqdoceol
+\coqdocemptyline
+\coqdocindent{2.00em}
+\coqdockw{Fixpoint} \coqdocvar{free\_symbols} \coqdocvar{acc} (\coqdocvar{se}: \coqdocvar{sexpr}) : \coqdocvar{substitution} :=\coqdoceol
+\coqdocindent{3.00em}
+\coqdockw{match} \coqdocvar{se} \coqdockw{with}\coqdoceol
+\coqdocindent{3.00em}
+\ensuremath{|} \coqdocvar{Scomp} \coqdocvar{\_} \coqdocvar{l} \coqdocvar{r}\coqdoceol
+\coqdocindent{3.00em}
+\ensuremath{|} \coqdocvar{Sbop}  \coqdocvar{\_} \coqdocvar{l} \coqdocvar{r} \ensuremath{\Rightarrow} \coqdocvar{free\_symbols} (\coqdocvar{free\_symbols} \coqdocvar{acc} \coqdocvar{l}) \coqdocvar{r}\coqdoceol
+\coqdocindent{3.00em}
+\ensuremath{|} \coqdocvar{Suop} \coqdocvar{\_} \coqdocvar{s}    \ensuremath{\Rightarrow} \coqdocvar{free\_symbols} \coqdocvar{acc} \coqdocvar{s}\coqdoceol
+\coqdocindent{3.00em}
+\ensuremath{|} \coqdocvar{Svalue} \coqdocvar{\_}    \ensuremath{\Rightarrow} \coqdocvar{acc}\coqdoceol
+\coqdocindent{3.00em}
+\ensuremath{|} \coqdocvar{Ssymbol} \coqdocvar{i}   \ensuremath{\Rightarrow} \coqdocvar{acc} \# \coqdocvar{i} \ensuremath{\leftarrow} \coqdocvar{Int64.zero}\coqdoceol
+\coqdocindent{3.00em}
+\coqdockw{end}.\coqdoceol
+\coqdocemptyline
+\coqdocindent{2.00em}
+\coqdockw{Fixpoint} \coqdocvar{free\_symbols\_lst} \coqdocvar{acc} \coqdocvar{ses} : \coqdocvar{substitution} :=\coqdoceol
+\coqdocindent{3.00em}
+\coqdockw{match} \coqdocvar{ses} \coqdockw{with}\coqdoceol
+\coqdocindent{3.00em}
+\ensuremath{|} \coqdocvar{h} :: \coqdocvar{t} \ensuremath{\Rightarrow} \coqdocvar{free\_symbols\_lst} (\coqdocvar{free\_symbols} \coqdocvar{acc} \coqdocvar{h}) \coqdocvar{t}\coqdoceol
+\coqdocindent{3.00em}
+\ensuremath{|} []     \ensuremath{\Rightarrow} \coqdocvar{acc}\coqdoceol
+\coqdocindent{3.00em}
+\coqdockw{end}.\coqdoceol
+\coqdocemptyline
+\coqdocindent{2.00em}
+\coqdockw{Definition} \coqdocvar{keys} \{\coqdocvar{A}:\coqdockw{Type}\} (\coqdocvar{S}: \coqdocvar{PTree.t} \coqdocvar{A}) : \coqdocvar{list} \coqdocvar{ident} :=\coqdoceol
+\coqdocindent{3.00em}
+\coqdocvar{fst} (\coqdocvar{List.split} (\coqdocvar{PTree.elements} \coqdocvar{S})).\coqdoceol
+\coqdocemptyline
+\coqdocindent{2.00em}
+\coqdockw{Definition} \coqdocvar{fv} (\coqdocvar{G}: \coqdocvar{list} \coqdocvar{sexpr}) : \coqdocvar{list} \coqdocvar{ident} :=\coqdoceol
+\coqdocindent{3.00em}
+\coqdockw{let} (\coqdocvar{\_}, \coqdocvar{fvars}) := \coqdocvar{free\_symbols\_lst} (\coqdocvar{PMap.init} \coqdocvar{Int64.zero}) \coqdocvar{G} \coqdoctac{in}\coqdoceol
+\coqdocindent{3.00em}
+\coqdocvar{keys} \coqdocvar{fvars}.\coqdoceol
+\coqdocemptyline
+\coqdocindent{2.00em}
+\coqdockw{Fixpoint} \coqdocvar{existify} (\coqdocvar{G}: \coqdocvar{list} \coqdocvar{sexpr}) (\coqdocvar{S}: \coqdocvar{substitution}) (\coqdocvar{fv}: \coqdocvar{list} \coqdocvar{ident}) : \coqdockw{Prop} :=\coqdoceol
+\coqdocindent{3.00em}
+\coqdockw{match} \coqdocvar{fv} \coqdockw{with}\coqdoceol
+\coqdocindent{3.00em}
+\ensuremath{|} \coqdocvar{h} :: \coqdocvar{t} \ensuremath{\Rightarrow} \coqdoctac{\ensuremath{\exists}} \coqdocvar{x}, \coqdocvar{existify} \coqdocvar{G} (\coqdocvar{S} \# \coqdocvar{h} \ensuremath{\leftarrow} \coqdocvar{x}) \coqdocvar{t}\coqdoceol
+\coqdocindent{3.00em}
+\ensuremath{|} []     \ensuremath{\Rightarrow} \coqdocvar{subst\_conseq} \coqdocvar{S} \coqdocvar{G}\coqdoceol
+\coqdocindent{3.00em}
+\coqdockw{end}.\coqdoceol
+\coqdocemptyline
+\coqdocindent{2.00em}
+\coqdockw{Definition} \coqdocvar{setify} \coqdocvar{n} (\coqdocvar{se} \coqdocvar{G}: \coqdocvar{list} \coqdocvar{sexpr}) : \coqdocvar{setof} \coqdocvar{n}.\coqdoceol
+\coqdocindent{2.00em}
+\coqdocvar{Admitted}.\coqdoceol
+\coqdocemptyline
+\coqdocindent{1.00em}
+\coqdockw{End}     \coqdocvar{SetsOfVals}.\coqdoceol
+\coqdocemptyline
+\end{coqdoccode}
+\subsection{Overapproximations (``OA'')}
+
+
+\begin{coqdoccode}
+\coqdocindent{1.00em}
+\coqdockw{Section} \coqdocvar{OVERAPPROX}.\coqdoceol
+\coqdocemptyline
+\end{coqdoccode}
+As mentioned in the comments above, we
+    
+
+ \textbf{OAs between two symbolic expressions:}
+        Symbolic expression, \coqdocvar{sOA}, is an
+        overapproximation of symbolic expression \coqdocvar{s},
+        if the set of values of \coqdocvar{s} (wrt to some path
+        constraint G), is a subset of the set of values
+        of \coqdocvar{sOA} (wrt to some p.c. GOA).
+
+
+        Since we're defining the sets as predicates,
+        the subset notion is given by implication.
+
+
+    
+\begin{coqdoccode}
+\coqdocindent{2.00em}
+\coqdockw{Definition} \coqdocvar{oapprox\_point} \coqdocvar{sOA} \coqdocvar{GOA} \coqdocvar{s} \coqdocvar{G} : \coqdockw{Prop} :=\coqdoceol
+\coqdocindent{3.00em}
+\coqdocvar{subset} (\coqdocvar{setify} 1 [\coqdocvar{s}] \coqdocvar{G}) (\coqdocvar{setify} 1 [\coqdocvar{sOA}] \coqdocvar{GOA}).\coqdoceol
+\coqdocemptyline
+\end{coqdoccode}
+\textbf{OAs between tuples of symbolic expressions:}
+        Similar to \coqdocvar{oapprox\_point}, but now between a tuples,
+        \coqdocvar{sesOA} \& \coqdocvar{ses}.
+    
+\begin{coqdoccode}
+\coqdocindent{2.00em}
+\coqdockw{Definition} \coqdocvar{oapprox\_tuple} \coqdocvar{len} \coqdocvar{sesOA} \coqdocvar{GOA} \coqdocvar{ses} \coqdocvar{G} : \coqdockw{Prop} :=\coqdoceol
+\coqdocindent{3.00em}
+\coqdocvar{subsetof} \coqdocvar{len} (\coqdocvar{setify} \coqdocvar{len} \coqdocvar{ses} \coqdocvar{G}) (\coqdocvar{setify} \coqdocvar{len} \coqdocvar{sesOA} \coqdocvar{GOA}).\coqdoceol
+\coqdocemptyline
+\end{coqdoccode}
+\textbf{OAs between states:}
+        We compare the sets of values for the tuple,
+        containing all varibles in the original
+        (not the OA) state.
+
+
+        The notion of OA is still given by the subset relation.
+
+
+        \chrc{ignore the code for now, it is stale/out-of-date.
+        we are in the process of discussing/changing the defn.}
+    
+\begin{coqdoccode}
+\coqdocindent{2.00em}
+\coqdockw{Definition} \coqdocvar{oapprox\_vars} \coqdocvar{EOA} \coqdocvar{GOA} \coqdocvar{E} \coqdocvar{G}  :=\coqdoceol
+\coqdocindent{3.00em}
+\coqdockw{let} (\coqdocvar{keys}, \coqdocvar{ses}) := \coqdocvar{List.split} (\coqdocvar{PTree.elements} \coqdocvar{E}) \coqdoctac{in}\coqdoceol
+\coqdocindent{3.00em}
+\coqdockw{let} \coqdocvar{len} := \coqdocvar{length} \coqdocvar{keys} \coqdoctac{in} \coqdoceol
+\coqdocindent{3.00em}
+\coqdockw{let} \coqdocvar{aux} \coqdocvar{e} \coqdocvar{sd} := \coqdockw{match} \coqdocvar{EOA} ! \coqdocvar{e}, \coqdocvar{sd} \coqdockw{with}\coqdoceol
+\coqdocindent{11.00em}
+\ensuremath{|} \coqdocvar{Some} \coqdocvar{seOA}, \coqdocvar{Some} \coqdocvar{acc} \ensuremath{\Rightarrow} \coqdocvar{Some} (\coqdocvar{seOA} :: \coqdocvar{acc})\coqdoceol
+\coqdocindent{11.00em}
+\ensuremath{|} \coqdocvar{\_}        , \coqdocvar{\_}        \ensuremath{\Rightarrow} \coqdocvar{None} \coqdockw{end} \coqdoctac{in}\coqdoceol
+\coqdocindent{3.00em}
+\coqdockw{match} \coqdocvar{List.fold\_right} \coqdocvar{aux} (\coqdocvar{Some} []) \coqdocvar{keys} \coqdockw{with}\coqdoceol
+\coqdocindent{3.00em}
+\ensuremath{|} \coqdocvar{Some} \coqdocvar{sesOA} \ensuremath{\Rightarrow} \coqdocvar{oapprox\_tuple} \coqdocvar{len} \coqdocvar{sesOA} \coqdocvar{GOA} \coqdocvar{ses} \coqdocvar{G}\coqdoceol
+\coqdocindent{3.00em}
+\ensuremath{|} \coqdocvar{None}       \ensuremath{\Rightarrow} \coqdocvar{False}\coqdoceol
+\coqdocindent{3.00em}
+\coqdockw{end}.\coqdoceol
+\coqdocemptyline
+\end{coqdoccode}
+\textbf{OAs for callstates}
+
+
+        Callstates (which abstractly
+        represent the passing of control)
+        have a list of arguments.
+
+
+        Callstate X, is an OA of Callstate
+        Y, if the tuple of params in X is
+        an OA of the tuples of params in Y \&
+        X \& Y have the same params.
+
+
+        In \coqdocvar{oapprox\_args} \coqdocvar{aOA} \coqdocvar{GOA} \coqdocvar{a} \coqdocvar{G},
+
+\begin{itemize}
+\item  \coqdocvar{aOA} is the list of args in the OA state
+
+\item  \coqdocvar{GOA} is the path constraint of the OA state
+
+\item  \coqdocvar{a} is the list of args in the orig state
+
+\item  \coqdocvar{G} is the path constraint of the orig state
+
+\end{itemize}
+    
+\begin{coqdoccode}
+\coqdocindent{2.00em}
+\coqdockw{Definition} \coqdocvar{oapprox\_args} \coqdocvar{aOA} \coqdocvar{GOA} \coqdocvar{a} \coqdocvar{G} : \coqdockw{Prop} :=\coqdoceol
+\coqdocindent{3.00em}
+\coqdocvar{oapprox\_tuple} (\coqdocvar{List.length} \coqdocvar{a}) \coqdocvar{aOA} \coqdocvar{GOA} \coqdocvar{a} \coqdocvar{G}.\coqdoceol
+\coqdocemptyline
+\end{coqdoccode}
+Over-approximations of states.
+
+
+        \chrc{\texttt{\_x}s are "don't care"s.}
+    
+\begin{coqdoccode}
+\coqdocindent{2.00em}
+\coqdockw{Inductive} \coqdocvar{oapprox\_st} : \coqdocvar{relation} \coqdocvar{state} :=\coqdoceol
+\coqdocindent{3.00em}
+\ensuremath{|} \coqdocvar{OA\_regular} : \coqdockw{\ensuremath{\forall}} \coqdocvar{EOA} \coqdocvar{GOA} \coqdocvar{E} \coqdocvar{G} \coqdocvar{\_1} \coqdocvar{\_2}\coqdoceol
+\coqdocindent{14.00em}
+\coqdocvar{\_3} \coqdocvar{\_4} \coqdocvar{\_5} \coqdocvar{\_6} \coqdocvar{\_7} \coqdocvar{\_8},\coqdoceol
+\coqdocindent{6.00em}
+\coqdocvar{oapprox\_vars} \coqdocvar{EOA} \coqdocvar{GOA} \coqdocvar{E} \coqdocvar{G} \ensuremath{\rightarrow}\coqdoceol
+\coqdocindent{5.00em}
+\coqdocvar{oapprox\_st} (\coqdocvar{State} \coqdocvar{\_1} \coqdocvar{\_2} \coqdocvar{EOA} \coqdocvar{\_3} \coqdocvar{GOA} \coqdocvar{\_4})\coqdoceol
+\coqdocindent{10.50em}
+(\coqdocvar{State} \coqdocvar{\_5} \coqdocvar{\_6} \coqdocvar{E}   \coqdocvar{\_7} \coqdocvar{G}   \coqdocvar{\_8})\coqdoceol
+\coqdocindent{3.00em}
+\ensuremath{|} \coqdocvar{OA\_call}    : \coqdockw{\ensuremath{\forall}} \coqdocvar{f} \coqdocvar{aOA} \coqdocvar{GOA} \coqdocvar{args} \coqdocvar{G} \coqdocvar{\_1} \coqdocvar{\_2} \coqdocvar{\_3} \coqdocvar{\_4},\coqdoceol
+\coqdocindent{6.00em}
+\coqdocvar{oapprox\_args} \coqdocvar{aOA} \coqdocvar{GOA} \coqdocvar{args} \coqdocvar{G} \ensuremath{\rightarrow}\coqdoceol
+\coqdocindent{5.00em}
+\coqdocvar{oapprox\_st} (\coqdocvar{Callstate} \coqdocvar{f} \coqdocvar{aOA}  \coqdocvar{\_1} \coqdocvar{GOA} \coqdocvar{\_2})\coqdoceol
+\coqdocindent{10.50em}
+(\coqdocvar{Callstate} \coqdocvar{f} \coqdocvar{args} \coqdocvar{\_3} \coqdocvar{G}   \coqdocvar{\_4})\coqdoceol
+\coqdocindent{3.00em}
+\ensuremath{|} \coqdocvar{OA\_return}  : \coqdockw{\ensuremath{\forall}} \coqdocvar{rOA} \coqdocvar{GOA} \coqdocvar{rv} \coqdocvar{G} \coqdocvar{\_1} \coqdocvar{\_2} \coqdocvar{\_3} \coqdocvar{\_4},\coqdoceol
+\coqdocindent{6.00em}
+\coqdocvar{oapprox\_point} \coqdocvar{rOA} \coqdocvar{GOA} \coqdocvar{rv} \coqdocvar{G} \ensuremath{\rightarrow}\coqdoceol
+\coqdocindent{5.00em}
+\coqdocvar{oapprox\_st} (\coqdocvar{Returnstate} \coqdocvar{rOA} \coqdocvar{\_1} \coqdocvar{GOA} \coqdocvar{\_2})\coqdoceol
+\coqdocindent{10.50em}
+(\coqdocvar{Returnstate} \coqdocvar{rv}  \coqdocvar{\_3} \coqdocvar{G}   \coqdocvar{\_4})\coqdoceol
+\coqdocindent{3.00em}
+\ensuremath{|} \coqdocvar{OA\_incon}   : \coqdockw{\ensuremath{\forall}} \coqdocvar{S} \coqdocvar{\_1} \coqdocvar{\_2},\coqdoceol
+\coqdocindent{5.00em}
+\coqdocvar{oapprox\_st} (\coqdocvar{Inconsistent\_with} \coqdocvar{\_1} \coqdocvar{\_2})\coqdoceol
+\coqdocindent{10.50em}
+\coqdocvar{S}\coqdoceol
+\coqdocindent{3.00em}
+\ensuremath{|} \coqdocvar{OA\_asstf}   : \coqdockw{\ensuremath{\forall}} \coqdocvar{S} \coqdocvar{\_1} \coqdocvar{\_2},\coqdoceol
+\coqdocindent{5.00em}
+\coqdocvar{oapprox\_st} \coqdocvar{S}\coqdoceol
+\coqdocindent{10.50em}
+(\coqdocvar{Assrt\_failure} \coqdocvar{\_1} \coqdocvar{\_2})\coqdoceol
+\coqdocindent{3.00em}
+.\coqdoceol
+\coqdocemptyline
+\coqdocemptyline
+\end{coqdoccode}
+\subsection{Proof Sketch: Contract replacement is sound}
+
+ We want to show that if we replace symbolic execution
+        of a function (Original Prog) with a different semantic
+        transition that ``uses'' (asserts preconds, assumes
+        postcon) its contract, (OA Prog), verifying the OA prog also
+        verifies the orig prog.
+
+
+        To do so, we'll split the theorem into several lemmas
+
+
+
+\begin{itemize}
+\item  \textbf{Lemma (OAs step to OAs)}\\
+            \textbf{If} state OA overapproximates state S, \&
+            OA steps to OA' \&
+            S steps to S' \textit{under the same transition rule}
+            \textbf{Then} OA' overapproximates S'.
+
+
+          We'll show this for single steps, and an easy induction
+          will prove this for the kleene (\& other) closure of
+          transitions.
+
+
+
+\item  \textbf{Lemma (OA is sound wrt to verification)}\\
+            \textbf{If} state OA overapproximates state S \&
+            OA does not step to an assertion failure state
+            \textbf{Then} neither does S.
+
+
+
+\item  \textbf{Lemma (Contract replacement results in an OA.)}\\
+            \textbf{If} a state S at a callsite steps through a fn call
+            to state S' at the return site, via the regular call transition
+            rules
+            \textbf{Then} under the ``check'' contract semantics, S steps
+            to state OA', where OA' overapproximates S'.
+
+
+            \chrc{I don't fully know how to write this down yet, but am
+            getting there.}
+
+\end{itemize}
+     I claim it should be easy to believe these can be extended to whatever closures we need,
+        and that it's clear that these lemmas provide a clear path to proving the top level
+        theorem. below are versions of the first two lemmas in Gallina (Coq)\\
+    
+
+ If a transition takes state S to state S', then
+        that (same) transition takes an overapproximation
+        of S (state OA) to an overapproximation of S' (state OA').
+        Here, the trace t, guarantees that it is the same step.
+    
+\begin{coqdoccode}
+\coqdocemptyline
+\coqdocindent{2.00em}
+\coqdockw{Lemma} \coqdocvar{OA\_steps2\_OA}: \coqdockw{\ensuremath{\forall}} \coqdocvar{S} \coqdocvar{S'} \coqdocvar{OA} \coqdocvar{OA'} \coqdocvar{t},\coqdoceol
+\coqdocindent{4.00em}
+\coqdocvar{oapprox} \coqdocvar{OA} \coqdocvar{S} \ensuremath{\rightarrow}\coqdoceol
+\coqdocindent{4.00em}
+\coqdocvar{step} \coqdocvar{S} \coqdocvar{t} \coqdocvar{S'} \ensuremath{\rightarrow}\coqdoceol
+\coqdocindent{4.00em}
+\coqdocvar{step} \coqdocvar{OA} \coqdocvar{t} \coqdocvar{OA'} \ensuremath{\rightarrow}\coqdoceol
+\coqdocindent{3.00em}
+\coqdocvar{oapprox} \coqdocvar{OA'} \coqdocvar{S'}.\coqdoceol
+\coqdocemptyline
+\end{coqdoccode}
+If a transition takes state A to state B, then
+        that (same) transition takes an OA of A to an
+        OA of B. Here, the trace t, guarantees that it
+        is the same step.
+\begin{coqdoccode}
+\coqdocindent{2.00em}
+\coqdockw{Lemma} \coqdocvar{OA\_sound\_wrt\_veri} : \coqdockw{\ensuremath{\forall}} \coqdocvar{OA} \coqdocvar{S} \coqdocvar{OA'} \coqdocvar{S'} \coqdocvar{t},\coqdoceol
+\coqdocindent{4.00em}
+\coqdocvar{oapprox\_st} \coqdocvar{OA} \coqdocvar{S} \ensuremath{\rightarrow}\coqdoceol
+\coqdocindent{4.00em}
+\coqdocvar{step} \coqdocvar{S} \coqdocvar{t} \coqdocvar{S'} \ensuremath{\rightarrow}\coqdoceol
+\coqdocindent{4.00em}
+\coqdocvar{step} \coqdocvar{OA} \coqdocvar{t} \coqdocvar{OA'} \ensuremath{\rightarrow}\coqdoceol
+\coqdocindent{4.00em}
+(\coqdockw{\ensuremath{\forall}} \coqdocvar{xx1} \coqdocvar{xx2}, \coqdocvar{OA'} \ensuremath{\not=} \coqdocvar{Assrt\_failure} \coqdocvar{xx1} \coqdocvar{xx2}) \ensuremath{\rightarrow}\coqdoceol
+\coqdocindent{3.00em}
+\coqdockw{\ensuremath{\forall}} \coqdocvar{xx1} \coqdocvar{xx2}, \coqdocvar{S'} \ensuremath{\not=} \coqdocvar{Assrt\_failure} \coqdocvar{xx1} \coqdocvar{xx2}.\coqdoceol
+\coqdocemptyline
+\coqdocemptyline
+\coqdocindent{1.00em}
+\coqdockw{End}     \coqdocvar{OVERAPPROX}.\coqdoceol
+\coqdocnoindent
+\coqdockw{End}     \coqdocvar{Functor}.\coqdoceol
+\coqdocemptyline
+\end{coqdoccode}
+\end{document}

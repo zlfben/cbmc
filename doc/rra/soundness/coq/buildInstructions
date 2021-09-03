@@ -1,0 +1,8 @@
+coq_makefile -f _CoqProject -o CoqMakefile
+make -f CoqMakefile
+
+
+coqdoc --latex --glob-from <file>.glob <file>.v
+
+
+coq2html -d .. -short-names -base GOTO Language.glob Language.v SymbEx.glob SymbEx.v

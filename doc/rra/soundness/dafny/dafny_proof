@@ -1,0 +1,346 @@
+    // In the following grammar, expressions are constants, variables, and additions.
+    // Variables are denoted by strings.
+     
+    type Id = string
+    datatype Expr = Const(int) | Var(Id) | Add(Expr, Expr)
+     
+    // A state is a mapping from variables to values.
+     
+    type State = map<Id, int>
+     
+    // The free variables of an expression are the variables that occur in it.
+     
+    function FreeVariables(e: Expr): set<Id> {
+      match e
+      case Const(_) => {}
+      case Var(id) => {id}
+      case Add(e0, e1) => FreeVariables(e0) + FreeVariables(e1)
+    }
+     
+    // To evaluate an expression in a given state, the state must give a value to all variables
+    // of the expression, so the Evaluate function has a precondition.
+     
+    function Evaluate(e: Expr, s: State): int
+      requires FreeVariables(e) <= s.Keys
+    {
+      match e
+      case Const(x) => x
+      case Var(id) => s[id]
+      case Add(e0, e1) => Evaluate(e0, s) + Evaluate(e1, s)
+    }
+     
+    // The following function is similar to FreeVariables, but instead returns the set
+    // of constants used within the expression.
+     
+    function Constants(e: Expr): set<int> {
+      match e
+      case Const(x) => {x}
+      case Var(_) => {}
+      case Add(e0, e1) => Constants(e0) + Constants(e1)
+    }
+     
+    // We can now state and prove a lemma that says that, in a world where constants
+    // are variables are all non-negative, increasing the value of a variable by 1
+    // does not decrease the value of the expression.
+     
+    lemma Monotonic(e: Expr, s: State, id: Id)
+      requires FreeVariables(e) <= s.Keys
+      requires forall x :: x in Constants(e) ==> 0 <= x
+      requires forall v :: v in s.Keys ==> 0 <= s[v]
+      requires id in s.Keys
+      ensures Evaluate(e, s) <= Evaluate(e, s[id := s[id] + 1])
+    {
+      // Here is a proof. I've tried to show several features that are common and useful in
+      // proofs--this is not the shortest proof.
+     
+      // It will be handy to have a name for the updated state, so let's introduce a local
+      // variable.
+      var s' := s[id := s[id] + 1];
+     
+      // Now, we'll break the proof into cases, with one case for each expression variant.
+      match e
+      case Const(x) =>
+        // This case is trivial, since Evaluate(e, s) and Evaluate(e, s') evaluate to the
+        // same value, namely x. If we want to mention this explicitly in the proof, we can
+        // write an assertion.
+        assert Evaluate(e, s) == Evaluate(e, s') == x;
+        // This line also illustrates that Dafny allows you to chain equalities together,
+        // which looks nice.
+     
+      case Var(v) =>
+        // This case is also easy. If the proof was more difficult, we would probably break
+        // into two cases, depending on whether or not "id" is "v".
+        if v == id {
+          // Here is a proof calculation that convinces us that Evaluate increases
+          calc {
+            Evaluate(e, s);
+          ==  // def. Evaluate
+            s[v];
+          <   // adding 1 makes the number larger
+            s[v] + 1;
+          ==  // def. s', since v == id
+            s'[v];
+          ==  // def. Evaluate
+            Evaluate(e, s');
+          }
+          // The steps in the calculation above are verified separately, and in the end
+          // we are able to conclude that the first line of the calculation is less than
+          // the last line. That is, the calculation above shows
+          assert Evaluate(e, s) < Evaluate(e, s');
+          // from which the lemma postcondition (that is, the "ensures" clause above) follows.
+     
+          // An easy thing to forget when starting to use "calc" is that every line ends
+          // with a semi-colon.
+     
+          // Sometimes, some steps of the proof calculation are more complicated and we'll
+          // need to give hints. Such hints are placed in curly braces between the steps.
+          // Let me write the "calc" from above and add such a hint in every step. In this
+          // example, each hint is just an assertion--and for this example, the assertion
+          // is redundant and silly, since it mostly just repeats the step being proven.
+          calc {
+            Evaluate(e, s);
+          ==  { assert Evaluate(e, s) == s[v]; }
+            s[v];
+          <   { assert s[v] < s[v] + 1; }
+            s[v] + 1;
+          ==  { assert v == id; assert s'[v] == s'[id] ==  s[id := s[id] + 1][id] == s[id] + 1 == s[v] + 1; }
+            s'[v];
+          ==  { assert Evaluate(e, s') == s'[v]; }
+            Evaluate(e, s');
+          }
+     
+        } else {
+          // For a variable "v" other than "id", the proof is trivial. Nevertheless, let me
+          // write an explicit proof. For variety, I'll use assert-by and assert statements
+          // here.
+          assert Evaluate(e, s) == Evaluate(e, s') by {
+            assert Evaluate(e, s) == s[v]; // by the def. of Evaluate
+            assert Evaluate(e, s') == s'[v]; // by the def. of Evaluate
+            assert s[v] == s'[v]; // since s and s' differ only in what they assign to "id", which is not "v"
+          }
+        }
+     
+      case Add(e0, e1) =>
+        // For this case, we need to use the induction hypothesis. Let me write the proof
+        // as a proof calculation.
+        calc {
+          Evaluate(e, s);
+        ==  // what e is
+          Evaluate(Add(e0, e1), s);
+        ==  // def. Evaluate
+          Evaluate(e0, s) + Evaluate(e1, s);
+        <=  { // By calling the lemma recursively on e0, we obtain the information that
+              // Evaluate(e0, s) <= Evaluate(e0, s')
+              // To call Monotonic(e0, s, id), we need to make sure we can establish the
+              // precondition of that call. If you try calling it, you'll see that the
+              // verifier is unable to confirm that the first precondition (the one about
+              // Constants) holds. Let's prove it here.
+              assert forall x :: x in Constants(e0) ==> 0 <= x by {
+                // To prove this condition, we observe that Constants(e0) is a subset of
+                // Constants(e), about which we already know this condition from the
+                // precondition above. Evidently, the verifier was not creative enough
+                // to think about this itself, so we'll help it along by the following
+                // assertion:
+                assert Constants(e0) <= Constants(e);
+                // This proves the forall-x property about Constants(e0).
+              }
+              // Now that we've proved the forall-x property about Constants(e0), we
+              // can call Monotonic on e0.
+              Monotonic(e0, s, id);
+              // This call gives us the following information:
+              assert Evaluate(e0, s) <= Evaluate(e0, s');
+     
+              // There's a fancy word for making a recursive call to a lemma--logicians
+              // would usually say that we're "calling the induction hypothesis".
+            }
+          Evaluate(e0, s') + Evaluate(e1, s);
+          <=  { // Here, we want to repeat the previous step, but for e1. We can shorten
+                // what we did above--we can omit the assert-by and only include the
+                // assertion within it (which is the creative step that the verifier did not
+                // do automatically), and we can omit the last assertion (which was just
+                // repeating what we learnt from the recursive call to Monotonic).
+                assert Constants(e1) <= Constants(e);
+                Monotonic(e1, s, id);
+              }
+          Evaluate(e0, s') + Evaluate(e1, s');
+        ==  // def. Evaluate
+          Evaluate(Add(e0, e1), s');
+        ==  // what e is
+          Evaluate(e, s');
+        }
+    }
+     
+    // The previous lemma was overly specific in making s[id] and s'[id] differ by exactly 1.
+    // We could change the lemma above to generalize it to s[id] < s'[id]. That would have
+    // almost exactly the same proof. But in order to show a different proof, let's write
+    // a new lemma and call the previous one as part of the proof of the new one.
+    // I'll name the new one MonotonicN.
+     
+    lemma MonotonicN(e: Expr, s: State, id: Id, n: nat)
+      requires FreeVariables(e) <= s.Keys
+      requires forall x :: x in Constants(e) ==> 0 <= x
+      requires forall v :: v in s.Keys ==> 0 <= s[v]
+      requires id in s.Keys
+      ensures Evaluate(e, s) <= Evaluate(e, s[id := s[id] + n])
+    {
+      // Again, it'll be convenient to have a name for the updated state, so we'll introduce
+      // a local variable.
+      var s' := s[id := s[id] + n];
+     
+      // We'll do the proof by induction over n. We'll start by splitting the proof into
+      // two cases.
+      if n == 0 {
+        // In this case, s and s' are the same. The verifier can prove that, but it's not
+        // creative enough to come up with the idea of proving s and s' to be the same.
+        // By supplying an assertion, we're asking the verifier to prove the equality,
+        // after which it will use the equality to prove the "ensures" clause.
+        assert s == s';
+     
+      } else {
+        // We'll start a proof calculation. The idea is to call Monotonic to get 1 step
+        // closer to where we need to be, and then to call MonotonicN for the remaining
+        // n-1 steps. Let's introduce one more local variable, so that we don't need to
+        // keep repeating a complicated expression.
+        var s1 := s[id := s[id] + 1];
+        calc {
+          Evaluate(e, s);
+        <=  { Monotonic(e, s, id); }
+          Evaluate(e, s1);
+        <=  { MonotonicN(e, s1, id, n-1); }
+          Evaluate(e, s1[id := s1[id] + n - 1]);
+        ==  { assert s1[id := s1[id] + n - 1] == s'; }
+          Evaluate(e, s');
+        }
+      }
+    }
+     
+    // Let's do one more generalization of the monotonicity lemma. Now, we will allow
+    // every variable to be possibly larger in s' than in s.
+     
+    function Differences(s: State, s': State): set<Id>
+      requires s.Keys == s'.Keys
+    {
+      set id | id in s.Keys && s[id] != s'[id]
+    }
+     
+    lemma GeneralMonotonic(e: Expr, s: State, s': State)
+      requires FreeVariables(e) <= s.Keys == s'.Keys
+      requires forall x :: x in Constants(e) ==> 0 <= x
+      requires forall v :: v in s.Keys ==> 0 <= s[v] <= s'[v]
+      ensures Evaluate(e, s) <= Evaluate(e, s')
+      decreases Differences(s, s')
+    {
+      // As it turns out, Dafny can prove this general formulation automatically. So,
+      // you can leave this proof (that is, the statements between the curly braces
+      // in the body of this lemma) empty. Still, let me show you how you would do
+      // the proof if you had to write it yourself, using the MonotonicN lemma.
+      //
+      // In particular, we'll call MonotonicN for a state s1 that's different from s
+      // in just one variable, and then recursively use GeneralMonotonic on the
+      // remaining differences.
+      //
+      // To justify the recursive call, we need to show it does not result in
+      // infiite recursion. We do that by given a termination metric that decreases
+      // with each call. We didn't have to do that in the previous functions and
+      // lemmas, because Dafny discovered one for us. Here, we supply a termination
+      // metric ourselves by writing a "decreases" clause as part of the specification
+      // of GeneralMonotonic.
+      //
+      // (I mentioned that Dafny can prove this lemma automatically. Its automatic
+      // proof has a form like that in lemma Monotonic, which uses the default
+      // termination metric. You won't ever see the automatic proof, so it doesn't
+      // really matter how it finds it. But the verifier will not find a proof with
+      // the "decreases" clause we provided above. So, if you really want to see
+      // Dafny prove this lemma automatically, you also need to delete the manually
+      // supplied "decreases" clause of this lemma.)
+     
+      if s == s' {
+        // trivial, nothing to prove
+      } else {
+        // Let's pick out one of the variables where s and s' differ. We do this
+        // by the :| ("assign such that") construct.
+        var id :| id in s.Keys && s[id] != s'[id];
+     
+        // We'll introduce some more variables.
+        var s1 := s[id := s'[id]];
+        var n := s'[id] - s[id];
+        // Here are two properties about the s1 and n we just defined:
+        assert s1 == s[id := s[id] + n];
+        assert Differences(s, s') == Differences(s1, s') + {id};
+     
+        calc {
+          Evaluate(e, s);
+        <=  { MonotonicN(e, s, id, n); }
+          Evaluate(e, s1);
+        <=  { GeneralMonotonic(e, s1, s'); }
+          Evaluate(e, s');
+        }
+      }
+    }
+     
+    // Lemma GeneralMonotonic is recursive. In programming, it's sometimes natural
+    // to use recursive or sometimes natural to use iteration. The same holds for
+    // proofs (but almost all proofs are written recursively). As a final example,
+    // let me give an iterative proof of GeneralMonotonic.
+     
+    lemma IterativeGeneralMonotonic(e: Expr, s: State, s': State)
+      requires FreeVariables(e) <= s.Keys == s'.Keys
+      requires forall x :: x in Constants(e) ==> 0 <= x
+      requires forall v :: v in s.Keys ==> 0 <= s[v] <= s'[v]
+      ensures Evaluate(e, s) <= Evaluate(e, s')
+    {
+      var s0 := s;
+      while s0 != s'
+        invariant s.Keys == s0.Keys
+        invariant forall v :: v in s.Keys ==> 0 <= s[v] <= s0[v] <= s'[v]
+        invariant Evaluate(e, s) <= Evaluate(e, s0)
+        // This is a good place to stop reading. Without looking at the body of
+        // the loop, you should convince yourself--using the rules of loop
+        // specifications--that what we have written suffices to prove the goal
+        // of the lemma. To do that, we need to check two things:
+        //  - The loop invariants should hold initially. Since s0 and s are equal
+        //    when the loop is reached, this holds trivially.
+        //  - The loop invariants and the negated loop guard should imply the
+        //    postcondition of the lemma. This is also trivial, since the
+        //    negation of the loop guard gives us s0 == s', and then the last
+        //    loop invariant is exactly the "ensures" clause we want to establish.
+        //
+        // Exercise: Why are the first two loop invariant needed? (If you're unsure,
+        // delete it and see how the verifier responds.)
+        //
+        // All that remains to be done now is fill in the loop body, and then our
+        // proof is done.
+     
+        // Okay, so continuing with the loop, our plan with each loop iteration
+        // is to single out one variable where s0 and s' differ, and then call
+        // MonotonicN on it. Here is our termination metric:
+        decreases Differences(s0, s')
+      {
+        var id :| id in s0.Keys && s0[id] != s'[id];
+        var n := s'[id] - s0[id];
+        MonotonicN(e, s0, id, n);
+     
+        var s1 := s0[id := s'[id]];
+        assert s1 == s0[id := s0[id] + n];
+        assert Differences(s0, s') == Differences(s1, s') + {id};
+        s0 := s1;
+      }
+    }
+     
+    // I'll end with two more exercises:
+    //
+    // This file became rather long, but I included many comments and used longer-than-
+    // necessary proofs to show the form. Try deleting various lines in this file to see
+    // how short you can make the proofs. Dafny provides a lot of automation.
+    //
+    // There is another way to make the monotonicity lemmas more general, namely to
+    // change "v in s.Keys" in one of the preconditions to "v in FreeVariables(e)".
+    // You can then also relax the precondition "FreeVariables(e) <= s.Keys == s'.Keys".
+    // Do this, and make other adjustments to make the new lemmas go through.
+    //
+    // Lastly, a note of caution for the beginner. It's tempting as another exercise
+    // to add to the Expr type a Mul variant that represents multiplication. 
+    // Doing these proofs for Mul requires non-linear arithmetic, which is far more
+    // difficult to get past the verifier. Unless you feel your proving skills are
+    // already very good and you're feeling extra patient, I would rather suggest some
+    // other kind of exercise to tackle next.
