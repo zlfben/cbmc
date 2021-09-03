@@ -1294,92 +1294,70 @@ exprt rrat::abstract_expr_read(
       // end: **inst containing this deref**: replace with result 
       // dead result 
       // =========================================
+      // ============= without calling functions =============
+      // cond_i => pointer_object(pointer) == entityi$obj
+      // val_i => is_prec_expr(pointer) ? *pointer : nondet
+      // *pointer => cond_1 ? val_1 : (cond_2 ? val_2 : ... : *pointer)
+      // =========================================
+
+      // bypass if this is struct->member
+      // currently we only do integer arrays
+      if(new_expr.type().id() == ID_struct_tag)
+        return new_expr;
+
       const exprt &pointer = new_expr.operands()[0];
-      return std::move(dereference_exprt(pointer));
-      // // Declare and dead for result
-      // symbolt result_symb = create_temp_var(
-      //   "result", remove_const(new_expr.type()), current_func, goto_model, 
-      //   insts_before, insts_after, new_symbs);
-
-      // std::unordered_map<size_t, std::string> goto_label_map;  // goto's index in insts_before ==> labels: "0","1",..., "deft", "end"
-      // std::unordered_map<std::string, size_t> label_target_map;  // labels: "0"..."end" ==> target inst's index in insts_before
       
-      // // Go through each abst array and insert conditional goto
-      // size_t counter = 0;
-      // for(const auto &spec: abst_spec.get_specs())
-      // {
-      //   for(const auto &ent: spec.get_abst_pointers())
-      //   {
-      //     // since the target inst is not inserted yet, here we use an empty place holder
-      //     goto_programt::targett empty_target;
-      //     // get the global pointer_obj var
-      //     const irep_idt ent_pointer_obj_id = get_memory_addr_name(ent.first);
-      //     const exprt ent_pointer_obj =
-      //       goto_model.symbol_table.lookup_ref(ent_pointer_obj_id).symbol_expr();
-      //     // guard: pointer_object(pointer) == ent$obj
-      //     exprt guard = equal_exprt(pointer_object(pointer), ent_pointer_obj);
-      //     // insert the instruction, update goto_label_map
-      //     goto_label_map.insert({insts_before.size(), std::to_string(counter)});
-      //     insts_before.push_back(goto_programt::make_goto(empty_target, guard));
-      //     counter++;
-      //   }
-      // }
+      // Go through each abst array and get cond_i and val_i
+      size_t counter = 0;
 
-      // // If not matched to any, GOTO deft
-      // goto_programt::targett empty_target;
-      // goto_label_map.insert({insts_before.size(), "deft"});
-      // insts_before.push_back(goto_programt::make_goto(empty_target));
+      exprt::operandst cond_list;
+      exprt::operandst val_list;
 
-      // // Go through each abst array, calculate abst_index and result 
-      // counter = 0;
-      // for(const auto &spec: abst_spec.get_specs())
-      // {
-      //   for(size_t i=0; i<spec.get_abst_pointers().size(); i++)
-      //   {
-      //     // update label_target to label the starting point of this body
-      //     label_target_map.insert({std::to_string(counter), insts_before.size()});
+      for(const auto &spec: abst_spec.get_specs())
+      {
+        for(const auto &ent: spec.get_abst_pointers())
+        {
+          // get the global pointer_obj var
+          const irep_idt ent_pointer_obj_id = get_memory_addr_name(ent.first);
+          const exprt ent_pointer_obj =
+            goto_model.symbol_table.lookup_ref(ent_pointer_obj_id).symbol_expr();
+          // cond_i: pointer_object(pointer) == ent$obj
+          exprt cond_i = equal_exprt(pointer_object(pointer), ent_pointer_obj);
+          cond_list.push_back(cond_i);
+          // val_i: is_prec_expr(pointer) ? *pointer : nondet
+          //        note that this could appear at the lhs, we need to 
+          //        create a variable for nondet
+          symbolt nondet_symb = create_temp_var(
+            "temp_nondet", remove_const(new_expr.type()), current_func, goto_model, 
+            insts_before, insts_after, new_symbs);
+          insts_before.push_back(goto_programt::make_assignment(
+            nondet_symb.symbol_expr(), 
+            side_effect_expr_nondett(new_expr.type(), source_locationt())));
+          exprt is_prec = check_prec_expr(pointer_offset(pointer), spec, goto_model);
+          exprt val_i = if_exprt(
+            typecast_exprt(is_prec, bool_typet()),
+            new_expr,
+            nondet_symb.symbol_expr());
+          val_list.push_back(val_i);
+          counter++;
+        }
+      }
+      INVARIANT(cond_list.size() == val_list.size(), 
+        "cond_list and val_list should have the same size");
 
-      //     // update result: result = is_precise(offset(pointer)) ? *pointer : nondet 
-      //     //        first call is_precise
-      //     exprt is_prec = check_prec_expr(pointer_offset(pointer), spec, goto_model);
+      // construct the expression 
+      // cond_1 ? val_1 : (cond_2 ? val_2 : ... : *pointer)
+      exprt result_expr = new_expr;
+      for (size_t i = 0; i < cond_list.size(); i++)
+      {
+        result_expr = if_exprt(
+          typecast_exprt(cond_list[i], bool_typet()),
+          val_list[i],
+          result_expr
+        );
+      }
 
-      //     //        then create the instruction
-      //     exprt result_expr = if_exprt(
-      //       typecast_exprt(is_prec, bool_typet()),
-      //       new_expr,
-      //       side_effect_expr_nondett(new_expr.type(), source_locationt()));
-      //     insts_before.push_back(goto_programt::make_assignment(result_symb.symbol_expr(), result_expr));
-
-      //     // GOTO end, and update goto_label_map
-      //     goto_label_map.insert({insts_before.size(), "end"});
-      //     insts_before.push_back(goto_programt::make_goto(empty_target));
-
-      //     counter++;
-      //   }
-      // }
-
-      // // Calculate default result (deft: result = new_expr)
-      // label_target_map.insert({"deft", insts_before.size()});
-      // insts_before.push_back(goto_programt::make_assignment(result_symb.symbol_expr(), new_expr));
-
-      // // placeholder end label
-      // label_target_map.insert({"end", insts_before.size()});
-      // insts_before.push_back(goto_programt::make_skip());
-
-      // // before returning, update the goto target map
-      // for(auto &id_label: goto_label_map)
-      // {
-      //   INVARIANT(
-      //     label_target_map.find(id_label.second) != label_target_map.end(),
-      //     "the label " + id_label.second + " is not defined");
-      //   INVARIANT(
-      //     insts_before_goto_target_map.find(id_label.first) ==
-      //       insts_before_goto_target_map.end(),
-      //     "instruction's target defined twice");
-      //   insts_before_goto_target_map.insert({id_label.first, label_target_map[id_label.second]});
-      // }
-
-      // return result_symb.symbol_expr();
+      return std::move(result_expr);
     }
     else
     {
@@ -1906,7 +1884,9 @@ void rrat::abstract_goto_program(goto_modelt &goto_model, rra_spect &abst_spec)
     get_all_functions(goto_model);
 
   // Analyze soundness of abstraction
-  analyze_soundness(goto_model, all_funcs, abst_spec);
+  // The loop analyse has some issue with AWS-C-Common loops (e.g. buf_append_lookup)
+  // Currently let's disable that.
+  // analyze_soundness(goto_model, all_funcs, abst_spec);
   
   // Define the global concrete indices to be used
   define_concrete_indices(goto_model, abst_spec);
