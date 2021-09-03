@@ -22,6 +22,7 @@ SRC = allocate_objects.cpp \
       find_macros.cpp \
       find_symbols.cpp \
       fixedbv.cpp \
+      floatbv_expr.cpp \
       format_constant.cpp \
       format_expr.cpp \
       format_number_range.cpp \
@@ -58,6 +59,7 @@ SRC = allocate_objects.cpp \
       options.cpp \
       parse_options.cpp \
       parser.cpp \
+      piped_process.cpp \
       pointer_expr.cpp \
       pointer_offset_size.cpp \
       pointer_offset_sum.cpp \

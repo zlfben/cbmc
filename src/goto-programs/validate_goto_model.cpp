@@ -107,10 +107,9 @@ void validate_goto_modelt::function_pointer_calls_removed()
     {
       if(instr.is_function_call())
       {
-        const code_function_callt &function_call = instr.get_function_call();
         DATA_CHECK(
           vm,
-          function_call.function().id() == ID_symbol,
+          instr.call_function().id() == ID_symbol,
           "no calls via function pointer should be present");
       }
     }
@@ -126,14 +125,15 @@ void validate_goto_modelt::check_returns_removed()
     for(const auto &instr : goto_function.body.instructions)
     {
       DATA_CHECK(
-        vm, !instr.is_return(), "no return instructions should be present");
+        vm,
+        !instr.is_set_return_value(),
+        "no SET_RETURN_VALUE instructions should be present");
 
       if(instr.is_function_call())
       {
-        const auto &function_call = instr.get_function_call();
         DATA_CHECK(
           vm,
-          !does_function_call_return(function_call),
+          !does_function_call_return(instr),
           "function call lhs return should be nil");
       }
     }
@@ -168,9 +168,8 @@ void validate_goto_modelt::check_called_functions()
       // check functions that are called
       if(instr.is_function_call())
       {
-        const auto &function_call = instr.get_function_call();
         const irep_idt &identifier =
-          to_symbol_expr(function_call.function()).get_identifier();
+          to_symbol_expr(instr.call_function()).get_identifier();
 
         DATA_CHECK(
           vm,

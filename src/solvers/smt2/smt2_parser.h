@@ -42,10 +42,16 @@ public:
     {
     }
 
+    idt(kindt _kind, typet __type)
+      : kind(_kind), type(std::move(__type)), definition(nil_exprt())
+    {
+    }
+
     kindt kind;
     typet type;
+
+    // this is a lambda when the symbol is a function
     exprt definition;
-    std::vector<irep_idt> parameters;
   };
 
   using id_mapt=std::map<irep_idt, idt>;
@@ -69,12 +75,12 @@ public:
 
   bool exit;
 
-  smt2_tokenizert::smt2_errort error(const std::string &message)
+  smt2_tokenizert::smt2_errort error(const std::string &message) const
   {
     return smt2_tokenizer.error(message);
   }
 
-  smt2_tokenizert::smt2_errort error()
+  smt2_tokenizert::smt2_errort error() const
   {
     return smt2_tokenizer.error();
   }
@@ -88,14 +94,9 @@ protected:
   std::size_t parenthesis_level;
   smt2_tokenizert::tokent next_token();
 
-  // for let/quantifier bindings, function parameters
-  using renaming_mapt=std::map<irep_idt, irep_idt>;
-  renaming_mapt renaming_map;
-  using renaming_counterst=std::map<irep_idt, unsigned>;
-  renaming_counterst renaming_counters;
-  irep_idt add_fresh_id(const irep_idt &, idt::kindt, const exprt &);
-  void add_unique_id(const irep_idt &, const exprt &);
-  irep_idt rename_id(const irep_idt &) const;
+  // add the given identifier to the id_map but
+  // complain if that identifier is used already
+  void add_unique_id(irep_idt, exprt);
 
   struct signature_with_parameter_idst
   {
@@ -117,6 +118,31 @@ protected:
            _parameters.size()) ||
         (_type.id() != ID_mathematical_function && _parameters.empty()));
     }
+
+    // a convenience helper for iterating over identifiers and types
+    std::vector<std::pair<irep_idt, typet>> ids_and_types() const
+    {
+      if(parameters.empty())
+        return {};
+      else
+      {
+        std::vector<std::pair<irep_idt, typet>> result;
+        result.reserve(parameters.size());
+        const auto &domain = to_mathematical_function_type(type).domain();
+        for(std::size_t i = 0; i < parameters.size(); i++)
+          result.emplace_back(parameters[i], domain[i]);
+        return result;
+      }
+    }
+
+    // convenience helper for constructing a binding
+    binding_exprt::variablest binding_variables() const
+    {
+      binding_exprt::variablest result;
+      for(auto &pair : ids_and_types())
+        result.emplace_back(pair.first, pair.second);
+      return result;
+    }
   };
 
   // expressions
@@ -132,11 +158,16 @@ protected:
   exprt::operandst operands();
   typet function_signature_declaration();
   signature_with_parameter_idst function_signature_definition();
+  void check_matching_operand_types(const exprt::operandst &) const;
   exprt multi_ary(irep_idt, const exprt::operandst &);
   exprt binary_predicate(irep_idt, const exprt::operandst &);
   exprt binary(irep_idt, const exprt::operandst &);
   exprt unary(irep_idt, const exprt::operandst &);
+  exprt bv_division(const exprt::operandst &, bool is_signed);
+  exprt bv_mod(const exprt::operandst &, bool is_signed);
 
+  std::pair<binding_exprt::variablest, exprt> binding(irep_idt);
+  exprt lambda_expression();
   exprt let_expression();
   exprt quantifier_expression(irep_idt);
   exprt function_application(
@@ -151,6 +182,7 @@ protected:
 
   // sorts
   typet sort();
+  typet function_sort();
   std::unordered_map<std::string, std::function<typet()>> sorts;
   void setup_sorts();
 

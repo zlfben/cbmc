@@ -160,7 +160,7 @@ static bool is_return_with_variable(
   const goto_programt::instructiont &instr,
   const irep_idt &identifier)
 {
-  if(!instr.is_return())
+  if(!instr.is_set_return_value())
   {
     return false;
   }
@@ -207,14 +207,12 @@ static goto_programt::targett check_and_replace_target(
 
   // If we haven't removed returns yet, our function call will have a variable
   // on its left hand side.
-  const bool remove_returns_not_run =
-    target->get_function_call().lhs().is_not_nil();
+  const bool remove_returns_not_run = target->call_lhs().is_not_nil();
 
   irep_idt return_identifier;
   if(remove_returns_not_run)
   {
-    return_identifier =
-      to_symbol_expr(target->get_function_call().lhs()).get_identifier();
+    return_identifier = to_symbol_expr(target->call_lhs()).get_identifier();
   }
   else
   {
@@ -271,7 +269,7 @@ static goto_programt::targett check_and_replace_target(
       instr.turn_into_skip();
     });
 
-  if(target_instruction->is_return())
+  if(target_instruction->is_set_return_value())
   {
     const auto &nondet_var = target_instruction->return_value();
 

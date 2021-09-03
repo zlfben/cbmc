@@ -29,7 +29,7 @@ Author: Daniel Kroening, kroening@kroening.com
 #include <analyses/goto_check.h>
 
 #include "aggressive_slicer.h"
-#include "code_contracts.h"
+#include "contracts/contracts.h"
 #include "generate_function_bodies.h"
 #include "insert_final_assert_false.h"
 #include "nondet_volatile.h"
@@ -100,6 +100,7 @@ Author: Daniel Kroening, kroening@kroening.com
   "(list-symbols)(list-undefined-functions)" \
   "(z3)(add-library)(show-dependence-graph)" \
   "(horn)(skip-loops):(model-argc-argv):" \
+  "(" FLAG_LOOP_CONTRACTS ")" \
   "(" FLAG_REPLACE_CALL "):" \
   "(" FLAG_REPLACE_ALL_CALLS ")" \
   "(" FLAG_ENFORCE_CONTRACT "):" \
@@ -129,8 +130,8 @@ Author: Daniel Kroening, kroening@kroening.com
 class goto_instrument_parse_optionst : public parse_options_baset
 {
 public:
-  virtual int doit();
-  virtual void help();
+  int doit() override;
+  void help() override;
 
   goto_instrument_parse_optionst(int argc, const char **argv)
     : parse_options_baset(
@@ -145,7 +146,7 @@ public:
   }
 
 protected:
-  void register_languages();
+  void register_languages() override;
 
   void get_goto_program();
   void instrument_goto_program();

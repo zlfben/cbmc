@@ -40,19 +40,15 @@ bool value_set_domain_fit::transform(
     value_set.do_end_function(get_return_lhs(to_l), ns);
     break;
 
-  case RETURN:
+  case SET_RETURN_VALUE:
   case OTHER:
   case ASSIGN:
     value_set.apply_code(from_l->get_code(), ns);
     break;
 
   case FUNCTION_CALL:
-  {
-    const code_function_callt &code = from_l->get_function_call();
-
-    value_set.do_function_call(function_to, code.arguments(), ns);
+    value_set.do_function_call(function_to, from_l->call_arguments(), ns);
     break;
-  }
 
   case CATCH:
   case THROW:

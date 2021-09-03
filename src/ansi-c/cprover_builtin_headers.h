@@ -13,7 +13,6 @@ __CPROVER_size_t __CPROVER_buffer_size(const void *);
 __CPROVER_bool __CPROVER_r_ok();
 __CPROVER_bool __CPROVER_w_ok();
 __CPROVER_bool __CPROVER_rw_ok();
-void __CPROVER_old(const void *);
 
 // bitvector analysis
 __CPROVER_bool __CPROVER_get_flag(const void *, const char *);
@@ -34,6 +33,11 @@ void __CPROVER_cover(__CPROVER_bool condition);
 void __CPROVER_atomic_begin();
 void __CPROVER_atomic_end();
 void __CPROVER_fence(const char *kind, ...);
+
+// contract-related functions
+__CPROVER_bool __CPROVER_is_fresh(const void *mem, __CPROVER_size_t size);
+void __CPROVER_old(const void *);
+void __CPROVER_loop_entry(const void *);
 
 // pointers
 __CPROVER_size_t __CPROVER_POINTER_OBJECT(const void *);
@@ -82,6 +86,14 @@ long int __CPROVER_llabs(long long int x);
 double __CPROVER_fabs(double x);
 long double __CPROVER_fabsl(long double x);
 float __CPROVER_fabsf(float x);
+
+// modulo and remainder
+double __CPROVER_fmod(double, double);
+float __CPROVER_fmodf(float, float);
+long double __CPROVER_fmodl(long double, long double);
+double __CPROVER_remainder(double, double);
+float __CPROVER_remainderf(float, float);
+long double __CPROVER_remainderl(long double, long double);
 
 // arrays
 __CPROVER_bool __CPROVER_array_equal(const void *array1, const void *array2);

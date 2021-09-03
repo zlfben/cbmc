@@ -30,6 +30,9 @@ public:
     const abstract_environmentt &environment,
     const namespacet &ns);
 
+  static abstract_object_pointert
+  make_value_set(const abstract_object_sett &initial_values);
+
   index_range_implementation_ptrt
   index_range_implementation(const namespacet &ns) const override;
 
@@ -39,6 +42,9 @@ public:
   exprt to_constant() const override;
   constant_interval_exprt to_interval() const override;
 
+  abstract_value_pointert
+  constrain(const exprt &lower, const exprt &upper) const override;
+
   /// Getter for the set of stored abstract objects.
   /// \return the values represented by this abstract object
   const abstract_object_sett &get_values() const override
@@ -46,24 +52,9 @@ public:
     return values;
   }
 
-  /// Setter for updating the stored values
-  /// \param other_values: the new (non-empty) set of values
-  void set_values(const abstract_object_sett &other_values);
-
   /// The threshold size for value-sets: past this threshold the object is
   /// either converted to interval or marked as `top`.
   static const size_t max_value_set_size = 10;
-
-  /// \copydoc abstract_objectt::write
-  ///
-  /// Delegate writing to stored values.
-  abstract_object_pointert write(
-    abstract_environmentt &environment,
-    const namespacet &ns,
-    const std::stack<exprt> &stack,
-    const exprt &specifier,
-    const abstract_object_pointert &value,
-    bool merging_write) const override;
 
   void output(std::ostream &out, const ai_baset &ai, const namespacet &ns)
     const override;
@@ -71,19 +62,19 @@ public:
 protected:
   CLONE
 
-  /// \copydoc abstract_object::merge
-  abstract_object_pointert merge(abstract_object_pointert other) const override;
+  abstract_object_pointert merge_with_value(
+    const abstract_value_pointert &other,
+    const widen_modet &widen_mode) const override;
+
+  abstract_object_pointert
+  meet_with_value(const abstract_value_pointert &other) const override;
+
+  exprt to_predicate_internal(const exprt &name) const override;
 
 private:
-  /// Update the set of stored values to \p new_values. Build a new abstract
-  ///   object of the right type if necessary.
-  /// \param new_values: potentially new set of values
-  /// \param environment: the abstract environment
-  /// \return the abstract object representing \p new_values (either 'this' or
-  ///   something new)
-  abstract_object_pointert resolve_new_values(
-    const abstract_object_sett &new_values,
-    const abstract_environmentt &environment) const;
+  /// Setter for updating the stored values
+  /// \param other_values: the new (non-empty) set of values
+  void set_values(const abstract_object_sett &other_values);
 
   /// Update the set of stored values to \p new_values. Build a new abstract
   ///   object of the right type if necessary.
@@ -93,10 +84,10 @@ private:
   abstract_object_pointert
   resolve_values(const abstract_object_sett &new_values) const;
 
+  void set_top_internal() override;
+
   // data
   abstract_object_sett values;
-
-  void set_top_internal() override;
 };
 
 #endif // CPROVER_ANALYSES_VARIABLE_SENSITIVITY_VALUE_SET_ABSTRACT_OBJECT_H

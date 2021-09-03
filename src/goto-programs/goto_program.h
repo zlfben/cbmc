@@ -22,7 +22,6 @@ Author: Daniel Kroening, kroening@kroening.com
 #include <util/namespace.h>
 #include <util/source_location.h>
 #include <util/std_code.h>
-#include <util/symbol_table.h>
 
 enum class validation_modet;
 
@@ -30,25 +29,25 @@ enum class validation_modet;
 enum goto_program_instruction_typet
 {
   NO_INSTRUCTION_TYPE = 0,
-  GOTO = 1,            // branch, possibly guarded
-  ASSUME = 2,          // non-failing guarded self loop
-  ASSERT = 3,          // assertions
-  OTHER = 4,           // anything else
-  SKIP = 5,            // just advance the PC
-  START_THREAD = 6,    // spawns an asynchronous thread
-  END_THREAD = 7,      // end the current thread
-  LOCATION = 8,        // semantically like SKIP
-  END_FUNCTION = 9,    // exit point of a function
-  ATOMIC_BEGIN = 10,   // marks a block without interleavings
-  ATOMIC_END = 11,     // end of a block without interleavings
-  RETURN = 12,         // set function return value (no control-flow change)
-  ASSIGN = 13,         // assignment lhs:=rhs
-  DECL = 14,           // declare a local variable
-  DEAD = 15,           // marks the end-of-live of a local variable
-  FUNCTION_CALL = 16,  // call a function
-  THROW = 17,          // throw an exception
-  CATCH = 18,          // push, pop or enter an exception handler
-  INCOMPLETE_GOTO = 19 // goto where target is yet to be determined
+  GOTO = 1,              // branch, possibly guarded
+  ASSUME = 2,            // non-failing guarded self loop
+  ASSERT = 3,            // assertions
+  OTHER = 4,             // anything else
+  SKIP = 5,              // just advance the PC
+  START_THREAD = 6,      // spawns an asynchronous thread
+  END_THREAD = 7,        // end the current thread
+  LOCATION = 8,          // semantically like SKIP
+  END_FUNCTION = 9,      // exit point of a function
+  ATOMIC_BEGIN = 10,     // marks a block without interleavings
+  ATOMIC_END = 11,       // end of a block without interleavings
+  SET_RETURN_VALUE = 12, // set function return value (no control-flow change)
+  ASSIGN = 13,           // assignment lhs:=rhs
+  DECL = 14,             // declare a local variable
+  DEAD = 15,             // marks the end-of-live of a local variable
+  FUNCTION_CALL = 16,    // call a function
+  THROW = 17,            // throw an exception
+  CATCH = 18,            // push, pop or enter an exception handler
+  INCOMPLETE_GOTO = 19   // goto where target is yet to be determined
 };
 
 std::ostream &operator<<(std::ostream &, goto_program_instruction_typet);
@@ -111,9 +110,9 @@ public:
   ///     goto `targets` if and only if `guard` is true.
   ///     More than one target is deprecated.  Its semantics was a
   ///     non-deterministic choice.
-  /// - RETURN:
-  ///     Set the value returned by `code` (which shall be either nil or an
-  ///     instance of code_returnt) and then jump to the end of the function.
+  /// - SET_RETURN_VALUE:
+  ///     Set the value returned by `return_value()`.  The control flow is
+  ///     not altered.
   ///     Many analysis tools remove these instructions before they start.
   /// - DECL:
   ///     Introduces a symbol denoted by the field `code` (an instance of
@@ -123,8 +122,9 @@ public:
   ///     Ends the life of the symbol denoted by the field `code`.
   ///     After a DEAD instruction the symbol must be DECL'd again before use.
   /// - FUNCTION_CALL:
-  ///     Invoke the function denoted by field `code` (an instance of
-  ///     code_function_callt).
+  ///     Invoke the function returned by `call_function` with the arguments
+  ///     returned by `call_arguments`, then assign the return value (if any)
+  ///     to `call_lhs`
   /// - ASSIGN:
   ///     Update the left-hand side of `code` (an instance of code_assignt) to
   ///     the value of the right-hand side.
@@ -317,45 +317,101 @@ public:
     DEPRECATED(SINCE(2021, 2, 24, "Use return_value instead"))
     const code_returnt &get_return() const
     {
-      PRECONDITION(is_return());
+      PRECONDITION(is_set_return_value());
       return to_code_return(code);
     }
 
-    /// Get the return value of a RETURN instruction
+    /// Get the return value of a SET_RETURN_VALUE instruction
     const exprt &return_value() const
     {
-      PRECONDITION(is_return());
+      PRECONDITION(is_set_return_value());
       return to_code_return(code).return_value();
     }
 
-    /// Get the return value of a RETURN instruction
+    /// Get the return value of a SET_RETURN_VALUE instruction
     exprt &return_value()
     {
-      PRECONDITION(is_return());
+      PRECONDITION(is_set_return_value());
       return to_code_return(code).return_value();
     }
 
-    /// Set the return statement for READ
+    /// Set the return statement for SET_RETURN_VALUE
     DEPRECATED(SINCE(2021, 2, 24, "Use return_value instead"))
     void set_return(code_returnt c)
     {
-      PRECONDITION(is_return());
+      PRECONDITION(is_set_return_value());
       code = std::move(c);
     }
 
     /// Get the function call for FUNCTION_CALL
+#if 1
+    DEPRECATED(SINCE(
+      2021,
+      2,
+      24,
+      "Use call_function(), call_lhs(), call_arguments() instead"))
     const code_function_callt &get_function_call() const
     {
       PRECONDITION(is_function_call());
       return to_code_function_call(code);
     }
+#endif
+
+    /// Get the function that is called for FUNCTION_CALL
+    const exprt &call_function() const
+    {
+      PRECONDITION(is_function_call());
+      return to_code_function_call(code).function();
+    }
+
+    /// Get the function that is called for FUNCTION_CALL
+    exprt &call_function()
+    {
+      PRECONDITION(is_function_call());
+      return to_code_function_call(code).function();
+    }
+
+    /// Get the lhs of a FUNCTION_CALL (may be nil)
+    const exprt &call_lhs() const
+    {
+      PRECONDITION(is_function_call());
+      return to_code_function_call(code).lhs();
+    }
+
+    /// Get the lhs of a FUNCTION_CALL (may be nil)
+    exprt &call_lhs()
+    {
+      PRECONDITION(is_function_call());
+      return to_code_function_call(code).lhs();
+    }
+
+    /// Get the arguments of a FUNCTION_CALL
+    const exprt::operandst &call_arguments() const
+    {
+      PRECONDITION(is_function_call());
+      return to_code_function_call(code).arguments();
+    }
+
+    /// Get the arguments of a FUNCTION_CALL
+    exprt::operandst &call_arguments()
+    {
+      PRECONDITION(is_function_call());
+      return to_code_function_call(code).arguments();
+    }
 
     /// Set the function call for FUNCTION_CALL
+#if 1
+    DEPRECATED(SINCE(
+      2021,
+      2,
+      24,
+      "Use call_function(), call_lhs(), call_arguments() instead"))
     void set_function_call(code_function_callt c)
     {
       PRECONDITION(is_function_call());
       code = std::move(c);
     }
+#endif
 
     /// Get the statement for OTHER
     const codet &get_other() const
@@ -467,28 +523,27 @@ public:
       type = GOTO;
     }
 
-    bool is_goto         () const { return type==GOTO;          }
-    bool is_return       () const { return type==RETURN;        }
-    bool is_assign       () const { return type==ASSIGN;        }
-    bool is_function_call() const { return type==FUNCTION_CALL; }
-    bool is_throw        () const { return type==THROW;         }
-    bool is_catch        () const { return type==CATCH;         }
-    bool is_skip         () const { return type==SKIP;          }
-    bool is_location     () const { return type==LOCATION;      }
-    bool is_other        () const { return type==OTHER;         }
-    bool is_decl         () const { return type==DECL;          }
-    bool is_dead         () const { return type==DEAD;          }
-    bool is_assume       () const { return type==ASSUME;        }
-    bool is_assert       () const { return type==ASSERT;        }
-    bool is_atomic_begin () const { return type==ATOMIC_BEGIN;  }
-    bool is_atomic_end   () const { return type==ATOMIC_END;    }
-    bool is_start_thread () const { return type==START_THREAD;  }
-    bool is_end_thread   () const { return type==END_THREAD;    }
-    bool is_end_function () const { return type==END_FUNCTION;  }
-    bool is_incomplete_goto() const
-    {
-      return type == INCOMPLETE_GOTO;
-    }
+    // clang-format off
+    bool is_goto            () const { return type == GOTO;             }
+    bool is_set_return_value() const { return type == SET_RETURN_VALUE; }
+    bool is_assign          () const { return type == ASSIGN;           }
+    bool is_function_call   () const { return type == FUNCTION_CALL;    }
+    bool is_throw           () const { return type == THROW;            }
+    bool is_catch           () const { return type == CATCH;            }
+    bool is_skip            () const { return type == SKIP;             }
+    bool is_location        () const { return type == LOCATION;         }
+    bool is_other           () const { return type == OTHER;            }
+    bool is_decl            () const { return type == DECL;             }
+    bool is_dead            () const { return type == DEAD;             }
+    bool is_assume          () const { return type == ASSUME;           }
+    bool is_assert          () const { return type == ASSERT;           }
+    bool is_atomic_begin    () const { return type == ATOMIC_BEGIN;     }
+    bool is_atomic_end      () const { return type == ATOMIC_END;       }
+    bool is_start_thread    () const { return type == START_THREAD;     }
+    bool is_end_thread      () const { return type == END_THREAD;       }
+    bool is_end_function    () const { return type == END_FUNCTION;     }
+    bool is_incomplete_goto () const { return type == INCOMPLETE_GOTO;  }
+    // clang-format on
 
     instructiont():
       instructiont(NO_INSTRUCTION_TYPE) // NOLINT(runtime/explicit)
@@ -721,11 +776,8 @@ public:
     const irep_idt &identifier,
     std::ostream &out) const;
 
-  /// Output goto-program to given stream
-  std::ostream &output(std::ostream &out) const
-  {
-    return output(namespacet(symbol_tablet()), irep_idt(), out);
-  }
+  /// Output goto-program to given stream, using an empty symbol table
+  std::ostream &output(std::ostream &out) const;
 
   /// Output a single instruction
   std::ostream &output_instruction(
@@ -846,17 +898,11 @@ public:
     }
   }
 
-  static instructiont
-  make_return(const source_locationt &l = source_locationt::nil())
-  {
-    return instructiont(code_returnt(), l, RETURN, nil_exprt(), {});
-  }
-
   static instructiont make_return(
     code_returnt c,
     const source_locationt &l = source_locationt::nil())
   {
-    return instructiont(std::move(c), l, RETURN, nil_exprt(), {});
+    return instructiont(std::move(c), l, SET_RETURN_VALUE, nil_exprt(), {});
   }
 
   static instructiont
@@ -1067,12 +1113,13 @@ public:
 
   /// Create a function call instruction
   static instructiont make_function_call(
+    exprt lhs,
     exprt function,
     code_function_callt::argumentst arguments,
     const source_locationt &l = source_locationt::nil())
   {
     return instructiont(
-      code_function_callt(std::move(function), std::move(arguments)),
+      code_function_callt(lhs, std::move(function), std::move(arguments)),
       l,
       FUNCTION_CALL,
       nil_exprt(),

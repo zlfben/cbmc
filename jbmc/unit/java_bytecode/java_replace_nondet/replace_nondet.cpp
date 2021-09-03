@@ -45,7 +45,7 @@ void validate_nondet_method_removed(
       }
     }
 
-    if(inst.is_return())
+    if(inst.is_set_return_value())
     {
       const auto &return_value = inst.return_value();
       if(return_value.id() == ID_side_effect)
@@ -61,14 +61,13 @@ void validate_nondet_method_removed(
     // And check to see that our nondet method call has been removed.
     if(inst.is_function_call())
     {
-      const code_function_callt &function_call = inst.get_function_call();
+      const auto &function = inst.call_function();
 
       // Small check to make sure the instruction is a symbol.
-      if(function_call.function().id() != ID_symbol)
+      if(function.id() != ID_symbol)
         continue;
 
-      const irep_idt function_id =
-        to_symbol_expr(function_call.function()).get_identifier();
+      const irep_idt function_id = to_symbol_expr(function).get_identifier();
       if(
         function_id ==
         "java::org.cprover.CProver.nondetWithoutNull:()"
@@ -94,7 +93,7 @@ void validate_nondets_converted(
     exprt target_expression =
       (inst.is_assign()
          ? inst.get_assign().rhs()
-         : inst.is_return() ? inst.return_value() : inst.get_code());
+         : inst.is_set_return_value() ? inst.return_value() : inst.get_code());
 
     if(
       const auto side_effect =

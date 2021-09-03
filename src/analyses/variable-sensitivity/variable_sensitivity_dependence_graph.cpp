@@ -151,8 +151,7 @@ void variable_sensitivity_dependence_domaint::data_dependencies(
       {
         if(from->is_function_call())
         {
-          const code_function_callt &cfc = from->get_function_call();
-          const exprt &call = cfc.function();
+          const exprt &call = from->call_function();
 
           if(call.id() == ID_symbol)
           {
@@ -189,8 +188,7 @@ void variable_sensitivity_dependence_domaint::data_dependencies(
   }
   else if(to->is_function_call())
   {
-    const code_function_callt &call = to->get_function_call();
-    const code_function_callt::argumentst &args = call.arguments();
+    const code_function_callt::argumentst &args = to->call_arguments();
     for(const auto &arg : args)
     {
       eval_data_deps(arg, ns, domain_data_deps);
@@ -641,14 +639,16 @@ variable_sensitivity_dependence_grapht::variable_sensitivity_dependence_grapht(
   const goto_functionst &goto_functions,
   const namespacet &_ns,
   variable_sensitivity_object_factory_ptrt object_factory,
-  const vsd_configt &configuration)
+  const vsd_configt &configuration,
+  message_handlert &message_handler)
   : ai_three_way_merget(
       util_make_unique<ai_history_factory_default_constructort<ahistoricalt>>(),
       util_make_unique<variable_sensitivity_dependence_domain_factoryt>(
         *this,
         object_factory,
         configuration),
-      util_make_unique<location_sensitive_storaget>()),
+      util_make_unique<location_sensitive_storaget>(),
+      message_handler),
     goto_functions(goto_functions),
     ns(_ns)
 {

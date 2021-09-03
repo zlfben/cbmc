@@ -12,6 +12,8 @@ Author: Thomas Kiley, thomas.kiley@diffblue.com
 #include <util/std_expr.h>
 
 #include "full_struct_abstract_object.h"
+#include "location_update_visitor.h"
+#include "map_visit.h"
 
 // #define DEBUG
 
@@ -175,7 +177,10 @@ abstract_object_pointert full_struct_abstract_objectt::write_component(
         return result;
       }
 
-      result->map.replace(c, abstract_objectt::merge(old_value.value(), value));
+      result->map.replace(
+        c,
+        abstract_objectt::merge(old_value.value(), value, widen_modet::no)
+          .object);
     }
     else
     {
@@ -235,49 +240,54 @@ bool full_struct_abstract_objectt::verify() const
   return (is_top() || is_bottom()) == map.empty();
 }
 
-abstract_object_pointert
-full_struct_abstract_objectt::merge(abstract_object_pointert other) const
+abstract_object_pointert full_struct_abstract_objectt::merge(
+  const abstract_object_pointert &other,
+  const widen_modet &widen_mode) const
 {
   constant_struct_pointert cast_other =
     std::dynamic_pointer_cast<const full_struct_abstract_objectt>(other);
   if(cast_other)
-  {
-    return merge_constant_structs(cast_other);
-  }
-  else
-  {
-    // TODO(tkiley): How do we set the result to be toppish? Does it matter?
-    return abstract_aggregate_baset::merge(other);
-  }
+    return merge_constant_structs(cast_other, widen_mode);
+
+  return abstract_aggregate_baset::merge(other, widen_mode);
 }
 
 abstract_object_pointert full_struct_abstract_objectt::merge_constant_structs(
-  constant_struct_pointert other) const
+  constant_struct_pointert other,
+  const widen_modet &widen_mode) const
 {
   if(is_bottom())
-  {
     return std::make_shared<full_struct_abstract_objectt>(*other);
+
+  const auto &result =
+    std::dynamic_pointer_cast<full_struct_abstract_objectt>(mutable_clone());
+
+  bool modified = merge_shared_maps(map, other->map, result->map, widen_mode);
+
+  if(!modified)
+  {
+    DATA_INVARIANT(verify(), "Structural invariants maintained");
+    return shared_from_this();
   }
   else
   {
-    const auto &result =
-      std::dynamic_pointer_cast<full_struct_abstract_objectt>(mutable_clone());
-
-    bool modified = merge_shared_maps(map, other->map, result->map);
-
-    if(!modified)
-    {
-      DATA_INVARIANT(verify(), "Structural invariants maintained");
-      return shared_from_this();
-    }
-    else
-    {
-      INVARIANT(!result->is_top(), "Merge of maps will not generate top");
-      INVARIANT(!result->is_bottom(), "Merge of maps will not generate bottom");
-      DATA_INVARIANT(result->verify(), "Structural invariants maintained");
-      return result;
-    }
+    INVARIANT(!result->is_top(), "Merge of maps will not generate top");
+    INVARIANT(!result->is_bottom(), "Merge of maps will not generate bottom");
+    DATA_INVARIANT(result->verify(), "Structural invariants maintained");
+    return result;
   }
+}
+
+abstract_object_pointert full_struct_abstract_objectt::write_location_context(
+  const locationt &location) const
+{
+  return visit_sub_elements(location_update_visitort(location));
+}
+
+abstract_object_pointert full_struct_abstract_objectt::merge_location_context(
+  const locationt &location) const
+{
+  return visit_sub_elements(merge_location_update_visitort(location));
 }
 
 abstract_object_pointert full_struct_abstract_objectt::visit_sub_elements(
@@ -286,29 +296,30 @@ abstract_object_pointert full_struct_abstract_objectt::visit_sub_elements(
   const auto &result =
     std::dynamic_pointer_cast<full_struct_abstract_objectt>(mutable_clone());
 
-  bool modified = false;
+  bool is_modified = visit_map(result->map, visitor);
 
-  shared_struct_mapt::viewt view;
-  result->map.get_view(view);
+  return is_modified ? result : shared_from_this();
+}
 
-  for(auto &item : view)
+exprt full_struct_abstract_objectt::to_predicate_internal(
+  const exprt &name) const
+{
+  auto all_predicates = exprt::operandst{};
+
+  for(auto field : map.get_sorted_view())
   {
-    auto newval = visitor.visit(item.second);
-    if(newval != item.second)
-    {
-      result->map.replace(item.first, newval);
-      modified = true;
-    }
+    auto field_name = member_exprt(name, field.first, name.type());
+    auto field_expr = field.second->to_predicate(field_name);
+
+    if(!field_expr.is_true())
+      all_predicates.push_back(field_expr);
   }
 
-  if(modified)
-  {
-    return result;
-  }
-  else
-  {
-    return shared_from_this();
-  }
+  if(all_predicates.empty())
+    return true_exprt();
+  if(all_predicates.size() == 1)
+    return all_predicates.front();
+  return and_exprt(all_predicates);
 }
 
 void full_struct_abstract_objectt::statistics(

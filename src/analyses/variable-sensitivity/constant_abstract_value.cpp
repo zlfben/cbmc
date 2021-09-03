@@ -111,19 +111,9 @@ void constant_abstract_valuet::output(
   }
 }
 
-abstract_object_pointert
-constant_abstract_valuet::merge(abstract_object_pointert other) const
-{
-  auto cast_other =
-    std::dynamic_pointer_cast<const abstract_value_objectt>(other);
-  if(cast_other)
-    return merge_constant_constant(cast_other);
-
-  return abstract_objectt::merge(other);
-}
-
-abstract_object_pointert constant_abstract_valuet::merge_constant_constant(
-  const abstract_value_pointert &other) const
+abstract_object_pointert constant_abstract_valuet::merge_with_value(
+  const abstract_value_pointert &other,
+  const widen_modet &widen_mode) const
 {
   auto other_expr = other->to_constant();
   if(is_bottom() && other_expr.is_constant())
@@ -132,7 +122,31 @@ abstract_object_pointert constant_abstract_valuet::merge_constant_constant(
   if(value == other_expr) // Can we actually merge these value
     return shared_from_this();
 
-  return abstract_objectt::merge(other);
+  return abstract_objectt::merge(other, widen_mode);
+}
+
+abstract_object_pointert constant_abstract_valuet::meet_with_value(
+  const abstract_value_pointert &other) const
+{
+  auto value_as_interval = constant_interval_exprt(value, value);
+  auto other_interval = other->to_interval();
+
+  if(other_interval.contains(value_as_interval)) // Do they actually meet
+    return shared_from_this();
+
+  return abstract_objectt::meet(other);
+}
+
+abstract_value_pointert constant_abstract_valuet::constrain(
+  const exprt &lower,
+  const exprt &upper) const
+{
+  return as_value(mutable_clone());
+}
+
+exprt constant_abstract_valuet::to_predicate_internal(const exprt &name) const
+{
+  return equal_exprt(name, value);
 }
 
 void constant_abstract_valuet::get_statistics(

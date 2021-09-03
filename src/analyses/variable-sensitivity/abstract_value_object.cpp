@@ -175,8 +175,41 @@ abstract_object_pointert abstract_value_objectt::expression_transform(
   const abstract_environmentt &environment,
   const namespacet &ns) const
 {
-  auto result = transform(expr, operands, environment, ns);
-  return environment.add_object_context(result);
+  return transform(expr, operands, environment, ns);
+}
+
+abstract_object_pointert abstract_value_objectt::write(
+  abstract_environmentt &environment,
+  const namespacet &ns,
+  const std::stack<exprt> &stack,
+  const exprt &specifier,
+  const abstract_object_pointert &value,
+  bool merging_write) const
+{
+  UNREACHABLE; // Should not ever call write on a value;
+}
+
+abstract_object_pointert abstract_value_objectt::merge(
+  const abstract_object_pointert &other,
+  const widen_modet &widen_mode) const
+{
+  auto cast_other =
+    std::dynamic_pointer_cast<const abstract_value_objectt>(other);
+  if(cast_other)
+    return merge_with_value(cast_other, widen_mode);
+
+  return abstract_objectt::merge(other, widen_mode);
+}
+
+abstract_object_pointert
+abstract_value_objectt::meet(const abstract_object_pointert &other) const
+{
+  auto cast_other =
+    std::dynamic_pointer_cast<const abstract_value_objectt>(other);
+  if(cast_other)
+    return meet_with_value(cast_other);
+
+  return abstract_objectt::meet(other);
 }
 
 // evaluation helpers
@@ -192,9 +225,10 @@ class constants_evaluator
 public:
   constants_evaluator(
     const exprt &e,
+    const std::vector<abstract_object_pointert> &ops,
     const abstract_environmentt &env,
     const namespacet &n)
-    : expression(e), environment(env), ns(n)
+    : expression(e), operands(ops), environment(env), ns(n)
   {
   }
 
@@ -211,28 +245,26 @@ public:
 private:
   abstract_object_pointert transform() const
   {
-    exprt expr = adjust_expression_for_rounding_mode();
-    auto operands = expr.operands();
-    expr.operands().clear();
+    auto expr = adjust_expression_for_rounding_mode();
 
-    // Two passes over the expression - one for simplification,
-    // another to check if there are any top subexpressions left
-    for(const exprt &op : operands)
+    auto operand_is_top = false;
+    for(size_t i = 0; i != operands.size(); ++i)
     {
-      auto lhs_value = eval_constant(op);
+      auto lhs_value = operands[i]->to_constant();
 
       // do not give up if a sub-expression is not a constant,
       // because the whole expression may still be simplified in some cases
-      expr.operands().push_back(lhs_value.is_nil() ? op : lhs_value);
+      // (eg multiplication by zero)
+      if(lhs_value.is_not_nil())
+        expr.operands()[i] = lhs_value;
+      else
+        operand_is_top = true;
     }
 
-    exprt simplified = simplify_expr(expr, ns);
-    for(const exprt &op : simplified.operands())
-    {
-      auto lhs_value = eval_constant(op);
-      if(lhs_value.is_nil())
-        return top(simplified.type());
-    }
+    auto simplified = simplify_expr(expr, ns);
+
+    if(simplified.has_operands() && operand_is_top)
+      return top(simplified.type());
 
     // the expression is fully simplified
     return std::make_shared<constant_abstract_valuet>(
@@ -241,22 +273,31 @@ private:
 
   abstract_object_pointert try_transform_expr_with_all_rounding_modes() const
   {
-    std::vector<abstract_object_pointert> possible_results;
+    abstract_object_pointert last_result;
+
+    auto results_differ = [](
+                            const abstract_object_pointert &prev,
+                            const abstract_object_pointert &cur) {
+      if(prev == nullptr)
+        return false;
+      return prev->to_constant() != cur->to_constant();
+    };
+
     for(auto rounding_mode : all_rounding_modes)
     {
       auto child_env(environment_with_rounding_mode(rounding_mode));
-      possible_results.push_back(
-        constants_evaluator(expression, child_env, ns)());
+      auto child_operands =
+        reeval_operands(expression.operands(), child_env, ns);
+
+      auto result =
+        constants_evaluator(expression, child_operands, child_env, ns)();
+
+      if(result->is_top() || results_differ(last_result, result))
+        return top(expression.type());
+      last_result = result;
     }
 
-    auto first = possible_results.front()->to_constant();
-    for(auto const &possible_result : possible_results)
-    {
-      auto current = possible_result->to_constant();
-      if(current.is_nil() || current != first)
-        return top(expression.type());
-    }
-    return possible_results.front();
+    return last_result;
   }
 
   abstract_environmentt
@@ -278,12 +319,25 @@ private:
   {
     exprt adjusted_expr = expression;
     adjust_float_expressions(adjusted_expr, ns);
+
+    if(adjusted_expr != expression)
+      operands = reeval_operands(adjusted_expr.operands(), environment, ns);
+
     return adjusted_expr;
   }
 
-  exprt eval_constant(const exprt &op) const
+  static std::vector<abstract_object_pointert> reeval_operands(
+    const exprt::operandst &ops,
+    const abstract_environmentt &env,
+    const namespacet &ns)
   {
-    return environment.eval(op, ns)->to_constant();
+    auto reevaled_operands = std::vector<abstract_object_pointert>{};
+    std::transform(
+      ops.cbegin(),
+      ops.end(),
+      std::back_inserter(reevaled_operands),
+      [&env, &ns](const exprt &op) { return env.eval(op, ns); });
+    return reevaled_operands;
   }
 
   abstract_object_pointert top(const typet &type) const
@@ -293,11 +347,13 @@ private:
 
   bool rounding_mode_is_not_set() const
   {
-    auto rounding_mode = eval_constant(rounding_mode_symbol);
+    auto rounding_mode =
+      environment.eval(rounding_mode_symbol, ns)->to_constant();
     return rounding_mode.is_nil();
   }
 
   const exprt &expression;
+  mutable std::vector<abstract_object_pointert> operands;
   const abstract_environmentt &environment;
   const namespacet &ns;
 
@@ -322,7 +378,7 @@ abstract_object_pointert constants_expression_transform(
   const abstract_environmentt &environment,
   const namespacet &ns)
 {
-  auto evaluator = constants_evaluator(expr, environment, ns);
+  auto evaluator = constants_evaluator(expr, operands, environment, ns);
   return evaluator();
 }
 
@@ -470,7 +526,7 @@ private:
 
   interval_abstract_value_pointert make_interval(const exprt &expr) const
   {
-    return std::make_shared<interval_abstract_valuet>(expr, environment, ns);
+    return interval_abstract_valuet::make_interval(expr, environment, ns);
   }
 
   const exprt &expression;
@@ -519,7 +575,7 @@ private:
 
     auto resulting_objects = evaluate_each_combination(ranges);
 
-    return resolve_values(resulting_objects);
+    return value_set_abstract_objectt::make_value_set(resulting_objects);
   }
 
   /// Evaluate expression for every combination of values in \p value_ranges.
@@ -595,64 +651,6 @@ private:
     return unwrapped;
   }
 
-  static abstract_object_sett
-  unwrap_and_extract_values(const abstract_object_sett &values)
-  {
-    abstract_object_sett unwrapped_values;
-    for(auto const &value : values)
-    {
-      unwrapped_values.insert(
-        maybe_extract_single_value(value->unwrap_context()));
-    }
-
-    return unwrapped_values;
-  }
-
-  static abstract_object_pointert
-  maybe_extract_single_value(const abstract_object_pointert &maybe_singleton)
-  {
-    auto const &value_as_set =
-      std::dynamic_pointer_cast<const value_set_tag>(maybe_singleton);
-    if(value_as_set)
-    {
-      PRECONDITION(value_as_set->get_values().size() == 1);
-      PRECONDITION(!std::dynamic_pointer_cast<const context_abstract_objectt>(
-        value_as_set->get_values().first()));
-
-      return value_as_set->get_values().first();
-    }
-    else
-      return maybe_singleton;
-  }
-
-  static abstract_object_pointert
-  resolve_values(const abstract_object_sett &new_values)
-  {
-    PRECONDITION(!new_values.empty());
-
-    auto unwrapped_values = unwrap_and_extract_values(new_values);
-
-    if(unwrapped_values.size() > value_set_abstract_objectt::max_value_set_size)
-      return make_interval(unwrapped_values);
-
-    return make_value_set(unwrapped_values);
-  }
-
-  static abstract_object_pointert
-  make_interval(const abstract_object_sett &values)
-  {
-    return std::make_shared<interval_abstract_valuet>(values.to_interval());
-  }
-
-  static abstract_object_pointert
-  make_value_set(const abstract_object_sett &values)
-  {
-    const auto &type = values.first()->type();
-    auto value_set = std::make_shared<value_set_abstract_objectt>(type);
-    value_set->set_values(values);
-    return value_set;
-  }
-
   static abstract_object_pointert
   evaluate_conditional(const std::vector<value_ranget> &ops)
   {
@@ -676,7 +674,7 @@ private:
       resulting_objects.insert(true_result);
     if(all_false || indeterminate)
       resulting_objects.insert(false_result);
-    return resolve_values(resulting_objects);
+    return value_set_abstract_objectt::make_value_set(resulting_objects);
   }
 
   const exprt &expression;
@@ -693,4 +691,10 @@ static abstract_object_pointert value_set_expression_transform(
 {
   auto evaluator = value_set_evaluator(expr, operands, environment, ns);
   return evaluator();
+}
+
+abstract_value_pointert
+abstract_value_objectt::as_value(const abstract_object_pointert &obj) const
+{
+  return std::dynamic_pointer_cast<const abstract_value_objectt>(obj);
 }

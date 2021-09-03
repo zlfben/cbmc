@@ -36,6 +36,7 @@
 class abstract_environmentt;
 class namespacet;
 struct abstract_object_statisticst;
+enum class widen_modet;
 
 #define CLONE                                                                  \
   internal_abstract_object_pointert mutable_clone() const override             \
@@ -170,6 +171,17 @@ public:
   /// that allows an object to be built from a value.
   virtual exprt to_constant() const;
 
+  /// Converts to an invariant expression
+  ///
+  /// \param name - the variable name to substitute into the expression
+  /// \return Returns an exprt representing the object as an invariant.
+  ///
+  /// The the abstract element represents a single value the expression will
+  /// have the form _name = value_, if the value is an interval it will have the
+  /// the form _lower <= name <= upper_, etc.
+  /// If the value is bottom returns false, if top returns true.
+  exprt to_predicate(const exprt &name) const;
+
   /**
    * A helper function to evaluate writing to a component of an
    * abstract object. More precise abstractions may override this to
@@ -205,7 +217,7 @@ public:
     const class ai_baset &ai,
     const namespacet &ns) const;
 
-  typedef std::set<goto_programt::const_targett> locationst;
+  typedef goto_programt::const_targett locationt;
   typedef sharing_mapt<irep_idt, abstract_object_pointert, false, irep_id_hash>
     shared_mapt;
 
@@ -228,7 +240,7 @@ public:
    * \return true if 'this' is considered to have been modified in comparison
    * to 'before', false otherwise.
    */
-  virtual bool has_been_modified(const abstract_object_pointert before) const
+  virtual bool has_been_modified(const abstract_object_pointert &before) const
   {
     /// Default implementation, with no other information to go on
     /// falls back to relying on copy-on-write and pointer inequality
@@ -244,27 +256,34 @@ public:
   /// \param op2: the second abstract object to merge
   /// \param out_modifications: reference to a flag indicating modification
   ///
-  /// \return The merged abstract object with the same sensitivity as the
-  ///         first parameter. out_modifications will be true if the resulting
-  ///         abstract object is different from op1
-  static abstract_object_pointert merge(
-    abstract_object_pointert op1,
-    abstract_object_pointert op2,
-    bool &out_modifications);
-  static abstract_object_pointert
-  merge(abstract_object_pointert op1, abstract_object_pointert op2);
+  /// \return A pair containing the merged abstract object with the same
+  ///         sensitivity as op1, and a modified flag which
+  ///         will be true if the merged abstract object is different from op1
+  struct combine_result
+  {
+    abstract_object_pointert object;
+    bool modified;
+  };
+  static combine_result merge(
+    const abstract_object_pointert &op1,
+    const abstract_object_pointert &op2,
+    const locationt &merge_location,
+    const widen_modet &widen_mode);
+  static combine_result merge(
+    const abstract_object_pointert &op1,
+    const abstract_object_pointert &op2,
+    const widen_modet &widen_mode);
 
   /// Interface method for the meet operation. Decides whether to use the base
   /// implementation or if a more precise abstraction is attainable.
   /// \param op1 lhs object for meet
   /// \param op2 rhs object for meet
-  /// \param out_modifications reference to a flag indicating modification
-  /// (result is not op1)
-  /// \return resulting object after meet
-  static abstract_object_pointert meet(
-    abstract_object_pointert op1,
-    abstract_object_pointert op2,
-    bool &out_modifications);
+  /// \return A pair containing the merged abstract object with the same
+  ///         sensitivity as op1, and a modified flag which
+  ///         will be true if the returned object is different from op1
+  static combine_result meet(
+    const abstract_object_pointert &op1,
+    const abstract_object_pointert &op2);
 
   /// Base implementation of the meet operation: only used if no more precise
   /// abstraction can be used, can only result in {TOP, BOTTOM, one of the
@@ -275,19 +294,26 @@ public:
   meet(const abstract_object_pointert &other) const;
 
   /**
-   * Update the location context for an abstract object, potentially
-   * propogating the update to any children of this abstract object.
+   * Update the write location context for an abstract object.
    *
-   * \param locations the set of locations to be updated
-   * \param update_sub_elements if true, propogate the update operation to any
-   * children of this abstract object
+   * \param location the location to be updated
    *
-   * \return a clone of this abstract object with it's location context
+   * \return a clone of this abstract object with its location context
    * updated
    */
-  virtual abstract_object_pointert update_location_context(
-    const locationst &locations,
-    const bool update_sub_elements) const;
+  virtual abstract_object_pointert
+  write_location_context(const locationt &location) const;
+
+  /**
+   * Update the merge location context for an abstract object.
+   *
+   * \param location the location to be updated
+   *
+   * \return a clone of this abstract object with its location context
+   * updated
+   */
+  virtual abstract_object_pointert
+  merge_location_context(const locationt &location) const;
 
   // Const versions must perform copy-on-write
   abstract_object_pointert make_top() const
@@ -319,7 +345,7 @@ public:
   struct abstract_object_visitort
   {
     virtual abstract_object_pointert
-    visit(const abstract_object_pointert element) const = 0;
+    visit(const abstract_object_pointert &element) const = 0;
   };
 
   /**
@@ -349,6 +375,11 @@ public:
     return shared_from_this() == other;
   }
 
+  /// to_predicate implementation - derived classes will override
+  /// \param name - the variable name to substitute into the expression
+  /// \return Returns an exprt representing the object as an invariant.
+  virtual exprt to_predicate_internal(const exprt &name) const;
+
 private:
   /// To enforce copy-on-write these are private and have read-only accessors
   typet t;
@@ -377,7 +408,7 @@ private:
    * \return the result of the merge
    */
   virtual abstract_object_pointert
-  abstract_object_merge_internal(const abstract_object_pointert other) const;
+  abstract_object_merge_internal(const abstract_object_pointert &other) const;
 
   /// Helper function for base meet, in case additional work was needed. Base
   /// implementation simply return pointer to itself.
@@ -406,7 +437,7 @@ protected:
   ///
   /// \return Returns the result of the abstract object.
   abstract_object_pointert
-  abstract_object_merge(const abstract_object_pointert other) const;
+  abstract_object_merge(const abstract_object_pointert &other) const;
 
   /// To detect the cases where the base merge is sufficient to do a merge
   /// We can't do if this->is_bottom() since we want the specific
@@ -415,15 +446,18 @@ protected:
   ///
   /// \return Returns true if the base class is capable of doing
   ///         a complete merge
-  bool should_use_base_merge(const abstract_object_pointert other) const;
+  bool should_use_base_merge(const abstract_object_pointert &other) const;
 
   /// Create a new abstract object that is the result of the merge, unless
   /// the object would be unchanged, then would return itself.
   ///
   /// \param other: The object to merge with this
+  /// \param widen_mode: Indicates if this is a widening merge
   ///
   /// \return Returns the result of the merge.
-  virtual abstract_object_pointert merge(abstract_object_pointert other) const;
+  virtual abstract_object_pointert merge(
+    const abstract_object_pointert &other,
+    const widen_modet &widen_mode) const;
 
   /// Helper function for base meet. Two cases: return itself (if trivially
   /// contained in other); return BOTTOM otherwise.

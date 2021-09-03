@@ -75,31 +75,42 @@
   "(vsd-values):"                                                              \
   "(vsd-structs):"                                                             \
   "(vsd-arrays):"                                                              \
+  "(vsd-array-max-elements):"                                                  \
   "(vsd-pointers):"                                                            \
   "(vsd-unions):"                                                              \
   "(vsd-flow-insensitive)"                                                     \
-  "(vsd-data-dependencies)"
-
-// clang-format off
-#define HELP_VSD \
-    " --vsd-values                 value tracking - constants|intervals|set-of-constants\n" /* NOLINT(whitespace/line_length) */ \
-    " --vsd-structs                struct field sensitive analysis - top-bottom|every-field\n" /* NOLINT(whitespace/line_length) */ \
-    " --vsd-arrays                 array entry sensitive analysis - top-bottom|every-element\n" /* NOLINT(whitespace/line_length) */ \
-    " --vsd-pointers               pointer sensitive analysis - top-bottom|constants|value-set\n" /* NOLINT(whitespace/line_length) */ \
-    " --vsd-unions                 union sensitive analysis - top-bottom\n" \
-    " --vsd-flow-insensitive       disables flow sensitivity\n" \
-    " --vsd-data-dependencies      track data dependencies\n" \
+  "(vsd-data-dependencies)"                                                    \
+  "(vsd-liveness)"                                                             \
+                                                                               \
+    // clang-format off
+#define HELP_VSD                                                               \
+  " --vsd-values                 value tracking - "                            \
+  "constants|intervals|set-of-constants\n" /* NOLINT(whitespace/line_length) */\
+  " --vsd-structs                struct field sensitive analysis - "           \
+  "top-bottom|every-field\n" /* NOLINT(whitespace/line_length) */              \
+  " --vsd-arrays                 array entry sensitive analysis - "            \
+  "top-bottom|smash|up-to-n-elements|every-element\n" /* NOLINT(whitespace/line_length) */ \
+  " --vsd-array-max-elements     the n in --vsd-arrays up-to-n-elements - "    \
+  "defaults 10 if not given\n" /* NOLINT(whitespace/line_length) */            \
+  " --vsd-pointers               pointer sensitive analysis - "                \
+  "top-bottom|constants|value-set\n" /* NOLINT(whitespace/line_length) */      \
+  " --vsd-unions                 union sensitive analysis - top-bottom\n"      \
+  " --vsd-flow-insensitive       disables flow sensitivity\n"                  \
+  " --vsd-data-dependencies      track data dependencies\n"                    \
+  " --vsd-liveness               track variable liveness\n"                    \
 
 // cland-format on
 
-#define PARSE_OPTIONS_VSD(cmdline, options) \
-  options.set_option("values", cmdline.get_value("vsd-values")); \
-  options.set_option("pointers", cmdline.get_value("vsd-pointers")); \
-  options.set_option("arrays", cmdline.get_value("vsd-arrays")); \
-  options.set_option("structs", cmdline.get_value("vsd-structs")); \
-  options.set_option("unions", cmdline.get_value("vsd-unions")); \
+#define PARSE_OPTIONS_VSD(cmdline, options)                                    \
+  options.set_option("values", cmdline.get_value("vsd-values"));               \
+  options.set_option("pointers", cmdline.get_value("vsd-pointers"));           \
+  options.set_option("arrays", cmdline.get_value("vsd-arrays"));               \
+  options.set_option("array-max-elements", cmdline.get_value("vsd-array-max-elements")); /* NOLINT(whitespace/line_length) */ \
+  options.set_option("structs", cmdline.get_value("vsd-structs"));             \
+  options.set_option("unions", cmdline.get_value("vsd-unions"));               \
   options.set_option("flow-insensitive", cmdline.isset("vsd-flow-insensitive")); /* NOLINT(whitespace/line_length) */ \
   options.set_option("data-dependencies", cmdline.isset("vsd-data-dependencies")); /* NOLINT(whitespace/line_length) */ \
+  options.set_option("liveness", cmdline.isset("vsd-liveness")); /* NOLINT(whitespace/line_length) */ \
   (void)0
 
 class variable_sensitivity_domaint : public ai_domain_baset
@@ -146,7 +157,14 @@ public:
   void output(std::ostream &out, const ai_baset &ai, const namespacet &ns)
     const override;
 
-  void output(std::ostream &out) const;
+  /// Gives a Boolean condition that is true for all values represented by the
+  /// domain.  This allows domains to be converted into program invariants.
+  ///
+  /// \return exprt describing the domain
+  exprt to_predicate() const override;
+
+  exprt to_predicate(const exprt &expr, const namespacet &ns) const;
+  exprt to_predicate(const exprt::operandst &exprs, const namespacet &ns) const;
 
   /// Computes the join between "this" and "b".
   ///
@@ -242,6 +260,8 @@ private:
     std::vector<symbol_exprt> modified_symbols,
     const variable_sensitivity_domaint &target,
     const namespacet &ns);
+
+  void assume(exprt expr, namespacet ns);
 
   abstract_environmentt abstract_state;
   flow_sensitivityt flow_sensitivity;

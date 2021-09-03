@@ -260,7 +260,7 @@ void instrumentert::cfg_visitort::visit_cfg_function(
       ); // NOLINT(whitespace/parens)
     }
 #ifdef CONTEXT_INSENSITIVE
-    else if(instruction.is_return())
+    else if(instruction.is_set_return_value())
     {
       visit_cfg_propagate(i_it);
       add_all_pos(it, out_nodes[function_id], in_pos[i_it]);
@@ -693,7 +693,7 @@ void instrumentert::cfg_visitort::visit_cfg_function_call(
 {
   const goto_programt::instructiont &instruction=*i_it;
 
-  const exprt &fun = instruction.get_function_call().function();
+  const exprt &fun = instruction.call_function();
   const irep_idt &fun_id=to_symbol_expr(fun).get_identifier();
   /* ignore recursive calls -- underapproximation */
   try
@@ -1227,13 +1227,10 @@ void inline instrumentert::add_instr_to_interleaving(
   goto_programt::instructionst::iterator it,
   goto_programt &interleaving)
 {
-  if(it->is_return() ||
-     it->is_throw() ||
-     it->is_catch() ||
-     it->is_skip() ||
-     it->is_dead() ||
-     it->is_start_thread() ||
-     it->is_end_thread())
+  if(
+    it->is_set_return_value() || it->is_throw() || it->is_catch() ||
+    it->is_skip() || it->is_dead() || it->is_start_thread() ||
+    it->is_end_thread())
     return;
 
   if(it->is_atomic_begin() ||

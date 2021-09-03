@@ -168,6 +168,7 @@ protected:
   virtual bvt convert_div(const div_exprt &expr);
   virtual bvt convert_mod(const mod_exprt &expr);
   virtual bvt convert_floatbv_op(const ieee_float_op_exprt &);
+  virtual bvt convert_floatbv_mod_rem(const binary_exprt &);
   virtual bvt convert_floatbv_typecast(const floatbv_typecast_exprt &expr);
   virtual bvt convert_member(const member_exprt &expr);
   virtual bvt convert_with(const with_exprt &expr);
@@ -271,6 +272,12 @@ protected:
 
   // strings
   numberingt<irep_idt> string_numbering;
+
+  // scopes
+  std::size_t scope_counter = 0;
+
+  /// create new, unique variables for the given binding
+  binding_exprt::variablest fresh_binding(const binding_exprt &);
 };
 
 #endif // CPROVER_SOLVERS_FLATTENING_BOOLBV_H

@@ -1832,7 +1832,7 @@ bool rrat::skip_loop(
       const exprt &expr = instruction.get_condition();
       expr.visit(gas);
     }
-    else if(instruction.is_return())
+    else if(instruction.is_set_return_value())
     {
       if(instruction.get_return().has_return_value())
       {
@@ -2140,7 +2140,7 @@ void rrat::abstract_goto_program(goto_modelt &goto_model, rra_spect &abst_spec)
         if(check_if_exprt_is_abst_array(as.lhs(), abst_spec, lhs_spec))
           update_pointer_obj(as.lhs(), goto_model, func_name, inst_after, new_symbs);
       }
-      else if(it->is_return())
+      else if(it->is_set_return_value())
       {
         // Function will always return concrete value.
         // We need to convert them into abstract
@@ -2208,7 +2208,7 @@ void rrat::abstract_goto_program(goto_modelt &goto_model, rra_spect &abst_spec)
       // is there any unknown inst types?
       if(
         !it->is_decl() && !it->is_end_function() && !it->is_goto() &&
-        !it->is_return() && !it->is_function_call() && !it->is_assert() &&
+        !it->is_set_return_value() && !it->is_function_call() && !it->is_assert() &&
         !it->is_assign() && !it->is_assume() && !it->is_dead() &&
         !it->is_skip() && !it->is_other())
         throw "unknown instruction type " + std::to_string(it->type);

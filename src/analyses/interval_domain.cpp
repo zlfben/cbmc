@@ -104,10 +104,9 @@ void interval_domaint::transform(
 
   case FUNCTION_CALL:
   {
-    const code_function_callt &code_function_call =
-      instruction.get_function_call();
-    if(code_function_call.lhs().is_not_nil())
-      havoc_rec(code_function_call.lhs());
+    const auto &lhs = instruction.call_lhs();
+    if(lhs.is_not_nil())
+      havoc_rec(lhs);
     break;
   }
 
@@ -115,8 +114,8 @@ void interval_domaint::transform(
   case THROW:
     DATA_INVARIANT(false, "Exceptions must be removed before analysis");
     break;
-  case RETURN:
-    DATA_INVARIANT(false, "Returns must be removed before analysis");
+  case SET_RETURN_VALUE:
+    DATA_INVARIANT(false, "SET_RETURN_VALUE must be removed before analysis");
     break;
   case ATOMIC_BEGIN: // Ignoring is a valid over-approximation
   case ATOMIC_END:   // Ignoring is a valid over-approximation

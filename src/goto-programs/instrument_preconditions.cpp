@@ -64,14 +64,15 @@ void remove_preconditions(goto_programt &goto_program)
 }
 
 replace_symbolt actuals_replace_map(
-  const code_function_callt &call,
+  const exprt &lhs,
+  const exprt &function,
+  const exprt::operandst &arguments,
   const namespacet &ns)
 {
-  PRECONDITION(call.function().id()==ID_symbol);
-  const symbolt &s=ns.lookup(to_symbol_expr(call.function()));
+  PRECONDITION(function.id() == ID_symbol);
+  const symbolt &s = ns.lookup(to_symbol_expr(function));
   const auto &code_type=to_code_type(s.type);
   const auto &parameters=code_type.parameters();
-  const auto &arguments=call.arguments();
 
   replace_symbolt result;
   std::size_t count=0;
@@ -102,17 +103,19 @@ void instrument_preconditions(
     if(it->is_function_call())
     {
       // does the function we call have preconditions?
-      const auto &call = it->get_function_call();
-
-      if(call.function().id()==ID_symbol)
+      if(as_const(*it).call_function().id() == ID_symbol)
       {
-        auto preconditions=
-          get_preconditions(to_symbol_expr(call.function()),
-                            goto_model.goto_functions);
+        auto preconditions = get_preconditions(
+          to_symbol_expr(as_const(*it).call_function()),
+          goto_model.goto_functions);
 
         source_locationt source_location=it->source_location;
 
-        replace_symbolt r=actuals_replace_map(call, ns);
+        replace_symbolt r = actuals_replace_map(
+          as_const(*it).call_lhs(),
+          as_const(*it).call_function(),
+          as_const(*it).call_arguments(),
+          ns);
 
         // add before the call, with location of the call
         for(const auto &p : preconditions)

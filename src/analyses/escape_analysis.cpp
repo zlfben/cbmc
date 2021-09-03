@@ -212,21 +212,19 @@ void escape_domaint::transform(
 
   case FUNCTION_CALL:
     {
-      const code_function_callt &code_function_call =
-        instruction.get_function_call();
-      const exprt &function=code_function_call.function();
+      const exprt &function = instruction.call_function();
 
       if(function.id()==ID_symbol)
       {
         const irep_idt &identifier=to_symbol_expr(function).get_identifier();
         if(identifier == CPROVER_PREFIX "cleanup")
         {
-          if(code_function_call.arguments().size()==2)
+          if(instruction.call_arguments().size() == 2)
           {
-            exprt lhs=code_function_call.arguments()[0];
+            exprt lhs = instruction.call_arguments()[0];
 
-            irep_idt cleanup_function=
-              get_function(code_function_call.arguments()[1]);
+            irep_idt cleanup_function =
+              get_function(instruction.call_arguments()[1]);
 
             if(!cleanup_function.empty())
             {
@@ -255,8 +253,8 @@ void escape_domaint::transform(
   case THROW:
     DATA_INVARIANT(false, "Exceptions must be removed before analysis");
     break;
-  case RETURN:
-    DATA_INVARIANT(false, "Returns must be removed before analysis");
+  case SET_RETURN_VALUE:
+    DATA_INVARIANT(false, "SET_RETURN_VALUE must be removed before analysis");
     break;
   case ATOMIC_BEGIN: // Ignoring is a valid over-approximation
   case ATOMIC_END:   // Ignoring is a valid over-approximation

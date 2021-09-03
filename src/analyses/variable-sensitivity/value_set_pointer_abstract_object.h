@@ -22,6 +22,12 @@ public:
   /// \copydoc abstract_objectt::abstract_objectt(const typet&)
   explicit value_set_pointer_abstract_objectt(const typet &type);
 
+  value_set_pointer_abstract_objectt(
+    const typet &new_type,
+    bool top,
+    bool bottom,
+    const abstract_object_sett &new_values);
+
   /// \copydoc abstract_objectt::abstract_objectt(const typet &, bool, bool)
   value_set_pointer_abstract_objectt(const typet &type, bool top, bool bottom);
 
@@ -64,6 +70,23 @@ public:
     const abstract_object_pointert &new_value,
     bool merging_write) const override;
 
+  abstract_object_pointert typecast(
+    const typet &new_type,
+    const abstract_environmentt &environment,
+    const namespacet &ns) const override;
+
+  abstract_object_pointert ptr_diff(
+    const exprt &expr,
+    const std::vector<abstract_object_pointert> &operands,
+    const abstract_environmentt &environment,
+    const namespacet &ns) const override;
+
+  exprt ptr_comparison_expr(
+    const exprt &expr,
+    const std::vector<abstract_object_pointert> &operands,
+    const abstract_environmentt &environment,
+    const namespacet &ns) const override;
+
   void output(std::ostream &out, const ai_baset &ai, const namespacet &ns)
     const override;
 
@@ -71,19 +94,13 @@ protected:
   CLONE
 
   /// \copydoc abstract_object::merge
-  abstract_object_pointert merge(abstract_object_pointert other) const override;
+  abstract_object_pointert merge(
+    const abstract_object_pointert &other,
+    const widen_modet &widen_mode) const override;
+
+  exprt to_predicate_internal(const exprt &name) const override;
 
 private:
-  /// Update the set of stored values to \p new_values. Build a new abstract
-  ///   object of the right type if necessary.
-  /// \param new_values: potentially new set of values
-  /// \param environment: the abstract environment
-  /// \return the abstract object representing \p new_values (either 'this' or
-  ///   something new)
-  abstract_object_pointert resolve_new_values(
-    const abstract_object_sett &new_values,
-    const abstract_environmentt &environment) const;
-
   /// Update the set of stored values to \p new_values. Build a new abstract
   ///   object of the right type if necessary.
   /// \param new_values: potentially new set of values

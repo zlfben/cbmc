@@ -82,6 +82,8 @@ public:
 
   std::size_t get_number_of_solver_calls() const override;
 
+  static std::string convert_identifier(const irep_idt &identifier);
+
 protected:
   const namespacet &ns;
   std::ostream &out;
@@ -96,7 +98,16 @@ protected:
   resultt dec_solve() override;
 
   void write_header();
-  void write_footer(std::ostream &);
+  /// Writes the end of the SMT file to the `smt_convt::out` stream. These parts
+  /// of the output may be changed when using multiple rounds of solving. They
+  /// include the following parts of the output file -
+  ///  * The object size definitions.
+  ///  * The assertions based on the `assumptions` member variable.
+  ///  * The `(check-sat)` or `check-sat-assuming` command.
+  ///  * A `(get-value |identifier|)` command for each of the identifiers in
+  ///    `smt2_convt::smt2_identifiers`.
+  ///  * An `(exit)` command.
+  void write_footer();
 
   // tweaks for arrays
   bool use_array_theory(const exprt &);
@@ -119,14 +130,14 @@ protected:
   void convert_floatbv_minus(const ieee_float_op_exprt &expr);
   void convert_floatbv_div(const ieee_float_op_exprt &expr);
   void convert_floatbv_mult(const ieee_float_op_exprt &expr);
+  void convert_floatbv_rem(const binary_exprt &expr);
   void convert_mod(const mod_exprt &expr);
+  void convert_euclidean_mod(const euclidean_mod_exprt &expr);
   void convert_index(const index_exprt &expr);
   void convert_member(const member_exprt &expr);
 
   void convert_with(const with_exprt &expr);
   void convert_update(const exprt &expr);
-
-  std::string convert_identifier(const irep_idt &identifier);
 
   void convert_expr(const exprt &);
   void convert_type(const typet &);
@@ -149,8 +160,23 @@ protected:
   constant_exprt parse_literal(const irept &, const typet &type);
   struct_exprt parse_struct(const irept &s, const struct_typet &type);
   exprt parse_union(const irept &s, const union_typet &type);
+  /// This function is for parsing array output from SMT solvers
+  /// when "(get-value |???|)" returns an array object.
+  /// \param s: is the irept parsed from the SMT output
+  /// \param type: is the expected type
+  /// \returns an exprt that represents the array
   exprt parse_array(const irept &s, const array_typet &type);
   exprt parse_rec(const irept &s, const typet &type);
+  /// This function walks the SMT output and populates a
+  /// map with index/value pairs for the array
+  /// \param operands_map: is a map of the operands to the array
+  ///    being constructed indexed by their index.
+  /// \param src: is the irept source for the SMT output
+  /// \param type: is the type of the array
+  void walk_array_tree(
+    std::unordered_map<int64_t, exprt> *operands_map,
+    const irept &src,
+    const array_typet &type);
 
   // we use this to build a bit-vector encoding of the FPA theory
   void convert_floatbv(const exprt &expr);
@@ -225,6 +251,10 @@ protected:
 
   typedef std::map<exprt, irep_idt> defined_expressionst;
   defined_expressionst defined_expressions;
+  /// The values which boolean identifiers have been `smt2_convt::set_to` or
+  /// in other words those which are asserted as true / false in the output
+  /// smt2 formula.
+  std::unordered_map<irep_idt, bool> set_values;
 
   defined_expressionst object_sizes;
 

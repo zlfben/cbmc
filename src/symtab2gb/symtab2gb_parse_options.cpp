@@ -12,11 +12,14 @@ Author: Diffblue Ltd.
 #include <iostream>
 #include <string>
 
+#include <ansi-c/ansi_c_language.h>
+
 #include <goto-programs/goto_convert_functions.h>
 #include <goto-programs/goto_model.h>
 #include <goto-programs/link_goto_model.h>
 #include <goto-programs/write_goto_binary.h>
 #include <json-symtab-language/json_symtab_language.h>
+#include <langapi/mode.h>
 
 #include <util/config.h>
 #include <util/exception_utils.h>
@@ -93,6 +96,15 @@ static void run_symtab2gb(
   }
 }
 
+void symtab2gb_parse_optionst::register_languages()
+{
+  // As this is a converter and linker it only really needs to support
+  // the JSON symtab front-end.
+  register_language(new_json_symtab_language);
+  // Workaround to allow external front-ends to use "C" mode
+  register_language(new_ansi_c_language);
+}
+
 int symtab2gb_parse_optionst::doit()
 {
   if(cmdline.isset("version"))
@@ -111,6 +123,7 @@ int symtab2gb_parse_optionst::doit()
   {
     gb_filename = cmdline.get_value(SYMTAB2GB_OUT_FILE_OPT);
   }
+  register_languages();
   config.set(cmdline);
   run_symtab2gb(symtab_filenames, gb_filename);
   return CPROVER_EXIT_SUCCESS;

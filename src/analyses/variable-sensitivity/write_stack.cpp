@@ -39,10 +39,10 @@ write_stackt::write_stackt(
   if(expr.type().id() == ID_array)
   {
     // We are assigning an array to a pointer, which is equivalent to assigning
-    // the first element of that arary
+    // the first element of that array
     // &(expr)[0]
     construct_stack_to_pointer(
-      address_of_exprt(index_exprt(expr, from_integer(0, size_type()))),
+      address_of_exprt(index_exprt(expr, from_integer(0, signed_size_type()))),
       environment,
       ns);
   }
@@ -138,7 +138,7 @@ void write_stackt::construct_stack_to_lvalue(
       construct_stack_to_lvalue(
         to_member_expr(expr).struct_op(), environment, ns);
     }
-    else if(expr.id() == ID_symbol)
+    else if(expr.id() == ID_symbol || expr.id() == ID_dynamic_object)
     {
       add_to_stack(std::make_shared<simple_entryt>(expr), environment, ns);
     }
@@ -192,7 +192,7 @@ exprt write_stackt::to_expression() const
       }
       new_expr.operands()[0] = access_expr;
 
-      // If neccesary, complete the type of the new access expression
+      // If necessary, complete the type of the new access expression
       entry->adjust_access_type(new_expr);
 
       access_expr = new_expr;
@@ -200,6 +200,31 @@ exprt write_stackt::to_expression() const
   }
   address_of_exprt top_expr(access_expr);
   return std::move(top_expr);
+}
+
+size_t write_stackt::depth() const
+{
+  return stack.size();
+}
+
+exprt write_stackt::target_expression(size_t depth) const
+{
+  PRECONDITION(!is_top_value());
+  return stack[depth]->get_access_expr();
+}
+
+exprt write_stackt::offset_expression() const
+{
+  PRECONDITION(!is_top_value());
+  auto const &access = stack.back()->get_access_expr();
+
+  if(access.id() == ID_member || access.id() == ID_symbol)
+    return access;
+
+  if(access.id() == ID_index)
+    return to_index_expr(access).index();
+
+  return from_integer(0, unsigned_long_int_type());
 }
 
 /// Is the stack representing an unknown value and hence can't be written to

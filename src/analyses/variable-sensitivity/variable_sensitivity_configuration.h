@@ -31,7 +31,8 @@ enum ABSTRACT_OBJECT_TYPET
   STRUCT_INSENSITIVE,
   // TODO: plug in UNION_SENSITIVE HERE
   UNION_INSENSITIVE,
-  VALUE_SET
+  VALUE_SET,
+  HEAP_ALLOCATION
 };
 
 enum class flow_sensitivityt
@@ -50,16 +51,14 @@ struct vsd_configt
 
   flow_sensitivityt flow_sensitivity;
 
-  struct
-  {
-    bool data_dependency_context;
-    bool last_write_context;
-  } context_tracking;
+  size_t maximum_array_index = 0;
 
   struct
   {
-    bool new_value_set;
-  } advanced_sensitivities;
+    bool liveness;
+    bool data_dependency_context;
+    bool last_write_context;
+  } context_tracking;
 
   static vsd_configt from_options(const optionst &options);
 
@@ -74,13 +73,13 @@ struct vsd_configt
       array_abstract_type{ARRAY_INSENSITIVE},
       union_abstract_type{UNION_INSENSITIVE},
       flow_sensitivity{flow_sensitivityt::sensitive},
-      context_tracking{false, true},
-      advanced_sensitivities{false}
+      context_tracking{false, true}
   {
   }
 
 private:
   using option_mappingt = std::map<std::string, ABSTRACT_OBJECT_TYPET>;
+  using option_size_mappingt = std::map<std::string, size_t>;
 
   static ABSTRACT_OBJECT_TYPET option_to_abstract_type(
     const optionst &options,
@@ -88,15 +87,18 @@ private:
     const option_mappingt &mapping,
     ABSTRACT_OBJECT_TYPET default_type);
 
-  static invalid_command_line_argument_exceptiont invalid_argument(
+  static size_t configure_max_array_size(const optionst &options);
+
+  static size_t option_to_size(
+    const optionst &options,
     const std::string &option_name,
-    const std::string &bad_argument,
-    const option_mappingt &mapping);
+    const option_size_mappingt &mapping);
 
   static const option_mappingt value_option_mappings;
   static const option_mappingt pointer_option_mappings;
   static const option_mappingt struct_option_mappings;
   static const option_mappingt array_option_mappings;
+  static const option_size_mappingt array_option_size_mappings;
   static const option_mappingt union_option_mappings;
 };
 

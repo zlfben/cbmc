@@ -391,7 +391,7 @@ void cfg_baset<T, P, I>::compute_edges_function_call(
   goto_programt::const_targett next_PC,
   entryt &entry)
 {
-  const exprt &function = instruction.get_function_call().function();
+  const exprt &function = instruction.call_function();
 
   if(function.id()!=ID_symbol)
     return;
@@ -441,7 +441,7 @@ void procedure_local_cfg_baset<T, P, I>::compute_edges_function_call(
   goto_programt::const_targett next_PC,
   typename cfg_baset<T, P, I>::entryt &entry)
 {
-  const exprt &function = instruction.get_function_call().function();
+  const exprt &function = instruction.call_function();
 
   if(function.id()!=ID_symbol)
     return;
@@ -507,7 +507,7 @@ void cfg_baset<T, P, I>::compute_edges(
   case ASSIGN:
   case ASSERT:
   case OTHER:
-  case RETURN:
+  case SET_RETURN_VALUE:
   case SKIP:
   case LOCATION:
   case ATOMIC_BEGIN:

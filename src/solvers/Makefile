@@ -102,6 +102,7 @@ SRC = $(BOOLEFORCE_SRC) \
       flattening/boolbv_equality.cpp \
       flattening/boolbv_extractbit.cpp \
       flattening/boolbv_extractbits.cpp \
+      flattening/boolbv_floatbv_mod_rem.cpp \
       flattening/boolbv_floatbv_op.cpp \
       flattening/boolbv_get.cpp \
       flattening/boolbv_ieee_float_rel.cpp \
@@ -192,6 +193,15 @@ SRC = $(BOOLEFORCE_SRC) \
       smt2/smt2_parser.cpp \
       smt2/smt2_tokenizer.cpp \
       smt2/smt2irep.cpp \
+      smt2_incremental/convert_expr_to_smt.cpp \
+      smt2_incremental/smt_bit_vector_theory.cpp \
+      smt2_incremental/smt_commands.cpp \
+      smt2_incremental/smt_core_theory.cpp \
+      smt2_incremental/smt_logics.cpp \
+      smt2_incremental/smt_options.cpp \
+      smt2_incremental/smt_sorts.cpp \
+      smt2_incremental/smt_terms.cpp \
+      smt2_incremental/smt_to_smt2_string.cpp \
       smt2_incremental/smt2_incremental_decision_procedure.cpp \
       # Empty last line
 

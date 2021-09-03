@@ -203,6 +203,7 @@ extern char *yyansi_ctext;
 %token TOK_CPROVER_FINALLY "__CPROVER_finally"
 %token TOK_CPROVER_ID  "__CPROVER_ID"
 %token TOK_CPROVER_LOOP_INVARIANT  "__CPROVER_loop_invariant"
+%token TOK_CPROVER_DECREASES "__CPROVER_decreases"
 %token TOK_CPROVER_REQUIRES  "__CPROVER_requires"
 %token TOK_CPROVER_ENSURES  "__CPROVER_ensures"
 %token TOK_CPROVER_ASSIGNS "__CPROVER_assigns"
@@ -490,10 +491,35 @@ quantifier_expression:
         }
         ;
 
-loop_invariant_opt:
+cprover_contract_loop_invariant:
+          TOK_CPROVER_LOOP_INVARIANT '(' ACSL_binding_expression ')'
+        { $$=$3; }
+        ;
+
+cprover_contract_loop_invariant_list:
+          cprover_contract_loop_invariant
+        { init($$); mto($$, $1); }
+        | cprover_contract_loop_invariant_list cprover_contract_loop_invariant
+        { $$=$1; mto($$, $2); }
+        ;
+
+cprover_contract_loop_invariant_list_opt:
         /* nothing */
         { init($$); parser_stack($$).make_nil(); }
-        | TOK_CPROVER_LOOP_INVARIANT '(' ACSL_binding_expression ')'
+        | cprover_contract_loop_invariant_list
+        ;
+
+ACSL_binding_expression_list:
+          ACSL_binding_expression
+        { init($$); mto($$, $1); }
+        | ACSL_binding_expression_list ',' ACSL_binding_expression
+        { $$=$1; mto($$, $3); }
+        ;
+
+cprover_contract_decreases_opt:
+        /* nothing */
+        { init($$); parser_stack($$).make_nil(); }
+        | TOK_CPROVER_DECREASES '(' ACSL_binding_expression_list ')'
         { $$=$3; }
         ;
 
@@ -2418,24 +2444,35 @@ declaration_or_expression_statement:
 
 iteration_statement:
         TOK_WHILE '(' comma_expression_opt ')'
-          loop_invariant_opt statement
+          cprover_contract_assigns_opt
+          cprover_contract_loop_invariant_list_opt 
+          cprover_contract_decreases_opt
+          statement
         {
           $$=$1;
           statement($$, ID_while);
-          parser_stack($$).add_to_operands(std::move(parser_stack($3)), std::move(parser_stack($6)));
+          parser_stack($$).add_to_operands(std::move(parser_stack($3)), std::move(parser_stack($8)));
 
-          if(parser_stack($5).is_not_nil())
-            parser_stack($$).add(ID_C_spec_loop_invariant).swap(parser_stack($5));
+          if(!parser_stack($6).operands().empty())
+            static_cast<exprt &>(parser_stack($$).add(ID_C_spec_loop_invariant)).operands().swap(parser_stack($6).operands());
+
+          if(!parser_stack($7).operands().empty())
+            static_cast<exprt &>(parser_stack($$).add(ID_C_spec_decreases)).operands().swap(parser_stack($7).operands());
         }
         | TOK_DO statement TOK_WHILE '(' comma_expression ')'
-          loop_invariant_opt ';'
+          cprover_contract_assigns_opt
+          cprover_contract_loop_invariant_list_opt 
+          cprover_contract_decreases_opt ';'
         {
           $$=$1;
           statement($$, ID_dowhile);
           parser_stack($$).add_to_operands(std::move(parser_stack($5)), std::move(parser_stack($2)));
 
-          if(parser_stack($7).is_not_nil())
-            parser_stack($$).add(ID_C_spec_loop_invariant).swap(parser_stack($7));
+          if(!parser_stack($8).operands().empty())
+            static_cast<exprt &>(parser_stack($$).add(ID_C_spec_loop_invariant)).operands().swap(parser_stack($8).operands());
+
+          if(!parser_stack($9).operands().empty())
+            static_cast<exprt &>(parser_stack($$).add(ID_C_spec_decreases)).operands().swap(parser_stack($9).operands());
         }
         | TOK_FOR
           {
@@ -2449,7 +2486,9 @@ iteration_statement:
           '(' declaration_or_expression_statement
               comma_expression_opt ';'
               comma_expression_opt ')'
-              loop_invariant_opt
+              cprover_contract_assigns_opt
+              cprover_contract_loop_invariant_list_opt 
+              cprover_contract_decreases_opt
           statement
         {
           $$=$1;
@@ -2458,10 +2497,13 @@ iteration_statement:
           mto($$, $4);
           mto($$, $5);
           mto($$, $7);
-          mto($$, $10);
+          mto($$, $12);
 
-          if(parser_stack($9).is_not_nil())
-            parser_stack($$).add(ID_C_spec_loop_invariant).swap(parser_stack($9));
+          if(!parser_stack($10).operands().empty())
+            static_cast<exprt &>(parser_stack($$).add(ID_C_spec_loop_invariant)).operands().swap(parser_stack($10).operands());
+
+          if(!parser_stack($11).operands().empty())
+            static_cast<exprt &>(parser_stack($$).add(ID_C_spec_decreases)).operands().swap(parser_stack($11).operands());
 
           if(PARSER.for_has_scope)
             PARSER.pop_scope(); // remove the C99 for-scope
@@ -3230,7 +3272,7 @@ parameter_abstract_declarator:
         | parameter_postfix_abstract_declarator
         ;
 
-cprover_contract:
+cprover_function_contract:
           TOK_CPROVER_ENSURES '(' ACSL_binding_expression ')'
         {
           $$=$1;
@@ -3243,28 +3285,44 @@ cprover_contract:
           set($$, ID_C_spec_requires);
           mto($$, $3);
         }
-        | TOK_CPROVER_ASSIGNS '(' argument_expression_list ')'
+        | cprover_contract_assigns
+        ;
+
+cprover_contract_assigns:
+         TOK_CPROVER_ASSIGNS '(' argument_expression_list ')'
         {
           $$=$1;
           set($$, ID_C_spec_assigns);
           parser_stack($3).id(ID_target_list);
           mto($$, $3);
         }
+        | TOK_CPROVER_ASSIGNS '(' ')'
+        {
+          $$=$1;
+          set($$, ID_C_spec_assigns);
+          parser_stack($$).add_to_operands(exprt(ID_target_list));
+        }
         ;
 
-cprover_contract_sequence:
-          cprover_contract
-        | cprover_contract_sequence cprover_contract
+cprover_contract_assigns_opt:
+        /* nothing */
+        { init($$); parser_stack($$).make_nil(); }
+        | cprover_contract_assigns
+        ;
+
+cprover_function_contract_sequence:
+          cprover_function_contract
+        | cprover_function_contract_sequence cprover_function_contract
         {
           $$=$1;
           merge($$, $2);
         }
         ;
 
-cprover_contract_sequence_opt:
+cprover_function_contract_sequence_opt:
           /* nothing */
           { init($$); }
-        | cprover_contract_sequence
+        | cprover_function_contract_sequence
         ;
 
 postfixing_abstract_declarator:
@@ -3305,7 +3363,7 @@ postfixing_abstract_declarator:
 parameter_postfixing_abstract_declarator:
           array_abstract_declarator
         | '(' ')'
-          cprover_contract_sequence_opt
+          cprover_function_contract_sequence_opt
         {
           set($1, ID_code);
           stack_type($1).add(ID_parameters);
@@ -3322,7 +3380,7 @@ parameter_postfixing_abstract_declarator:
           parameter_type_list
           ')'
           KnR_parameter_header_opt
-          cprover_contract_sequence_opt
+          cprover_function_contract_sequence_opt
         {
           set($1, ID_code);
           stack_type($1).subtype()=typet(ID_abstract);

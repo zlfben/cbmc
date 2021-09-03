@@ -12,6 +12,9 @@
 #include <analyses/variable-sensitivity/constant_pointer_abstract_object.h>
 #include <analyses/variable-sensitivity/context_abstract_object.h>
 #include <analyses/variable-sensitivity/value_set_pointer_abstract_object.h>
+#include <numeric>
+#include <util/pointer_expr.h>
+#include <util/simplify_expr.h>
 
 #include "abstract_environment.h"
 
@@ -24,55 +27,20 @@ unwrap_and_extract_values(const abstract_object_sett &values);
 static abstract_object_pointert
 maybe_extract_single_value(const abstract_object_pointert &maybe_singleton);
 
-/// Helper for converting context objects into its abstract-value children
-/// \p maybe_wrapped: either an abstract value (or a set of those) or one
-///   wrapped in a context
-/// \return an abstract value without context (though it might be as set)
-static abstract_object_pointert
-maybe_unwrap_context(const abstract_object_pointert &maybe_wrapped);
-
-/// Recursively construct a combination \p sub_con from \p super_con and once
-///   constructed call \p f.
-/// \param super_con: vector of some containers storing the values
-/// \param sub_con: the one combination being currently constructed
-/// \param f: callable with side-effects
-template <typename Con, typename F>
-void apply_comb(
-  const std::vector<Con> &super_con,
-  std::vector<typename Con::value_type> &sub_con,
-  F f)
-{
-  size_t n = sub_con.size();
-  if(n == super_con.size())
-    f(sub_con);
-  else
-  {
-    for(const auto &value : super_con[n])
-    {
-      sub_con.push_back(value);
-      apply_comb(super_con, sub_con, f);
-      sub_con.pop_back();
-    }
-  }
-}
-
-/// Call the function \p f on every combination of elements in \p super_con.
-///   Hence the arity of \p f is `super_con.size()`. <{1,2},{1},{1,2,3}> ->
-///   f(1,1,1), f(1,1,2), f(1,1,3), f(2,1,1), f(2,1,2), f(2,1,3).
-/// \param super_con: vector of some containers storing the values
-/// \param f: callable with side-effects
-template <typename Con, typename F>
-void for_each_comb(const std::vector<Con> &super_con, F f)
-{
-  std::vector<typename Con::value_type> sub_con;
-  apply_comb(super_con, sub_con, f);
-}
-
 value_set_pointer_abstract_objectt::value_set_pointer_abstract_objectt(
   const typet &type)
   : abstract_pointer_objectt(type)
 {
   values.insert(std::make_shared<constant_pointer_abstract_objectt>(type));
+}
+
+value_set_pointer_abstract_objectt::value_set_pointer_abstract_objectt(
+  const typet &new_type,
+  bool top,
+  bool bottom,
+  const abstract_object_sett &new_values)
+  : abstract_pointer_objectt(new_type, top, bottom), values(new_values)
+{
 }
 
 value_set_pointer_abstract_objectt::value_set_pointer_abstract_objectt(
@@ -125,8 +93,8 @@ abstract_object_pointert value_set_pointer_abstract_objectt::write_dereference(
 {
   if(is_top() || is_bottom())
   {
-    return abstract_pointer_objectt::write_dereference(
-      environment, ns, stack, new_value, merging_write);
+    environment.havoc("Writing to a 2value pointer");
+    return shared_from_this();
   }
 
   for(auto value : values)
@@ -140,12 +108,86 @@ abstract_object_pointert value_set_pointer_abstract_objectt::write_dereference(
   return shared_from_this();
 }
 
-abstract_object_pointert value_set_pointer_abstract_objectt::resolve_new_values(
-  const abstract_object_sett &new_values,
-  const abstract_environmentt &environment) const
+abstract_object_pointert value_set_pointer_abstract_objectt::typecast(
+  const typet &new_type,
+  const abstract_environmentt &environment,
+  const namespacet &ns) const
 {
-  auto result = resolve_values(new_values);
-  return environment.add_object_context(result);
+  INVARIANT(is_void_pointer(type()), "Only allow pointer casting from void*");
+  abstract_object_sett new_values;
+  for(auto value : values)
+  {
+    if(value->is_top()) // multiple mallocs in the same scope can cause spurious
+      continue; // TOP values, which we can safely strip out during the cast
+
+    auto pointer =
+      std::dynamic_pointer_cast<const abstract_pointer_objectt>(value);
+    new_values.insert(pointer->typecast(new_type, environment, ns));
+  }
+  return std::make_shared<value_set_pointer_abstract_objectt>(
+    new_type, is_top(), is_bottom(), new_values);
+}
+
+abstract_object_pointert value_set_pointer_abstract_objectt::ptr_diff(
+  const exprt &expr,
+  const std::vector<abstract_object_pointert> &operands,
+  const abstract_environmentt &environment,
+  const namespacet &ns) const
+{
+  auto rhs =
+    std::dynamic_pointer_cast<const value_set_pointer_abstract_objectt>(
+      operands.back());
+
+  auto differences = std::vector<abstract_object_pointert>{};
+
+  for(auto &lhsv : values)
+  {
+    auto lhsp = std::dynamic_pointer_cast<const abstract_pointer_objectt>(lhsv);
+    for(auto const &rhsp : rhs->values)
+    {
+      auto ops = std::vector<abstract_object_pointert>{lhsp, rhsp};
+      differences.push_back(lhsp->ptr_diff(expr, ops, environment, ns));
+    }
+  }
+
+  return std::accumulate(
+    differences.cbegin(),
+    differences.cend(),
+    differences.front(),
+    [](
+      const abstract_object_pointert &lhs,
+      const abstract_object_pointert &rhs) {
+      return abstract_objectt::merge(lhs, rhs, widen_modet::no).object;
+    });
+}
+
+exprt value_set_pointer_abstract_objectt::ptr_comparison_expr(
+  const exprt &expr,
+  const std::vector<abstract_object_pointert> &operands,
+  const abstract_environmentt &environment,
+  const namespacet &ns) const
+{
+  auto rhs =
+    std::dynamic_pointer_cast<const value_set_pointer_abstract_objectt>(
+      operands.back());
+
+  auto comparisons = std::set<exprt>{};
+
+  for(auto &lhsv : values)
+  {
+    auto lhsp = std::dynamic_pointer_cast<const abstract_pointer_objectt>(lhsv);
+    for(auto const &rhsp : rhs->values)
+    {
+      auto ops = std::vector<abstract_object_pointert>{lhsp, rhsp};
+      auto comparison = lhsp->ptr_comparison_expr(expr, ops, environment, ns);
+      auto result = simplify_expr(comparison, ns);
+      comparisons.insert(result);
+    }
+  }
+
+  if(comparisons.size() > 1)
+    return nil_exprt();
+  return *comparisons.cbegin();
 }
 
 abstract_object_pointert value_set_pointer_abstract_objectt::resolve_values(
@@ -172,8 +214,9 @@ abstract_object_pointert value_set_pointer_abstract_objectt::resolve_values(
   return result;
 }
 
-abstract_object_pointert
-value_set_pointer_abstract_objectt::merge(abstract_object_pointert other) const
+abstract_object_pointert value_set_pointer_abstract_objectt::merge(
+  const abstract_object_pointert &other,
+  const widen_modet &widen_mode) const
 {
   auto cast_other = std::dynamic_pointer_cast<const value_set_tag>(other);
   if(cast_other)
@@ -183,7 +226,26 @@ value_set_pointer_abstract_objectt::merge(abstract_object_pointert other) const
     return resolve_values(union_values);
   }
 
-  return abstract_objectt::merge(other);
+  return abstract_objectt::merge(other, widen_mode);
+}
+
+exprt value_set_pointer_abstract_objectt::to_predicate_internal(
+  const exprt &name) const
+{
+  if(values.size() == 1)
+    return values.first()->to_predicate(name);
+
+  auto all_predicates = exprt::operandst{};
+  std::transform(
+    values.begin(),
+    values.end(),
+    std::back_inserter(all_predicates),
+    [&name](const abstract_object_pointert &value) {
+      return value->to_predicate(name);
+    });
+  std::sort(all_predicates.begin(), all_predicates.end());
+
+  return or_exprt(all_predicates);
 }
 
 void value_set_pointer_abstract_objectt::set_values(
@@ -223,8 +285,7 @@ unwrap_and_extract_values(const abstract_object_sett &values)
   abstract_object_sett unwrapped_values;
   for(auto const &value : values)
   {
-    unwrapped_values.insert(
-      maybe_extract_single_value(maybe_unwrap_context(value)));
+    unwrapped_values.insert(maybe_extract_single_value(value));
   }
 
   return unwrapped_values;
@@ -233,8 +294,8 @@ unwrap_and_extract_values(const abstract_object_sett &values)
 abstract_object_pointert
 maybe_extract_single_value(const abstract_object_pointert &maybe_singleton)
 {
-  auto const &value_as_set =
-    std::dynamic_pointer_cast<const value_set_tag>(maybe_singleton);
+  auto const &value_as_set = std::dynamic_pointer_cast<const value_set_tag>(
+    maybe_singleton->unwrap_context());
   if(value_as_set)
   {
     PRECONDITION(value_as_set->get_values().size() == 1);
@@ -245,13 +306,4 @@ maybe_extract_single_value(const abstract_object_pointert &maybe_singleton)
   }
   else
     return maybe_singleton;
-}
-
-abstract_object_pointert
-maybe_unwrap_context(const abstract_object_pointert &maybe_wrapped)
-{
-  auto const &context_value =
-    std::dynamic_pointer_cast<const context_abstract_objectt>(maybe_wrapped);
-
-  return context_value ? context_value->unwrap_context() : maybe_wrapped;
 }

@@ -14,20 +14,41 @@ SRC += analyses/ai/ai.cpp \
        analyses/does_remove_const/does_expr_lose_const.cpp \
        analyses/does_remove_const/does_type_preserve_const_correctness.cpp \
        analyses/does_remove_const/is_type_at_least_as_const_as.cpp \
+       analyses/variable-sensitivity/abstract_environment/to_predicate.cpp \
        analyses/variable-sensitivity/abstract_object/merge.cpp \
        analyses/variable-sensitivity/abstract_object/index_range.cpp \
+       analyses/variable-sensitivity/constant_abstract_value/meet.cpp \
        analyses/variable-sensitivity/constant_abstract_value/merge.cpp \
+       analyses/variable-sensitivity/constant_abstract_value/to_predicate.cpp \
+       analyses/variable-sensitivity/constant_pointer_abstract_object/to_predicate.cpp \
+       analyses/variable-sensitivity/full_array_abstract_object/array_builder.cpp \
+       analyses/variable-sensitivity/full_array_abstract_object/maximum_length.cpp \
        analyses/variable-sensitivity/full_array_abstract_object/merge.cpp \
+       analyses/variable-sensitivity/full_array_abstract_object/to_predicate.cpp \
        analyses/variable-sensitivity/eval.cpp \
        analyses/variable-sensitivity/eval-member-access.cpp \
-       analyses/variable-sensitivity/interval_abstract_value/merge.cpp \
+       analyses/variable-sensitivity/interval_abstract_value/extremes-go-top.cpp \
        analyses/variable-sensitivity/interval_abstract_value/meet.cpp \
+       analyses/variable-sensitivity/interval_abstract_value/merge.cpp \
+       analyses/variable-sensitivity/interval_abstract_value/to_predicate.cpp \
+       analyses/variable-sensitivity/interval_abstract_value/widening_merge.cpp \
        analyses/variable-sensitivity/full_struct_abstract_object/merge.cpp \
+       analyses/variable-sensitivity/full_struct_abstract_object/struct_builder.cpp \
+       analyses/variable-sensitivity/full_struct_abstract_object/to_predicate.cpp \
        analyses/variable-sensitivity/last_written_location.cpp \
+       analyses/variable-sensitivity/value_expression_evaluation/assume.cpp \
+       analyses/variable-sensitivity/value_expression_evaluation/assume_prune.cpp \
        analyses/variable-sensitivity/value_expression_evaluation/expression_evaluation.cpp \
-       analyses/variable-sensitivity/value_set/abstract_value.cpp \
+       analyses/variable-sensitivity/value_set_abstract_object/extremes-go-top.cpp \
+       analyses/variable-sensitivity/value_set_abstract_object/compacting.cpp \
+       analyses/variable-sensitivity/value_set_abstract_object/meet.cpp \
        analyses/variable-sensitivity/value_set_abstract_object/merge.cpp \
+       analyses/variable-sensitivity/value_set_abstract_object/to_predicate.cpp \
+       analyses/variable-sensitivity/value_set_abstract_object/widening_merge.cpp \
+       analyses/variable-sensitivity/value_set_pointer_abstract_object/to_predicate.cpp \
+       analyses/variable-sensitivity/variable_sensitivity_domain/to_predicate.cpp \
        analyses/variable-sensitivity/variable_sensitivity_test_helpers.cpp \
+       ansi-c/expr2c.cpp \
        ansi-c/max_malloc_size.cpp \
        ansi-c/type2name.cpp \
        big-int/big-int.cpp \
@@ -76,6 +97,14 @@ SRC += analyses/ai/ai.cpp \
        solvers/sat/external_sat.cpp \
        solvers/sat/satcheck_cadical.cpp \
        solvers/sat/satcheck_minisat2.cpp \
+       solvers/smt2/smt2_conv.cpp \
+       solvers/smt2_incremental/convert_expr_to_smt.cpp \
+       solvers/smt2_incremental/smt_bit_vector_theory.cpp \
+       solvers/smt2_incremental/smt_commands.cpp \
+       solvers/smt2_incremental/smt_core_theory.cpp \
+       solvers/smt2_incremental/smt_sorts.cpp \
+       solvers/smt2_incremental/smt_terms.cpp \
+       solvers/smt2_incremental/smt_to_smt2_string.cpp \
        solvers/strings/array_pool/array_pool.cpp \
        solvers/strings/string_constraint_generator_valueof/calculate_max_string_length.cpp \
        solvers/strings/string_constraint_generator_valueof/get_numeric_value_from_character.cpp \
@@ -123,6 +152,7 @@ SRC += analyses/ai/ai.cpp \
        util/optional.cpp \
        util/optional_utils.cpp \
        util/parse_options.cpp \
+       util/piped_process.cpp \
        util/pointer_offset_size.cpp \
        util/prefix_filter.cpp \
        util/range.cpp \
@@ -240,10 +270,7 @@ ifeq ($(CADICAL),)
 EXCLUDED_TESTS += satcheck_cadical.cpp
 endif
 
-N_CATCH_TESTS = $(shell \
-                  cat $$(find . -name "*.cpp" \
-                $$(printf ' -not -name %s ' $(EXCLUDED_TESTS))) | \
-                  grep -E "(SCENARIO|TEST_CASE)" | grep -c -v '\[\.\]')
+N_CATCH_TESTS = $(shell ./count_tests.py --exclude-files "$(EXCLUDED_TESTS)")
 
 memory-analyzer/input.inc: memory-analyzer/input.txt
 	../src/ansi-c/file_converter$(EXEEXT) $< > $@

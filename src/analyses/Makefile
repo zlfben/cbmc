@@ -45,14 +45,16 @@ SRC = ai.cpp \
       variable-sensitivity/full_array_abstract_object.cpp \
       variable-sensitivity/full_struct_abstract_object.cpp \
       variable-sensitivity/interval_abstract_value.cpp \
+      variable-sensitivity/liveness_context.cpp \
       variable-sensitivity/three_way_merge_abstract_interpreter.cpp \
+      variable-sensitivity/two_value_pointer_abstract_object.cpp \
       variable-sensitivity/value_set_abstract_object.cpp \
-      variable-sensitivity/value_set_abstract_value.cpp \
       variable-sensitivity/value_set_pointer_abstract_object.cpp \
       variable-sensitivity/variable_sensitivity_configuration.cpp \
       variable-sensitivity/variable_sensitivity_dependence_graph.cpp \
       variable-sensitivity/variable_sensitivity_domain.cpp \
       variable-sensitivity/variable_sensitivity_object_factory.cpp \
+      variable-sensitivity/widened_range.cpp \
       variable-sensitivity/write_location_context.cpp \
       variable-sensitivity/write_stack.cpp \
       variable-sensitivity/write_stack_entry.cpp \

@@ -144,7 +144,8 @@ protected:
   virtual void typecheck_while(code_whilet &code);
   virtual void typecheck_dowhile(code_dowhilet &code);
   virtual void typecheck_start_thread(codet &code);
-  virtual void typecheck_spec_expr(codet &code, const irep_idt &spec);
+  virtual void typecheck_spec_loop_invariant(codet &code);
+  virtual void typecheck_spec_decreases(codet &code);
 
   bool break_is_allowed;
   bool continue_is_allowed;
@@ -205,7 +206,10 @@ protected:
     const symbol_exprt &function_symbol);
   virtual exprt
   typecheck_shuffle_vector(const side_effect_expr_function_callt &expr);
-  void disallow_history_variables(const exprt &) const;
+  void disallow_subexpr_by_id(
+    const exprt &,
+    const irep_idt &,
+    const std::string &) const;
 
   virtual void make_index_type(exprt &expr);
   virtual void make_constant(exprt &expr);

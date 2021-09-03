@@ -176,6 +176,34 @@ void expr2ct::get_shorthands(const exprt &expr)
       has_collision=!ns_collision[func].insert(sh).second;
     }
 
+    if(!has_collision)
+    {
+      // We could also conflict with a function argument, the code below
+      // finds the function we're in, and checks we don't conflict with
+      // any argument to the function
+      const std::string symbol_str = id2string(symbol_id);
+      const std::string func = symbol_str.substr(0, symbol_str.find("::"));
+      const symbolt *func_symbol;
+      if(!ns.lookup(func, func_symbol))
+      {
+        if(can_cast_type<code_typet>(func_symbol->type))
+        {
+          const auto func_type =
+            type_checked_cast<code_typet>(func_symbol->type);
+          const auto params = func_type.parameters();
+          for(const auto &param : params)
+          {
+            const auto param_id = param.get_identifier();
+            if(param_id != symbol_id && sh == id_shorthand(param_id))
+            {
+              has_collision = true;
+              break;
+            }
+          }
+        }
+      }
+    }
+
     if(has_collision)
       sh = clean_identifier(symbol_id);
 
@@ -550,10 +578,9 @@ std::string expr2ct::convert_rec(
     }
 
     // contract, if any
-    if(to_code_with_contract_type(src).requires().is_not_nil())
+    for(auto &requires : to_code_with_contract_type(src).requires())
     {
-      dest += " [[requires " +
-              convert(to_code_with_contract_type(src).requires()) + "]]";
+      dest += " [[requires " + convert(requires) + "]]";
     }
 
     if(!to_code_with_contract_type(src).assigns().operands().empty())
@@ -562,10 +589,9 @@ std::string expr2ct::convert_rec(
               convert(to_code_with_contract_type(src).assigns()) + "]]";
     }
 
-    if(to_code_with_contract_type(src).ensures().is_not_nil())
+    for(auto &ensures : to_code_with_contract_type(src).ensures())
     {
-      dest += " [[ensures " +
-              convert(to_code_with_contract_type(src).ensures()) + "]]";
+      dest += " [[ensures " + convert(ensures) + "]]";
     }
 
     return dest;
@@ -2292,6 +2318,66 @@ std::string expr2ct::convert_initializer_list(const exprt &src)
   return dest;
 }
 
+std::string expr2ct::convert_rox(const shift_exprt &src, unsigned precedence)
+{
+  // AAAA rox n ==   (AAAA lhs_op n % width(AAAA))
+  //               | (AAAA rhs_op (width(AAAA) - n % width(AAAA)))
+  // Where lhs_op and rhs_op depend on whether it is rol or ror
+  // Get AAAA and if it's signed wrap it in a cast to remove
+  // the sign since this messes with C shifts
+  exprt op0 = src.op();
+  size_t type_width;
+  if(can_cast_type<signedbv_typet>(op0.type()))
+  {
+    // Set the type width
+    type_width = to_signedbv_type(op0.type()).get_width();
+    // Shifts in C are arithmetic and care about sign, by forcing
+    // a cast to unsigned we force the shifts to perform rol/r
+    op0 = typecast_exprt(op0, unsignedbv_typet(type_width));
+  }
+  else if(can_cast_type<unsignedbv_typet>(op0.type()))
+  {
+    // Set the type width
+    type_width = to_unsignedbv_type(op0.type()).get_width();
+  }
+  else
+  {
+    UNREACHABLE;
+  }
+  // Construct the "width(AAAA)" constant
+  const exprt width_expr = from_integer(type_width, src.distance().type());
+  // Apply modulo to n since shifting will overflow
+  // That is: 0001 << 4 == 0, but 0001 rol 4 == 0001
+  const exprt distance_modulo_width = mod_exprt(src.distance(), width_expr);
+  // Now put the pieces together
+  // width(AAAA) - (n % width(AAAA))
+  const auto complement_width_expr =
+    minus_exprt(width_expr, distance_modulo_width);
+  // lhs and rhs components defined according to rol/ror
+  exprt lhs_expr;
+  exprt rhs_expr;
+  if(src.id() == ID_rol)
+  {
+    // AAAA << (n % width(AAAA))
+    lhs_expr = shl_exprt(op0, distance_modulo_width);
+    // AAAA >> complement_width_expr
+    rhs_expr = ashr_exprt(op0, complement_width_expr);
+  }
+  else if(src.id() == ID_ror)
+  {
+    // AAAA >> (n % width(AAAA))
+    lhs_expr = ashr_exprt(op0, distance_modulo_width);
+    // AAAA << complement_width_expr
+    rhs_expr = shl_exprt(op0, complement_width_expr);
+  }
+  else
+  {
+    // Someone called this function when they shouldn't have.
+    UNREACHABLE;
+  }
+  return convert_with_precedence(bitor_exprt(lhs_expr, rhs_expr), precedence);
+}
+
 std::string expr2ct::convert_designated_initializer(const exprt &src)
 {
   if(src.operands().size()!=1)
@@ -3795,6 +3881,9 @@ std::string expr2ct::convert_with_precedence(
 
   else if(src.id()==ID_type)
     return convert(src.type());
+
+  else if(src.id() == ID_rol || src.id() == ID_ror)
+    return convert_rox(to_shift_expr(src), precedence);
 
   auto function_string_opt = convert_function(src);
   if(function_string_opt.has_value())

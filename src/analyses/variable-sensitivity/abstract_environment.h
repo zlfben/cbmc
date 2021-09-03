@@ -21,9 +21,21 @@
 
 #include <analyses/variable-sensitivity/abstract_object.h>
 
+exprt simplify_vsd_expr(exprt src, const namespacet &ns);
+bool is_ptr_diff(const exprt &expr);
+bool is_ptr_comparison(const exprt &expr);
+
 class variable_sensitivity_object_factoryt;
 using variable_sensitivity_object_factory_ptrt =
   std::shared_ptr<variable_sensitivity_object_factoryt>;
+
+enum class widen_modet
+{
+  no,
+  could_widen
+};
+
+struct vsd_configt;
 
 class abstract_environmentt
 {
@@ -96,6 +108,7 @@ public:
   /// The better the implementation the more precise the results
   /// will be.
   virtual bool assume(const exprt &expr, const namespacet &ns);
+  exprt do_assume(const exprt &e, const namespacet &ns);
 
   /// Used within assign to do the actual dispatch
   ///
@@ -163,25 +176,20 @@ public:
     const exprt &e,
     const namespacet &ns) const;
 
-  /// Wraps an existing object in any configured context object
-  ///
-  /// \param abstract_object: The object to be wrapped
-  ///
-  /// \return The wrapped abstract object
-  ///
-  /// Look at the configuration context dependency, and constructs
-  /// the appropriate wrapper object around the supplied object
-  /// If no such configuration is enabled, the supplied object will be
-  /// returned unchanged
-  virtual abstract_object_pointert
-  add_object_context(const abstract_object_pointert &abstract_object) const;
+  /// Exposes the environment configuration
+  const vsd_configt &configuration() const;
 
   /// Computes the join between "this" and "b"
   ///
   /// \param env: the other environment
+  /// \param merge_location: when the merge is happening
+  /// \param widen_mode: indicates if this is a widening merge
   ///
   /// \return A Boolean, true when the merge has changed something
-  virtual bool merge(const abstract_environmentt &env);
+  virtual bool merge(
+    const abstract_environmentt &env,
+    const goto_programt::const_targett &merge_location,
+    widen_modet widen_mode);
 
   /// This should be used as a default case / everything else has failed
   /// The string is so that I can easily find and diagnose cases where this
@@ -211,6 +219,12 @@ public:
   /// \param ns: the current namespace
   void output(std::ostream &out, const class ai_baset &ai, const namespacet &ns)
     const;
+
+  /// Gives a boolean condition that is true for all values represented by the
+  /// environment.
+  ///
+  /// \return An exprt describing the environment
+  exprt to_predicate() const;
 
   /// Check the structural invariants are maintained.
   /// In this case this is checking there aren't any null pointer mapped values

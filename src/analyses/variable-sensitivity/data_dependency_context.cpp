@@ -26,7 +26,7 @@ Author: Diffblue Ltd
  * to 'before', false otherwise.
  */
 bool data_dependency_contextt::has_been_modified(
-  const abstract_object_pointert before) const
+  const abstract_object_pointert &before) const
 {
   if(this->write_location_contextt::has_been_modified(before))
     return true;
@@ -42,7 +42,7 @@ bool data_dependency_contextt::has_been_modified(
   }
 
   // Check whether the data dependencies have changed as well
-  abstract_objectt::locationst intersection;
+  locationst intersection;
   std::set_intersection(
     data_deps.cbegin(),
     data_deps.cend(),
@@ -80,12 +80,12 @@ bool data_dependency_contextt::has_been_modified(
  * or 'this' if no addtional dependencies were added.
  */
 abstract_object_pointert data_dependency_contextt::insert_data_deps(
-  const dependencest &dependencies) const
+  const dependenciest &dependencies) const
 {
   // If this is the first write to the context then it is also used as
   // the initial set of data dependency dominators as well.
   const bool first_write = data_deps.empty();
-  dependencest new_dependencies;
+  dependenciest new_dependencies;
 
   // Workout what new data dependencies need to be inserted
   if(first_write)
@@ -127,20 +127,38 @@ abstract_object_pointert data_dependency_contextt::insert_data_deps(
   return result;
 }
 
+context_abstract_objectt::context_abstract_object_ptrt
+data_dependency_contextt::update_location_context_internal(
+  const locationst &locations) const
+{
+  auto result =
+    std::dynamic_pointer_cast<data_dependency_contextt>(mutable_clone());
+  result->set_last_written_locations(locations);
+  result->set_data_deps(locations);
+  return result;
+}
+
+/**
+ * Set the given set of data dependencies for from the locations
+ *
+ * \param locations the write locations
+ */
+void data_dependency_contextt::set_data_deps(const locationst &locations)
+{
+  // `locationst` is unsorted, so convert this to a sorted `dependenciest`
+  dependenciest dependencies(locations.begin(), locations.end());
+  set_data_deps(dependencies);
+}
+
 /**
  * Set the given set of data dependencies for this data_dependency_context
  * object.
  *
  * \param dependencies the set of dependencies to set
- * \return a new data_dependency_context if new dependencies were set,
- * or 'this' if the dependencies were not changed.
  */
-abstract_object_pointert
-data_dependency_contextt::set_data_deps(const dependencest &dependencies) const
+void data_dependency_contextt::set_data_deps(const dependenciest &dependencies)
 {
-  // If the dependencies will not change, just return 'this'
-  abstract_objectt::locationst intersection;
-
+  locationst intersection;
   std::set_intersection(
     data_deps.cbegin(),
     data_deps.cend(),
@@ -148,23 +166,13 @@ data_dependency_contextt::set_data_deps(const dependencest &dependencies) const
     dependencies.cend(),
     std::inserter(intersection, intersection.end()),
     location_ordert());
-  if(
-    intersection.size() == data_deps.size() &&
-    intersection.size() == dependencies.size())
-    return shared_from_this();
-
-  const auto &result =
-    std::dynamic_pointer_cast<data_dependency_contextt>(mutable_clone());
-
-  result->data_deps = dependencies;
 
   // If this is the first write to the context then it is also used as
   // the initial set of data dependency dominators as well.
   if(data_deps.empty())
-  {
-    result->data_dominators = dependencies;
-  }
-  return result;
+    data_dominators = dependencies;
+
+  data_deps = dependencies;
 }
 
 /**
@@ -191,38 +199,15 @@ abstract_object_pointert data_dependency_contextt::write(
   const abstract_object_pointert &value,
   bool merging_write) const
 {
-  const auto updated_parent =
-    std::dynamic_pointer_cast<const data_dependency_contextt>(
-      this->write_location_contextt::write(
-        environment, ns, stack, specifier, value, merging_write));
-
+  auto updated_parent =
+    std::dynamic_pointer_cast<data_dependency_contextt>(mutable_clone());
   const auto cast_value =
     std::dynamic_pointer_cast<const data_dependency_contextt>(value);
 
-  return updated_parent->set_data_deps(cast_value->data_deps);
-}
+  updated_parent->set_data_deps(cast_value->data_deps);
 
-/**
- * Update the location context for an abstract object, potentially
- * propogating the update to any children of this abstract object.
- *
- * \param locations the set of locations to be updated
- * \param update_sub_elements if true, propogate the update operation to any
- * children of this abstract object
- *
- * \return a clone of this abstract object with its location context
- * updated
- */
-abstract_object_pointert data_dependency_contextt::update_location_context(
-  const abstract_objectt::locationst &locations,
-  const bool update_sub_elements) const
-{
-  const auto updated_parent =
-    std::dynamic_pointer_cast<const data_dependency_contextt>(
-      this->write_location_contextt::update_location_context(
-        locations, update_sub_elements));
-
-  return updated_parent->set_data_deps(locations);
+  return updated_parent->write_location_contextt::write(
+    environment, ns, stack, specifier, value, merging_write);
 }
 
 /**
@@ -230,12 +215,14 @@ abstract_object_pointert data_dependency_contextt::update_location_context(
  * object with a given abstract_object
  *
  * \param other the abstract object to merge with
+ * \param widen_mode: Indicates if this is a widening merge
  *
  * \return the result of the merge, or 'this' if the merge would not change
  * the current abstract object
  */
-abstract_object_pointert
-data_dependency_contextt::merge(abstract_object_pointert other) const
+abstract_object_pointert data_dependency_contextt::merge(
+  const abstract_object_pointert &other,
+  const widen_modet &widen_mode) const
 {
   auto cast_other =
     std::dynamic_pointer_cast<const data_dependency_contextt>(other);
@@ -244,38 +231,64 @@ data_dependency_contextt::merge(abstract_object_pointert other) const
   {
     const auto merged_parent =
       std::dynamic_pointer_cast<const data_dependency_contextt>(
-        this->write_location_contextt::merge(other));
+        this->write_location_contextt::merge(other, widen_mode));
 
-    const auto updated_parent =
-      std::dynamic_pointer_cast<const data_dependency_contextt>(
-        merged_parent->insert_data_deps(cast_other->data_deps));
-
-    const auto &result = std::dynamic_pointer_cast<data_dependency_contextt>(
-      updated_parent->mutable_clone());
-
-    // On a merge, data_dominators are the intersection of this object and the
-    // other object. In other words, the dominators at this merge point are
-    // those dominators that exist in all possible execution paths to this
-    // merge point.
-    result->data_dominators.clear();
-    std::set_intersection(
-      data_dominators.begin(),
-      data_dominators.end(),
-      cast_other->data_dominators.begin(),
-      cast_other->data_dominators.end(),
-      std::inserter(result->data_dominators, result->data_dominators.end()),
-      location_ordert());
-
-    // It is critically important that we only return a newly constructed result
-    // abstract object *iff* the data has actually changed, otherwise AI may
-    // never reach a fixpoint
-    if(has_been_modified(result))
-      return result;
-    else
-      return shared_from_this();
+    return combine(cast_other, merged_parent);
   }
 
-  return abstract_objectt::merge(other);
+  return abstract_objectt::merge(other, widen_mode);
+}
+
+abstract_object_pointert
+data_dependency_contextt::meet(const abstract_object_pointert &other) const
+{
+  auto cast_other =
+    std::dynamic_pointer_cast<const data_dependency_contextt>(other);
+
+  if(cast_other)
+  {
+    const auto meet_parent =
+      std::dynamic_pointer_cast<const data_dependency_contextt>(
+        this->write_location_contextt::meet(other));
+
+    return combine(cast_other, meet_parent);
+  }
+
+  return abstract_objectt::meet(other);
+}
+
+abstract_object_pointert data_dependency_contextt::combine(
+  const data_dependency_context_ptrt &other,
+  const data_dependency_context_ptrt &parent) const
+{
+  const auto updated_parent =
+    std::dynamic_pointer_cast<const data_dependency_contextt>(
+      parent->insert_data_deps(other->data_deps));
+
+  const auto &result = std::dynamic_pointer_cast<data_dependency_contextt>(
+    updated_parent->mutable_clone());
+
+  // On a merge, data_dominators are the intersection of this object and the
+  // other object. In other words, the dominators at this merge point are
+  // those dominators that exist in all possible execution paths to this
+  // merge point.
+  result->data_dominators.clear();
+  std::set_intersection(
+    data_dominators.begin(),
+    data_dominators.end(),
+    other->data_dominators.begin(),
+    other->data_dominators.end(),
+    std::inserter(result->data_dominators, result->data_dominators.end()),
+    location_ordert());
+
+  // It is critically important that we only return a newly constructed result
+  // abstract object *iff* the data has actually changed, otherwise AI may
+  // never reach a fixpoint
+  bool value_change = get_child() != result->get_child();
+  if(value_change || has_been_modified(result))
+    return result;
+  else
+    return shared_from_this();
 }
 
 /**
@@ -293,7 +306,7 @@ data_dependency_contextt::merge(abstract_object_pointert other) const
  */
 abstract_object_pointert
 data_dependency_contextt::abstract_object_merge_internal(
-  const abstract_object_pointert other) const
+  const abstract_object_pointert &other) const
 {
   auto other_context =
     std::dynamic_pointer_cast<const data_dependency_contextt>(other);

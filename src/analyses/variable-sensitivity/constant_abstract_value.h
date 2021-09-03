@@ -37,6 +37,9 @@ public:
   exprt to_constant() const override;
   constant_interval_exprt to_interval() const override;
 
+  abstract_value_pointert
+  constrain(const exprt &lower, const exprt &upper) const override;
+
   void output(
     std::ostream &out,
     const class ai_baset &ai,
@@ -63,25 +66,24 @@ public:
 protected:
   CLONE
 
-  /// Attempts to do a constant/constant merge if both are constants,
-  /// otherwise falls back to the parent merge
-  ///
-  /// \param other: the abstract object to merge with
-  ///
-  /// \return Returns the result of the merge
-  abstract_object_pointert merge(abstract_object_pointert other) const override;
-
-private:
   /// Merges another abstract value into this one
   ///
   /// \param other: the abstract object to merge with
+  /// \param widen_mode: Indicates if this is a widening merge
   ///
   /// \return Returns a new abstract object that is the result of the merge
   ///         unless the merge is the same as this abstract object, in which
   ///         case it returns this.
-  abstract_object_pointert
-  merge_constant_constant(const abstract_value_pointert &other) const;
+  abstract_object_pointert merge_with_value(
+    const abstract_value_pointert &other,
+    const widen_modet &widen_mode) const override;
 
+  abstract_object_pointert
+  meet_with_value(const abstract_value_pointert &other) const override;
+
+  exprt to_predicate_internal(const exprt &name) const override;
+
+private:
   exprt value;
 };
 

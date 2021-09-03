@@ -34,8 +34,8 @@ public:
   /// Asserts if both top and bottom are true
   constant_pointer_abstract_objectt(const typet &type, bool top, bool bottom);
 
-  /// \param old: the abstract object to copy from
   constant_pointer_abstract_objectt(
+    const typet &type,
     const constant_pointer_abstract_objectt &old);
 
   /// \param expr: the expression to use as the starting pointer for
@@ -106,6 +106,23 @@ public:
     const abstract_object_pointert &value,
     bool merging_write) const override;
 
+  abstract_object_pointert typecast(
+    const typet &new_type,
+    const abstract_environmentt &environment,
+    const namespacet &ns) const override;
+
+  abstract_object_pointert ptr_diff(
+    const exprt &expr,
+    const std::vector<abstract_object_pointert> &operands,
+    const abstract_environmentt &environment,
+    const namespacet &ns) const override;
+
+  exprt ptr_comparison_expr(
+    const exprt &expr,
+    const std::vector<abstract_object_pointert> &operands,
+    const abstract_environmentt &environment,
+    const namespacet &ns) const override;
+
   void get_statistics(
     abstract_object_statisticst &statistics,
     abstract_object_visitedt &visited,
@@ -119,23 +136,34 @@ protected:
   /// constant pointer merge
   ///
   /// \param op1: the pointer being merged
+  /// \param widen_mode: Indicates if this is a widening merge
   ///
   /// \return Returns the result of the merge.
-  abstract_object_pointert merge(abstract_object_pointert op1) const override;
+  abstract_object_pointert merge(
+    const abstract_object_pointert &op1,
+    const widen_modet &widen_mode) const override;
 
   CLONE
 
+  exprt to_predicate_internal(const exprt &name) const override;
+
 private:
+  bool same_target(abstract_object_pointert other) const;
+  exprt offset() const;
+  exprt offset_from(abstract_object_pointert other) const;
+
   /// Merges two constant pointers. If they are pointing at the same
   /// value, we merge, otherwise we set to top.
   ///
   /// \param other: the pointer being merged
+  /// \param widen_mode: Indicates if this is a widening merge
   ///
   /// \return Returns a new abstract object that is the result of the merge
   ///         unless the merge is the same as this abstract object, in which
   ///         case it returns this.
   abstract_object_pointert merge_constant_pointers(
-    const constant_pointer_abstract_pointert &other) const;
+    const constant_pointer_abstract_pointert &other,
+    const widen_modet &widen_mode) const;
 
   write_stackt value_stack;
 };

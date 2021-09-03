@@ -18,6 +18,7 @@ class constant_abstract_valuet;
 class constant_interval_exprt;
 class interval_abstract_valuet;
 class value_set_abstract_objectt;
+class variable_sensitivity_domaint;
 
 std::shared_ptr<const constant_abstract_valuet>
 make_constant(exprt val, abstract_environmentt &env, namespacet &ns);
@@ -31,22 +32,26 @@ std::shared_ptr<const interval_abstract_valuet> make_interval(
   abstract_environmentt &env,
   namespacet &ns);
 std::shared_ptr<const interval_abstract_valuet> make_interval(
+  const binary_relation_exprt &val,
+  abstract_environmentt &env,
+  namespacet &ns);
+std::shared_ptr<const interval_abstract_valuet> make_interval(
   const constant_interval_exprt &val,
   abstract_environmentt &env,
   namespacet &ns);
 std::shared_ptr<const interval_abstract_valuet> make_top_interval();
 std::shared_ptr<const interval_abstract_valuet> make_bottom_interval();
 
-std::shared_ptr<value_set_abstract_objectt>
+std::shared_ptr<const value_set_abstract_objectt>
 make_value_set(exprt val, abstract_environmentt &env, namespacet &ns);
 
-std::shared_ptr<value_set_abstract_objectt> make_value_set(
+std::shared_ptr<const value_set_abstract_objectt> make_value_set(
   const std::vector<exprt> &vals,
   abstract_environmentt &env,
   namespacet &ns);
 
-std::shared_ptr<value_set_abstract_objectt> make_bottom_value_set();
-std::shared_ptr<value_set_abstract_objectt> make_top_value_set();
+std::shared_ptr<const value_set_abstract_objectt> make_bottom_value_set();
+std::shared_ptr<const value_set_abstract_objectt> make_top_value_set();
 
 abstract_object_pointert make_bottom_object();
 abstract_object_pointert make_top_object();
@@ -79,11 +84,33 @@ void EXPECT(
   const std::vector<exprt> &values,
   const std::vector<exprt> &expected_values);
 
+void EXPECT_INDEX(
+  std::shared_ptr<const abstract_objectt> &result,
+  int index,
+  int expected,
+  abstract_environmentt &environment,
+  namespacet &ns);
+void EXPECT_INDEX(
+  std::shared_ptr<const abstract_objectt> &result,
+  int index,
+  std::vector<int> expected,
+  abstract_environmentt &environment,
+  namespacet &ns);
+void EXPECT_INDEX_TOP(
+  std::shared_ptr<const abstract_objectt> &result,
+  int index,
+  abstract_environmentt &environment,
+  namespacet &ns);
+
 void EXPECT_TOP(std::shared_ptr<const abstract_objectt> result);
+
+void EXPECT_TOP(abstract_objectt::combine_result const &result);
 
 void EXPECT_TOP(std::shared_ptr<const value_set_abstract_objectt> &result);
 
 void EXPECT_BOTTOM(std::shared_ptr<const abstract_objectt> result);
+
+void EXPECT_BOTTOM(abstract_objectt::combine_result const &result);
 
 template <class value_typet>
 struct merge_result
@@ -167,6 +194,13 @@ void EXPECT_UNMODIFIED(
   merge_result<const value_set_abstract_objectt> &result,
   const std::vector<exprt> &expected_values);
 
+template <class value_typet = abstract_objectt>
+void EXPECT_UNMODIFIED(abstract_objectt::combine_result const &result)
+{
+  auto object = std::dynamic_pointer_cast<const value_typet>(result.object);
+  EXPECT_UNMODIFIED(object, result.modified);
+}
+
 void EXPECT_MODIFIED(
   std::shared_ptr<const constant_abstract_valuet> &result,
   bool modified,
@@ -195,6 +229,13 @@ void EXPECT_MODIFIED(
 void EXPECT_MODIFIED(
   merge_result<const value_set_abstract_objectt> &result,
   const std::vector<exprt> &expected_values);
+
+template <class value_typet = abstract_objectt>
+void EXPECT_MODIFIED(abstract_objectt::combine_result const &result)
+{
+  auto object = std::dynamic_pointer_cast<const value_typet>(result.object);
+  EXPECT_MODIFIED(object, result.modified);
+}
 
 std::shared_ptr<const abstract_objectt> add(
   const abstract_object_pointert &op1,
@@ -225,5 +266,17 @@ std::shared_ptr<const value_set_abstract_objectt> add_as_value_set(
   const abstract_object_pointert &op3,
   abstract_environmentt &environment,
   namespacet &ns);
+
+exprt to_expr(int v);
+std::string expr_to_str(const exprt &expr);
+std::string exprs_to_str(const std::vector<exprt> &values);
+
+void THEN_PREDICATE(
+  const abstract_object_pointert &obj,
+  const std::string &out);
+void THEN_PREDICATE(const abstract_environmentt &env, const std::string &out);
+void THEN_PREDICATE(
+  const variable_sensitivity_domaint &domain,
+  const std::string &out);
 
 #endif

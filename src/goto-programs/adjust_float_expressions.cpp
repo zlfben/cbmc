@@ -21,6 +21,11 @@ Author: Daniel Kroening, kroening@kroening.com
 
 #include "goto_model.h"
 
+irep_idt rounding_mode_identifier()
+{
+  return CPROVER_PREFIX "rounding_mode";
+}
+
 /// Iterate over an expression and check it or any of its subexpressions are
 /// floating point operations that haven't been adjusted with a rounding mode
 /// yet.
@@ -41,9 +46,9 @@ static bool have_to_adjust_float_expressions(const exprt &expr)
     type.id() == ID_floatbv ||
     (type.id() == ID_complex && type.subtype().id() == ID_floatbv))
   {
-    if(expr.id()==ID_plus || expr.id()==ID_minus ||
-       expr.id()==ID_mult || expr.id()==ID_div ||
-       expr.id()==ID_rem)
+    if(
+      expr.id() == ID_plus || expr.id() == ID_minus || expr.id() == ID_mult ||
+      expr.id() == ID_div)
       return true;
   }
 
@@ -95,9 +100,9 @@ void adjust_float_expressions(exprt &expr, const exprt &rounding_mode)
     type.id() == ID_floatbv ||
     (type.id() == ID_complex && type.subtype().id() == ID_floatbv))
   {
-    if(expr.id()==ID_plus || expr.id()==ID_minus ||
-       expr.id()==ID_mult || expr.id()==ID_div ||
-       expr.id()==ID_rem)
+    if(
+      expr.id() == ID_plus || expr.id() == ID_minus || expr.id() == ID_mult ||
+      expr.id() == ID_div)
     {
       DATA_INVARIANT(
         expr.operands().size() >= 2,
@@ -115,7 +120,6 @@ void adjust_float_expressions(exprt &expr, const exprt &rounding_mode)
               expr.id()==ID_minus?ID_floatbv_minus:
               expr.id()==ID_mult?ID_floatbv_mult:
               expr.id()==ID_div?ID_floatbv_div:
-              expr.id()==ID_rem?ID_floatbv_rem:
                                 irep_idt());
 
       expr.operands().resize(3);
@@ -187,7 +191,7 @@ void adjust_float_expressions(exprt &expr, const namespacet &ns)
     return;
 
   symbol_exprt rounding_mode =
-    ns.lookup(CPROVER_PREFIX "rounding_mode").symbol_expr();
+    ns.lookup(rounding_mode_identifier()).symbol_expr();
 
   rounding_mode.add_source_location() = expr.source_location();
 

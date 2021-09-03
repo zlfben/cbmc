@@ -7,7 +7,7 @@
 \*******************************************************************/
 #include "variable_sensitivity_object_factory.h"
 #include "full_array_abstract_object.h"
-#include "value_set_abstract_value.h"
+#include "liveness_context.h"
 #include "value_set_pointer_abstract_object.h"
 
 template <class context_classt>
@@ -38,6 +38,9 @@ abstract_object_pointert wrap_with_context_object(
   const abstract_object_pointert &abstract_object,
   const vsd_configt &configuration)
 {
+  if(configuration.context_tracking.liveness)
+    return create_context_abstract_object<liveness_contextt>(abstract_object);
+
   if(configuration.context_tracking.data_dependency_context)
     return create_context_abstract_object<data_dependency_contextt>(
       abstract_object);
@@ -115,6 +118,10 @@ variable_sensitivity_object_factoryt::get_abstract_object_type(
   {
     return configuration.union_abstract_type;
   }
+  else if(type.id() == ID_dynamic_object)
+  {
+    return HEAP_ALLOCATION;
+  }
 
   return abstract_object_type;
 }
@@ -144,11 +151,6 @@ variable_sensitivity_object_factoryt::get_abstract_object(
     return initialize_abstract_object<interval_abstract_valuet>(
       followed_type, top, bottom, e, environment, ns, configuration);
   case VALUE_SET:
-    if(configuration.advanced_sensitivities.new_value_set)
-    {
-      return initialize_abstract_object<value_set_abstract_valuet>(
-        followed_type, top, bottom, e, environment, ns, configuration);
-    }
     return initialize_abstract_object<value_set_abstract_objectt>(
       followed_type, top, bottom, e, environment, ns, configuration);
 
@@ -179,6 +181,17 @@ variable_sensitivity_object_factoryt::get_abstract_object(
   case UNION_INSENSITIVE:
     return initialize_abstract_object<two_value_union_abstract_objectt>(
       followed_type, top, bottom, e, environment, ns, configuration);
+
+  case HEAP_ALLOCATION:
+  {
+    auto dynamic_object = exprt(ID_dynamic_object);
+    dynamic_object.set(
+      ID_identifier, "heap-allocation-" + std::to_string(heap_allocations++));
+    auto heap_symbol = unary_exprt(ID_address_of, dynamic_object, e.type());
+    auto heap_pointer =
+      get_abstract_object(e.type(), false, false, heap_symbol, environment, ns);
+    return heap_pointer;
+  }
 
   default:
     UNREACHABLE;

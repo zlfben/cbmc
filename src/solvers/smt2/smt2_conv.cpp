@@ -27,6 +27,7 @@ Author: Daniel Kroening, kroening@kroening.com
 #include <util/namespace.h>
 #include <util/pointer_expr.h>
 #include <util/pointer_offset_size.h>
+#include <util/prefix.h>
 #include <util/range.h>
 #include <util/simplify_expr.h>
 #include <util/std_expr.h>
@@ -96,6 +97,8 @@ smt2_convt::smt2_convt(
     break;
 
   case solvert::CVC4:
+    logic = "ALL";
+    use_array_of_bool = true;
     use_as_const = true;
     break;
 
@@ -176,9 +179,9 @@ void smt2_convt::write_header()
     out << "(set-logic " << logic << ")" << "\n";
 }
 
-void smt2_convt::write_footer(std::ostream &os)
+void smt2_convt::write_footer()
 {
-  os << "\n";
+  out << "\n";
 
   // fix up the object sizes
   for(const auto &object : object_sizes)
@@ -186,45 +189,45 @@ void smt2_convt::write_footer(std::ostream &os)
 
   if(use_check_sat_assuming && !assumptions.empty())
   {
-    os << "(check-sat-assuming (";
+    out << "(check-sat-assuming (";
     for(const auto &assumption : assumptions)
       convert_literal(to_literal_expr(assumption).get_literal());
-    os << "))\n";
+    out << "))\n";
   }
   else
   {
     // add the assumptions, if any
     if(!assumptions.empty())
     {
-      os << "; assumptions\n";
+      out << "; assumptions\n";
 
       for(const auto &assumption : assumptions)
       {
-        os << "(assert ";
+        out << "(assert ";
         convert_literal(to_literal_expr(assumption).get_literal());
-        os << ")"
-           << "\n";
+        out << ")"
+            << "\n";
       }
     }
 
-    os << "(check-sat)\n";
+    out << "(check-sat)\n";
   }
 
-  os << "\n";
+  out << "\n";
 
   if(solver!=solvert::BOOLECTOR)
   {
     for(const auto &id : smt2_identifiers)
-      os << "(get-value (|" << id << "|))"
-         << "\n";
+      out << "(get-value (|" << id << "|))"
+          << "\n";
   }
 
-  os << "\n";
+  out << "\n";
 
-  os << "(exit)\n";
+  out << "(exit)\n";
 
-  os << "; end of SMT2 file"
-     << "\n";
+  out << "; end of SMT2 file"
+      << "\n";
 }
 
 void smt2_convt::define_object_size(
@@ -258,7 +261,7 @@ void smt2_convt::define_object_size(
         << "((_ extract " << h << " " << l << ") ";
     convert_expr(ptr);
     out << ") (_ bv" << number << " " << config.bv_encoding.object_bits << "))"
-        << "(= " << id << " (_ bv" << *object_size << " " << size_width
+        << "(= |" << id << "| (_ bv" << *object_size << " " << size_width
         << "))))\n";
 
     ++number;
@@ -267,7 +270,7 @@ void smt2_convt::define_object_size(
 
 decision_proceduret::resultt smt2_convt::dec_solve()
 {
-  write_footer(out);
+  write_footer();
   out.flush();
   return decision_proceduret::resultt::D_ERROR;
 }
@@ -282,6 +285,7 @@ exprt smt2_convt::get(const exprt &expr) const
 
     if(it!=identifier_map.end())
       return it->second.value;
+    return expr;
   }
   else if(expr.id()==ID_nondet_symbol)
   {
@@ -318,6 +322,15 @@ exprt smt2_convt::get(const exprt &expr) const
   }
   else if(expr.is_constant())
     return expr;
+  else if(const auto &array = expr_try_dynamic_cast<array_exprt>(expr))
+  {
+    exprt array_copy = *array;
+    for(auto &element : array_copy.operands())
+    {
+      element = get(element);
+    }
+    return array_copy;
+  }
 
   return nil_exprt();
 }
@@ -464,30 +477,84 @@ exprt smt2_convt::parse_array(
   const irept &src,
   const array_typet &type)
 {
+  std::unordered_map<int64_t, exprt> operands_map;
+  walk_array_tree(&operands_map, src, type);
+  exprt::operandst operands;
+  // Try to find the default value, if there is none then set it
+  auto maybe_default_op = operands_map.find(-1);
+  exprt default_op;
+  if(maybe_default_op == operands_map.end())
+    default_op = nil_exprt();
+  else
+    default_op = maybe_default_op->second;
+  int64_t i = 0;
+  auto maybe_size = numeric_cast<std::int64_t>(type.size());
+  if(maybe_size.has_value())
+  {
+    while(i < maybe_size.value())
+    {
+      auto found_op = operands_map.find(i);
+      if(found_op != operands_map.end())
+        operands.emplace_back(found_op->second);
+      else
+        operands.emplace_back(default_op);
+      i++;
+    }
+  }
+  else
+  {
+    // Array size is unknown, keep adding with known indexes in order
+    // until we fail to find one.
+    auto found_op = operands_map.find(i);
+    while(found_op != operands_map.end())
+    {
+      operands.emplace_back(found_op->second);
+      i++;
+      found_op = operands_map.find(i);
+    }
+    operands.emplace_back(default_op);
+  }
+  return array_exprt(operands, type);
+}
+
+void smt2_convt::walk_array_tree(
+  std::unordered_map<int64_t, exprt> *operands_map,
+  const irept &src,
+  const array_typet &type)
+{
   if(src.get_sub().size()==4 && src.get_sub()[0].id()=="store")
   {
+    // This is the SMT syntax being parsed here
     // (store array index value)
-    if(src.get_sub().size()!=4)
-      return nil_exprt();
-
-    exprt array=parse_array(src.get_sub()[1], type);
-    exprt index=parse_rec(src.get_sub()[2], type.size().type());
-    exprt value=parse_rec(src.get_sub()[3], type.subtype());
-
-    return with_exprt(array, index, value);
+    // Recurse
+    walk_array_tree(operands_map, src.get_sub()[1], type);
+    const auto index_expr = parse_rec(src.get_sub()[2], type.size().type());
+    const constant_exprt index_constant = to_constant_expr(index_expr);
+    mp_integer tempint;
+    bool failure = to_integer(index_constant, tempint);
+    if(failure)
+      return;
+    long index = tempint.to_long();
+    exprt value = parse_rec(src.get_sub()[3], type.subtype());
+    operands_map->emplace(index, value);
+  }
+  else if(src.get_sub().size() == 3 && src.get_sub()[0].id() == "let")
+  {
+    // This is produced by Z3
+    // (let (....) (....))
+    walk_array_tree(
+      operands_map, src.get_sub()[1].get_sub()[0].get_sub()[1], type);
+    walk_array_tree(operands_map, src.get_sub()[2], type);
   }
   else if(src.get_sub().size()==2 &&
           src.get_sub()[0].get_sub().size()==3 &&
           src.get_sub()[0].get_sub()[0].id()=="as" &&
           src.get_sub()[0].get_sub()[1].id()=="const")
   {
-    // This is produced by Z3.
-    // ((as const (Array (_ BitVec 64) (_ BitVec 8))) #x00)))
-    exprt value=parse_rec(src.get_sub()[1], type.subtype());
-    return array_of_exprt(value, type);
+    // (as const type_info default_value)
+    exprt default_value = parse_rec(src.get_sub()[1], type.subtype());
+    operands_map->emplace(-1, default_value);
   }
-  else
-    return nil_exprt();
 }
 
 exprt smt2_convt::parse_union(
@@ -744,6 +811,14 @@ literalt smt2_convt::convert(const exprt &expr)
   no_boolean_variables++;
 
   out << "; convert\n";
+  out << "; Converting var_no " << l.var_no() << " with expr ID of "
+      << expr.id_string() << "\n";
+  // We're converting the expression, so store it in the defined_expressions
+  // store and in future we use the literal instead of the whole expression
+  // Note that here we are always converting, so we do not need to consider
+  // other literal kinds, only "|B###|"
+  defined_expressions[expr] =
+    std::string{"|B"} + std::to_string(l.var_no()) + "|";
   out << "(define-fun ";
   convert_literal(l);
   out << " () Bool ";
@@ -1285,6 +1360,10 @@ void smt2_convt::convert_expr(const exprt &expr)
   {
     convert_mod(to_mod_expr(expr));
   }
+  else if(expr.id() == ID_euclidean_mod)
+  {
+    convert_euclidean_mod(to_euclidean_mod_expr(expr));
+  }
   else if(expr.id()==ID_mult)
   {
     convert_mult(to_mult_expr(expr));
@@ -1292,6 +1371,10 @@ void smt2_convt::convert_expr(const exprt &expr)
   else if(expr.id()==ID_floatbv_mult)
   {
     convert_floatbv_mult(to_ieee_float_op_expr(expr));
+  }
+  else if(expr.id() == ID_floatbv_rem)
+  {
+    convert_floatbv_rem(to_binary_expr(expr));
   }
   else if(expr.id()==ID_address_of)
   {
@@ -1931,7 +2014,7 @@ void smt2_convt::convert_expr(const exprt &expr)
   }
   else if(expr.id()==ID_object_size)
   {
-    out << object_sizes[expr];
+    out << "|" << object_sizes[expr] << "|";
   }
   else if(expr.id()==ID_let)
   {
@@ -2970,6 +3053,11 @@ void smt2_convt::convert_constant(const constant_exprt &expr)
   else if(expr_type.id()==ID_rational)
   {
     std::string value=id2string(expr.get_value());
+    const bool negative = has_prefix(value, "-");
+
+    if(negative)
+      out << "(- ";
+
     size_t pos=value.find("/");
 
     if(pos==std::string::npos)
@@ -2979,13 +3067,37 @@ void smt2_convt::convert_constant(const constant_exprt &expr)
       out << "(/ " << value.substr(0, pos) << ".0 "
                    << value.substr(pos+1) << ".0)";
     }
+
+    if(negative)
+      out << ')';
   }
   else if(expr_type.id()==ID_integer)
   {
-    out << expr.get_value();
+    const auto value = id2string(expr.get_value());
+
+    // SMT2 has no negative integer literals
+    if(has_prefix(value, "-"))
+      out << "(- " << value.substr(1, std::string::npos) << ')';
+    else
+      out << value;
   }
   else
     UNEXPECTEDCASE("unknown constant: "+expr_type.id_string());
+}
+
+void smt2_convt::convert_euclidean_mod(const euclidean_mod_exprt &expr)
+{
+  if(expr.type().id() == ID_integer)
+  {
+    out << "(mod ";
+    convert_expr(expr.op0());
+    out << ' ';
+    convert_expr(expr.op1());
+    out << ')';
+  }
+  else
+    UNEXPECTEDCASE(
+      "unsupported type for euclidean_mod: " + expr.type().id_string());
 }
 
 void smt2_convt::convert_mod(const mod_exprt &expr)
@@ -3629,6 +3741,29 @@ void smt2_convt::convert_floatbv_mult(const ieee_float_op_exprt &expr)
   }
   else
     convert_floatbv(expr);
+}
+
+void smt2_convt::convert_floatbv_rem(const binary_exprt &expr)
+{
+  DATA_INVARIANT(
+    expr.type().id() == ID_floatbv,
+    "type of ieee floating point expression shall be floatbv");
+
+  if(use_FPA_theory)
+  {
+    // Note that these do not have a rounding mode
+    out << "(fp.rem ";
+    convert_expr(expr.lhs());
+    out << " ";
+    convert_expr(expr.rhs());
+    out << ")";
+  }
+  else
+  {
+    SMT2_TODO(
+      "smt2_convt::convert_floatbv_rem to be implemented when not using "
+      "FPA_theory");
+  }
 }
 
 void smt2_convt::convert_with(const with_exprt &expr)
@@ -4313,18 +4448,27 @@ void smt2_convt::set_to(const exprt &expr, bool value)
 
   out << "; set_to " << (value?"true":"false") << "\n"
       << "(assert ";
-
   if(!value)
   {
     out << "(not ";
-    convert_expr(prepared_expr);
-    out << ")";
+  }
+  const auto found_literal = defined_expressions.find(expr);
+  if(!(found_literal == defined_expressions.end()))
+  {
+    // This is a converted expression, we can just assert the literal name
+    // since the expression is already defined
+    out << found_literal->second;
+    set_values[found_literal->second] = value;
   }
   else
+  {
     convert_expr(prepared_expr);
-
-  out << ")" << "\n"; // assert
-
+  }
+  if(!value)
+  {
+    out << ")";
+  }
+  out << ")\n";
   return;
 }
 
@@ -4589,7 +4733,7 @@ void smt2_convt::find_symbols(const exprt &expr)
       {
         const irep_idt id =
           "object_size." + std::to_string(object_sizes.size());
-        out << "(declare-fun " << id << " () ";
+        out << "(declare-fun |" << id << "| () ";
         convert_type(expr.type());
         out << ")" << "\n";
 

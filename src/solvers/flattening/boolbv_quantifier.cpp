@@ -12,6 +12,7 @@ Author: Daniel Kroening, kroening@kroening.com
 #include <util/expr_util.h>
 #include <util/invariant.h>
 #include <util/optional.h>
+#include <util/range.h>
 #include <util/replace_expr.h>
 #include <util/simplify_expr.h>
 
@@ -205,6 +206,16 @@ instantiate_quantifier(const quantifier_exprt &expr, const namespacet &ns)
 literalt boolbvt::convert_quantifier(const quantifier_exprt &src)
 {
   PRECONDITION(src.id() == ID_forall || src.id() == ID_exists);
+
+  // We first worry about the scoping of the symbols bound by the quantifier.
+  auto fresh_symbols = fresh_binding(src);
+
+  // replace in where()
+  auto where_replaced = src.instantiate(fresh_symbols);
+
+  // produce new quantifier expression
+  auto new_src =
+    quantifier_exprt(src.id(), std::move(fresh_symbols), where_replaced);
 
   const auto res = instantiate_quantifier(src, ns);
 

@@ -14,6 +14,7 @@ DIRS = cbmc \
        cbmc-incr \
        cbmc-with-incr \
        array-refinement-with-incr \
+       goto-instrument-json \
        goto-instrument-wmm-core \
        goto-instrument-typedef \
        smt2_solver \
@@ -41,6 +42,7 @@ DIRS = cbmc \
        goto-cc-regression-gh-issue-5380 \
        linking-goto-binaries \
        symtab2gb \
+       symtab2gb-cbmc \
        solver-hardness \
        goto-ld \
        validate-trace-xml-schema \

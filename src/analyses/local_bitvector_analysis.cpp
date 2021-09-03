@@ -15,6 +15,7 @@ Author: Daniel Kroening, kroening@kroening.com
 
 #include <util/pointer_expr.h>
 #include <util/std_code.h>
+#include <util/symbol_table.h>
 
 void local_bitvector_analysist::flagst::print(std::ostream &out) const
 {
@@ -293,11 +294,9 @@ void local_bitvector_analysist::build()
 
     case FUNCTION_CALL:
     {
-      const code_function_callt &code_function_call =
-        instruction.get_function_call();
-      if(code_function_call.lhs().is_not_nil())
-        assign_lhs(
-          code_function_call.lhs(), nil_exprt(), loc_info_src, loc_info_dest);
+      const auto &lhs = instruction.call_lhs();
+      if(lhs.is_not_nil())
+        assign_lhs(lhs, nil_exprt(), loc_info_src, loc_info_dest);
       break;
     }
 
@@ -307,9 +306,9 @@ void local_bitvector_analysist::build()
       DATA_INVARIANT(false, "Exceptions must be removed before analysis");
       break;
 #endif
-    case RETURN:
+    case SET_RETURN_VALUE:
 #if 0
-      DATA_INVARIANT(false, "Returns must be removed before analysis");
+      DATA_INVARIANT(false, "SET_RETURN_VALUE must be removed before analysis");
       break;
 #endif
     case ATOMIC_BEGIN: // Ignoring is a valid over-approximation

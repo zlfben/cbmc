@@ -18,6 +18,7 @@ Author: Daniel Kroening, kroening@kroening.com
 #include <util/cprover_prefix.h>
 #include <util/invariant.h>
 #include <util/std_code.h>
+#include <util/symbol.h>
 
 void goto_inlinet::parameter_assignments(
   const goto_programt::targett target,
@@ -155,7 +156,7 @@ void goto_inlinet::replace_return(
       it!=dest.instructions.end();
       it++)
   {
-    if(it->is_return())
+    if(it->is_set_return_value())
     {
       if(lhs.is_not_nil())
       {
@@ -296,6 +297,8 @@ void goto_inlinet::insert_function_body(
   dest.destructive_insert(target, tmp);
 }
 
+/// Inlines a single function call
+/// Calls out to goto_inline_transitive or goto_inline_nontransitive
 void goto_inlinet::expand_function_call(
   goto_programt &dest,
   const inline_mapt &inline_map,
@@ -434,13 +437,16 @@ void goto_inlinet::get_call(
 {
   PRECONDITION(it->is_function_call());
 
-  const code_function_callt &call = it->get_function_call();
-
-  lhs=call.lhs();
-  function=call.function();
-  arguments=call.arguments();
+  lhs = it->call_lhs();
+  function = it->call_function();
+  arguments = it->call_arguments();
 }
 
+/// Inline all of the given call locations.
+/// This is the highest-level interface and calls the other goto_inline
+/// \param inline_map : which call locations to inline.
+/// \param force_full : true to break recursion with a SKIP,
+///   false means detecting recursion is an error.
 void goto_inlinet::goto_inline(
   const inline_mapt &inline_map,
   const bool force_full)
@@ -460,6 +466,13 @@ void goto_inlinet::goto_inline(
   }
 }
 
+/// Inline all of the chosen calls in a given function.
+/// This is main entry point for the functionality
+/// \param identifier : the name of the caller function.
+/// \param goto_function : the caller function itself.
+/// \param inline_map : which call locations to inline.
+/// \param force_full : true to break recursion with a SKIP,
+///   false means detecting recursion is an error.
 void goto_inlinet::goto_inline(
   const irep_idt identifier,
   goto_functiont &goto_function,

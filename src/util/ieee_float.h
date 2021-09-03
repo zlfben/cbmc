@@ -19,8 +19,6 @@ Author: Daniel Kroening, kroening@kroening.com
 class constant_exprt;
 class floatbv_typet;
 
-const char ID_cprover_rounding_mode_str[] = CPROVER_PREFIX "rounding_mode";
-
 class ieee_float_spect
 {
 public:
@@ -120,13 +118,17 @@ class ieee_floatt
 public:
   // ROUND_TO_EVEN is also known as "round to nearest, ties to even", and
   // is the IEEE default.
-  // The numbering below is what x86 uses in the control word.
+  // The numbering below is what x86 uses in the control word and
+  // what is recommended in C11 5.2.4.2.2
   enum rounding_modet
   {
     ROUND_TO_EVEN=0, ROUND_TO_MINUS_INF=1,
     ROUND_TO_PLUS_INF=2,  ROUND_TO_ZERO=3,
     UNKNOWN, NONDETERMINISTIC
   };
+
+  // A helper to turn a rounding mode into a constant bitvector expression
+  static constant_exprt rounding_mode_expr(rounding_modet);
 
   rounding_modet rounding_mode;
 

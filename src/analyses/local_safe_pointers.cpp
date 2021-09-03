@@ -14,6 +14,7 @@ Author: Diffblue Ltd
 #include <util/expr_iterator.h>
 #include <util/expr_util.h>
 #include <util/format_expr.h>
+#include <util/symbol_table.h>
 
 /// Return structure for `get_null_checked_expr` and
 /// `get_conditional_checked_expr`
@@ -116,7 +117,7 @@ void local_safe_pointerst::operator()(const goto_programt &goto_program)
     case ASSERT:
     case SKIP:
     case LOCATION:
-    case RETURN:
+    case SET_RETURN_VALUE:
     case THROW:
     case CATCH:
     case END_FUNCTION:

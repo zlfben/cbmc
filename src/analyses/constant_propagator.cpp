@@ -11,6 +11,8 @@ Author: Peter Schrammel
 
 #include "constant_propagator.h"
 
+#include <goto-programs/adjust_float_expressions.h>
+
 #ifdef DEBUG
 #include <iostream>
 #include <util/format_expr.h>
@@ -192,8 +194,7 @@ void constant_propagator_domaint::transform(
   }
   else if(from->is_function_call())
   {
-    const auto &function_call = from->get_function_call();
-    const exprt &function=function_call.function();
+    const exprt &function = from->call_function();
 
     if(function.id()==ID_symbol)
     {
@@ -231,8 +232,8 @@ void constant_propagator_domaint::transform(
         const code_typet &code_type=to_code_type(symbol.type);
         const code_typet::parameterst &parameters=code_type.parameters();
 
-        const code_function_callt::argumentst &arguments=
-          function_call.arguments();
+        const code_function_callt::argumentst &arguments =
+          from->call_arguments();
 
         code_typet::parameterst::const_iterator p_it=parameters.begin();
         for(const auto &arg : arguments)
@@ -656,7 +657,7 @@ bool constant_propagator_domaint::partial_evaluate(
   // if the current rounding mode is top we can
   // still get a non-top result by trying all rounding
   // modes and checking if the results are all the same
-  if(!known_values.is_constant(ID_cprover_rounding_mode_str))
+  if(!known_values.is_constant(rounding_mode_identifier()))
     return partial_evaluate_with_all_rounding_modes(known_values, expr, ns);
 
   return replace_constants_and_simplify(known_values, expr, ns);
@@ -686,7 +687,7 @@ bool constant_propagator_domaint::partial_evaluate_with_all_rounding_modes(
   {
     valuest tmp_values = known_values;
     tmp_values.set_to(
-      symbol_exprt(ID_cprover_rounding_mode_str, integer_typet()),
+      symbol_exprt(rounding_mode_identifier(), integer_typet()),
       from_integer(rounding_modes[i], integer_typet()));
     exprt result = expr;
     if(replace_constants_and_simplify(tmp_values, result, ns))
@@ -777,22 +778,11 @@ void constant_propagator_ait::replace(
     }
     else if(it->is_function_call())
     {
-      auto call = it->get_function_call();
+      constant_propagator_domaint::partial_evaluate(
+        d.values, it->call_function(), ns);
 
-      bool call_changed = false;
-
-      if(!constant_propagator_domaint::partial_evaluate(
-           d.values, call.function(), ns))
-      {
-        call_changed = true;
-      }
-
-      for(auto &arg : call.arguments())
-        if(!constant_propagator_domaint::partial_evaluate(d.values, arg, ns))
-          call_changed = true;
-
-      if(call_changed)
-        it->set_function_call(call);
+      for(auto &arg : it->call_arguments())
+        constant_propagator_domaint::partial_evaluate(d.values, arg, ns);
     }
     else if(it->is_other())
     {

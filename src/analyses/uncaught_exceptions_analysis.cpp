@@ -15,6 +15,7 @@ Author: Cristina David
 #include "uncaught_exceptions_analysis.h"
 
 #include <util/namespace.h>
+#include <util/symbol_table.h>
 
 #include <goto-programs/goto_functions.h>
 
@@ -118,7 +119,7 @@ void uncaught_exceptions_domaint::transform(
   }
   case FUNCTION_CALL:
   {
-    const exprt &function_expr = instruction.get_function_call().function();
+    const exprt &function_expr = instruction.call_function();
     DATA_INVARIANT(
       function_expr.id()==ID_symbol,
       "identifier expected to be a symbol");
@@ -132,7 +133,7 @@ void uncaught_exceptions_domaint::transform(
   case DEAD:   // Safe to ignore in this context
   case ASSIGN: // Safe to ignore in this context
     break;
-  case RETURN:
+  case SET_RETURN_VALUE:
 #if 0
     DATA_INVARIANT(false, "Returns must be removed before analysis");
 #endif

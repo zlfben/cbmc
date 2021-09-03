@@ -13,6 +13,8 @@ Date: June 2003
 
 #include "goto_functions.h"
 
+#include <util/symbol.h>
+
 #include <algorithm>
 
 void goto_functionst::compute_location_numbers()
@@ -138,7 +140,7 @@ void goto_functionst::validate(const namespacet &ns, const validation_modet vm)
       {
         DATA_CHECK(
           vm,
-          !instruction.is_return(),
+          !instruction.is_set_return_value(),
           "void function should not return a value");
       }
     }

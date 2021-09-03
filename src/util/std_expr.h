@@ -714,6 +714,90 @@ inline void validate_expr(const binary_relation_exprt &value)
   binary_relation_exprt::check(value);
 }
 
+/// \brief Binary greater than operator expression.
+class greater_than_exprt : public binary_relation_exprt
+{
+public:
+  greater_than_exprt(exprt _lhs, exprt _rhs)
+    : binary_relation_exprt{std::move(_lhs), ID_gt, std::move(_rhs)}
+  {
+  }
+};
+
+template <>
+inline bool can_cast_expr<greater_than_exprt>(const exprt &base)
+{
+  return base.id() == ID_gt;
+}
+
+inline void validate_expr(const greater_than_exprt &value)
+{
+  binary_relation_exprt::check(value);
+}
+
+/// \brief Binary greater than or equal operator expression.
+class greater_than_or_equal_exprt : public binary_relation_exprt
+{
+public:
+  greater_than_or_equal_exprt(exprt _lhs, exprt _rhs)
+    : binary_relation_exprt{std::move(_lhs), ID_ge, std::move(_rhs)}
+  {
+  }
+};
+
+template <>
+inline bool can_cast_expr<greater_than_or_equal_exprt>(const exprt &base)
+{
+  return base.id() == ID_ge;
+}
+
+inline void validate_expr(const greater_than_or_equal_exprt &value)
+{
+  binary_relation_exprt::check(value);
+}
+
+/// \brief Binary less than operator expression.
+class less_than_exprt : public binary_relation_exprt
+{
+public:
+  less_than_exprt(exprt _lhs, exprt _rhs)
+    : binary_relation_exprt{std::move(_lhs), ID_lt, std::move(_rhs)}
+  {
+  }
+};
+
+template <>
+inline bool can_cast_expr<less_than_exprt>(const exprt &base)
+{
+  return base.id() == ID_lt;
+}
+
+inline void validate_expr(const less_than_exprt &value)
+{
+  binary_relation_exprt::check(value);
+}
+
+/// \brief Binary less than or equal operator expression.
+class less_than_or_equal_exprt : public binary_relation_exprt
+{
+public:
+  less_than_or_equal_exprt(exprt _lhs, exprt _rhs)
+    : binary_relation_exprt{std::move(_lhs), ID_le, std::move(_rhs)}
+  {
+  }
+};
+
+template <>
+inline bool can_cast_expr<less_than_or_equal_exprt>(const exprt &base)
+{
+  return base.id() == ID_le;
+}
+
+inline void validate_expr(const less_than_or_equal_exprt &value)
+{
+  binary_relation_exprt::check(value);
+}
+
 /// \brief Cast an exprt to a \ref binary_relation_exprt
 ///
 /// \a expr must be known to be \ref binary_relation_exprt.
@@ -1043,8 +1127,10 @@ inline div_exprt &to_div_expr(exprt &expr)
   return ret;
 }
 
-
-/// \brief Modulo
+/// \brief Modulo defined as lhs-(rhs * truncate(lhs/rhs)).
+/// The sign follows the lhs or dividend. This matches C99 and
+/// SMT-LIB's bvsrem but differs from the Euclidian definition
+/// and from SMT-LIB's bvsmod.
 class mod_exprt:public binary_exprt
 {
 public:
@@ -1088,47 +1174,47 @@ inline mod_exprt &to_mod_expr(exprt &expr)
   return ret;
 }
 
-
-/// \brief Remainder of division
-class rem_exprt:public binary_exprt
+/// \brief Boute's Euclidean definition of Modulo -- to match SMT-LIB2
+class euclidean_mod_exprt : public binary_exprt
 {
 public:
-  rem_exprt(exprt _lhs, exprt _rhs)
-    : binary_exprt(std::move(_lhs), ID_rem, std::move(_rhs))
+  euclidean_mod_exprt(exprt _lhs, exprt _rhs)
+    : binary_exprt(std::move(_lhs), ID_euclidean_mod, std::move(_rhs))
   {
   }
 };
 
 template <>
-inline bool can_cast_expr<rem_exprt>(const exprt &base)
+inline bool can_cast_expr<euclidean_mod_exprt>(const exprt &base)
 {
-  return base.id() == ID_rem;
+  return base.id() == ID_euclidean_mod;
 }
 
-inline void validate_expr(const rem_exprt &value)
+inline void validate_expr(const euclidean_mod_exprt &value)
 {
-  validate_operands(value, 2, "Remainder must have two operands");
+  validate_operands(value, 2, "Modulo must have two operands");
 }
 
-/// \brief Cast an exprt to a \ref rem_exprt
+/// \brief Cast an exprt to a \ref euclidean_mod_exprt
 ///
-/// \a expr must be known to be \ref rem_exprt.
+/// \a expr must be known to be \ref euclidean_mod_exprt.
 ///
 /// \param expr: Source expression
-/// \return Object of type \ref rem_exprt
-inline const rem_exprt &to_rem_expr(const exprt &expr)
+/// \return Object of type \ref euclidean_mod_exprt
+inline const euclidean_mod_exprt &to_euclidean_mod_expr(const exprt &expr)
 {
-  PRECONDITION(expr.id()==ID_rem);
-  const rem_exprt &ret = static_cast<const rem_exprt &>(expr);
+  PRECONDITION(expr.id() == ID_euclidean_mod);
+  const euclidean_mod_exprt &ret =
+    static_cast<const euclidean_mod_exprt &>(expr);
   validate_expr(ret);
   return ret;
 }
 
-/// \copydoc to_rem_expr(const exprt &)
-inline rem_exprt &to_rem_expr(exprt &expr)
+/// \copydoc to_euclidean_mod_expr(const exprt &)
+inline euclidean_mod_exprt &to_euclidean_mod_expr(exprt &expr)
 {
-  PRECONDITION(expr.id()==ID_rem);
-  rem_exprt &ret = static_cast<rem_exprt &>(expr);
+  PRECONDITION(expr.id() == ID_euclidean_mod);
+  euclidean_mod_exprt &ret = static_cast<euclidean_mod_exprt &>(expr);
   validate_expr(ret);
   return ret;
 }
@@ -2797,7 +2883,36 @@ public:
   {
     return op1();
   }
+
+  /// substitute free occurrences of the variables in where()
+  /// by the given values
+  exprt instantiate(const exprt::operandst &) const;
+
+  /// substitute free occurrences of the variables in where()
+  /// by a set of different symbols
+  exprt instantiate(const variablest &) const;
 };
+
+inline void validate_expr(const binding_exprt &binding_expr)
+{
+  validate_operands(
+    binding_expr, 2, "Binding expressions must have two operands");
+}
+
+/// \brief Cast an exprt to a \ref binding_exprt
+///
+/// \a expr must be known to be \ref binding_exprt.
+///
+/// \param expr: Source expression
+/// \return Object of type \ref binding_exprt
+inline const binding_exprt &to_binding_expr(const exprt &expr)
+{
+  PRECONDITION(
+    expr.id() == ID_forall || expr.id() == ID_exists || expr.id() == ID_lambda);
+  const binding_exprt &ret = static_cast<const binding_exprt &>(expr);
+  validate_expr(ret);
+  return ret;
+}
 
 /// \brief A let expression
 class let_exprt : public binary_exprt
@@ -3009,16 +3124,16 @@ inline cond_exprt &to_cond_expr(exprt &expr)
 /// function, respectively. The range is given by the type of the expression,
 /// which has to be an \ref array_typet (which includes a value for
 /// `array_size`).
-class array_comprehension_exprt : public binary_exprt
+class array_comprehension_exprt : public binding_exprt
 {
 public:
   explicit array_comprehension_exprt(
     symbol_exprt arg,
     exprt body,
     array_typet _type)
-    : binary_exprt(
-        std::move(arg),
+    : binding_exprt(
         ID_array_comprehension,
+        {std::move(arg)},
         std::move(body),
         std::move(_type))
   {
@@ -3036,22 +3151,26 @@ public:
 
   const symbol_exprt &arg() const
   {
-    return static_cast<const symbol_exprt &>(op0());
+    auto &variables = this->variables();
+    PRECONDITION(variables.size() == 1);
+    return variables[0];
   }
 
   symbol_exprt &arg()
   {
-    return static_cast<symbol_exprt &>(op0());
+    auto &variables = this->variables();
+    PRECONDITION(variables.size() == 1);
+    return variables[0];
   }
 
   const exprt &body() const
   {
-    return op1();
+    return where();
   }
 
   exprt &body()
   {
-    return op1();
+    return where();
   }
 };
 

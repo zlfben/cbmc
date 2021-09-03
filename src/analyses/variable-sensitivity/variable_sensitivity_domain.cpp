@@ -11,6 +11,7 @@ Date: April 2016
 #include "variable_sensitivity_domain.h"
 
 #include <util/cprover_prefix.h>
+#include <util/symbol_table.h>
 
 #include <algorithm>
 
@@ -39,12 +40,11 @@ void variable_sensitivity_domaint::transform(
   {
   case DECL:
   {
-    const abstract_objectt::locationst write_location = {from};
     abstract_object_pointert top_object =
       abstract_state
         .abstract_object_factory(
           instruction.decl_symbol().type(), ns, true, false)
-        ->update_location_context(write_location, true);
+        ->write_location_context(from);
     abstract_state.assign(instruction.decl_symbol(), top_object, ns);
   }
   // We now store top.
@@ -60,10 +60,8 @@ void variable_sensitivity_domaint::transform(
   {
     // TODO : check return values
     const code_assignt &inst = instruction.get_assign();
-    const abstract_objectt::locationst write_location = {from};
     abstract_object_pointert rhs =
-      abstract_state.eval(inst.rhs(), ns)
-        ->update_location_context(write_location, true);
+      abstract_state.eval(inst.rhs(), ns)->write_location_context(from);
     abstract_state.assign(inst.lhs(), rhs, ns);
   }
   break;
@@ -81,13 +79,13 @@ void variable_sensitivity_domaint::transform(
         if(to == from->get_target())
         {
           // The AI is exploring the branch where the jump is taken
-          abstract_state.assume(instruction.guard, ns);
+          assume(instruction.guard, ns);
         }
         else
         {
           // Exploring the path where the jump is not taken - therefore assume
           // the condition is false
-          abstract_state.assume(not_exprt(instruction.guard), ns);
+          assume(not_exprt(instruction.guard), ns);
         }
       }
       // ignore jumps to the next line, we can assume nothing
@@ -96,7 +94,7 @@ void variable_sensitivity_domaint::transform(
   break;
 
   case ASSUME:
-    abstract_state.assume(instruction.guard, ns);
+    assume(instruction.guard, ns);
     break;
 
   case FUNCTION_CALL:
@@ -140,8 +138,8 @@ void variable_sensitivity_domaint::transform(
     // Can ignore
     break;
 
-  case RETURN:
-    throw "return instructions should be removed first";
+  case SET_RETURN_VALUE:
+    throw "the SET_RETURN_VALUE instructions should be removed first";
 
   case START_THREAD:
   case END_THREAD:
@@ -176,6 +174,37 @@ void variable_sensitivity_domaint::output(
   abstract_state.output(out, ai, ns);
 }
 
+exprt variable_sensitivity_domaint::to_predicate() const
+{
+  return abstract_state.to_predicate();
+}
+
+exprt variable_sensitivity_domaint::to_predicate(
+  const exprt &expr,
+  const namespacet &ns) const
+{
+  auto result = abstract_state.eval(expr, ns);
+  return result->to_predicate(expr);
+}
+
+exprt variable_sensitivity_domaint::to_predicate(
+  const exprt::operandst &exprs,
+  const namespacet &ns) const
+{
+  if(exprs.empty())
+    return false_exprt();
+  if(exprs.size() == 1)
+    return to_predicate(exprs.front(), ns);
+
+  auto predicates = std::vector<exprt>{};
+  std::transform(
+    exprs.cbegin(),
+    exprs.cend(),
+    std::back_inserter(predicates),
+    [this, &ns](const exprt &expr) { return to_predicate(expr, ns); });
+  return and_exprt(predicates);
+}
+
 void variable_sensitivity_domaint::make_bottom()
 {
   abstract_state.make_bottom();
@@ -201,9 +230,11 @@ bool variable_sensitivity_domaint::merge(
   std::cout << "Merging from/to:\n " << from->location_number << " --> "
             << to->location_number << '\n';
 #endif
-
+  auto widen_mode =
+    from->should_widen(*to) ? widen_modet::could_widen : widen_modet::no;
   // Use the abstract_environment merge
-  bool any_changes = abstract_state.merge(b.abstract_state);
+  bool any_changes =
+    abstract_state.merge(b.abstract_state, to->current_location(), widen_mode);
 
   DATA_INVARIANT(abstract_state.verify(), "Structural invariant");
   return any_changes;
@@ -261,8 +292,7 @@ void variable_sensitivity_domaint::transform_function_call(
 {
   PRECONDITION(from->type == FUNCTION_CALL);
 
-  const code_function_callt &function_call = from->get_function_call();
-  const exprt &function = function_call.function();
+  const exprt &function = from->call_function();
 
   const locationt next = std::next(from);
 
@@ -273,7 +303,7 @@ void variable_sensitivity_domaint::transform_function_call(
     const irep_idt function_id = symbol_expr.get_identifier();
 
     const code_function_callt::argumentst &called_arguments =
-      function_call.arguments();
+      from->call_arguments();
 
     if(to->location_number == next->location_number)
     {
@@ -350,8 +380,7 @@ void variable_sensitivity_domaint::transform_function_call(
         // Evaluate the expression that is being
         // passed into the function call (called_arg)
         abstract_object_pointert param_val =
-          abstract_state.eval(called_arg, ns)
-            ->update_location_context({from}, true);
+          abstract_state.eval(called_arg, ns)->write_location_context(from);
 
         // Assign the evaluated value to the symbol associated with the
         // parameter of the function
@@ -433,6 +462,12 @@ void variable_sensitivity_domaint::apply_domain(
     abstract_object_pointert value = source.abstract_state.eval(symbol, ns);
     abstract_state.assign(symbol, value, ns);
   }
+}
+
+void variable_sensitivity_domaint::assume(exprt expr, namespacet ns)
+{
+  ai_simplify(expr, ns);
+  abstract_state.assume(expr, ns);
 }
 
 #ifdef ENABLE_STATS

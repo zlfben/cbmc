@@ -44,7 +44,7 @@ public:
   }
 
   explicit variable_sensitivity_object_factoryt(const vsd_configt &options)
-    : configuration{options}
+    : configuration{options}, heap_allocations(0)
   {
   }
 
@@ -77,6 +77,11 @@ public:
   variable_sensitivity_object_factoryt(
     const variable_sensitivity_object_factoryt &) = delete;
 
+  const vsd_configt &config() const
+  {
+    return configuration;
+  }
+
 private:
   /// Decide which abstract object type to use for the variable in question.
   ///
@@ -87,6 +92,7 @@ private:
   ABSTRACT_OBJECT_TYPET get_abstract_object_type(const typet &type) const;
 
   vsd_configt configuration;
+  mutable size_t heap_allocations;
 };
 
 #endif // CPROVER_ANALYSES_VARIABLE_SENSITIVITY_VARIABLE_SENSITIVITY_OBJECT_FACTORY_H // NOLINT(*)

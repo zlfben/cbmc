@@ -9,17 +9,31 @@
 #include <ostream>
 
 #include <analyses/variable-sensitivity/abstract_environment.h>
+#include <analyses/variable-sensitivity/variable_sensitivity_configuration.h>
 #include <util/arith_tools.h>
+#include <util/mathematical_types.h>
 #include <util/std_expr.h>
 
 #include "abstract_value_object.h"
 #include "full_array_abstract_object.h"
+#include "location_update_visitor.h"
+#include "map_visit.h"
 
-bool eval_index(
-  const exprt &index,
+struct eval_index_resultt
+{
+  bool is_good;
+  mp_integer value;
+  bool overrun;
+};
+
+static eval_index_resultt eval_index(
+  const exprt &expr,
   const abstract_environmentt &env,
-  const namespacet &ns,
-  mp_integer &out_index);
+  const namespacet &ns);
+static eval_index_resultt eval_index(
+  const mp_integer &index,
+  const abstract_environmentt &env,
+  const namespacet &ns);
 
 template <typename index_fn>
 abstract_object_pointert apply_to_index_range(
@@ -39,8 +53,10 @@ abstract_object_pointert apply_to_index_range(
   {
     auto at_index = fn(index_exprt(index_expr.array(), index));
 
-    result = (result == nullptr) ? at_index
-                                 : abstract_objectt::merge(result, at_index);
+    result =
+      (result == nullptr)
+        ? at_index
+        : abstract_objectt::merge(result, at_index, widen_modet::no).object;
 
     if(result->is_top()) // no point in continuing once we've gone top
       break;
@@ -71,11 +87,12 @@ full_array_abstract_objectt::full_array_abstract_objectt(
 {
   if(expr.id() == ID_array)
   {
-    int index = 0;
+    mp_integer i = 0;
     for(const exprt &entry : expr.operands())
     {
-      map.insert(mp_integer(index), environment.eval(entry, ns));
-      ++index;
+      auto index = eval_index(i, environment, ns);
+      map_put(index.value, environment.eval(entry, ns), index.overrun);
+      ++i;
     }
     set_not_top();
   }
@@ -97,47 +114,40 @@ void full_array_abstract_objectt::set_top_internal()
   map.clear();
 }
 
-abstract_object_pointert
-full_array_abstract_objectt::merge(abstract_object_pointert other) const
+abstract_object_pointert full_array_abstract_objectt::merge(
+  const abstract_object_pointert &other,
+  const widen_modet &widen_mode) const
 {
   auto cast_other =
     std::dynamic_pointer_cast<const full_array_abstract_objectt>(other);
   if(cast_other)
-  {
-    return full_array_merge(cast_other);
-  }
-  else
-  {
-    // TODO(tkiley): How do we set the result to be toppish? Does it matter?
-    return abstract_aggregate_baset::merge(other);
-  }
+    return full_array_merge(cast_other, widen_mode);
+
+  return abstract_aggregate_baset::merge(other, widen_mode);
 }
 
 abstract_object_pointert full_array_abstract_objectt::full_array_merge(
-  const full_array_pointert other) const
+  const full_array_pointert &other,
+  const widen_modet &widen_mode) const
 {
   if(is_bottom())
-  {
     return std::make_shared<full_array_abstract_objectt>(*other);
+
+  const auto &result =
+    std::dynamic_pointer_cast<full_array_abstract_objectt>(mutable_clone());
+
+  bool modified = merge_shared_maps(map, other->map, result->map, widen_mode);
+  if(!modified)
+  {
+    DATA_INVARIANT(verify(), "Structural invariants maintained");
+    return shared_from_this();
   }
   else
   {
-    const auto &result =
-      std::dynamic_pointer_cast<full_array_abstract_objectt>(mutable_clone());
-
-    bool modified = merge_shared_maps(map, other->map, result->map);
-    if(!modified)
-    {
-      DATA_INVARIANT(verify(), "Structural invariants maintained");
-      return shared_from_this();
-    }
-    else
-    {
-      INVARIANT(!result->is_top(), "Merge of maps will not generate top");
-      INVARIANT(!result->is_bottom(), "Merge of maps will not generate bottom");
-      DATA_INVARIANT(result->verify(), "Structural invariants maintained");
-      return result;
-    }
+    INVARIANT(!result->is_top(), "Merge of maps will not generate top");
+    INVARIANT(!result->is_bottom(), "Merge of maps will not generate bottom");
+    DATA_INVARIANT(result->verify(), "Structural invariants maintained");
+    return result;
   }
 }
 
@@ -207,32 +217,26 @@ abstract_object_pointert full_array_abstract_objectt::read_element(
   const namespacet &ns) const
 {
   PRECONDITION(!is_bottom());
-  mp_integer index_value;
-  if(eval_index(expr, env, ns, index_value))
-  {
-    // Here we are assuming it is always in bounds
-    auto const value = map.find(index_value);
-    if(value.has_value())
-      return value.value();
-    return get_top_entry(env, ns);
-  }
-  else
-  {
-    // Although we don't know where we are reading from, and therefore
-    // we should be returning a TOP value, we may still have useful
-    // additional information in elements of the array - such as write
-    // histories so we merge all the known array elements with TOP and return
-    // that.
+  auto index = eval_index(expr, env, ns);
 
-    // Create a new TOP value of the appropriate element type
-    abstract_object_pointert result = get_top_entry(env, ns);
+  if(index.is_good)
+    return map_find_or_top(index.value, env, ns);
 
-    // Merge each known element into the TOP value
-    for(const auto &element : map.get_view())
-      result = abstract_objectt::merge(result, element.second);
+  // Although we don't know where we are reading from, and therefore
+  // we should be returning a TOP value, we may still have useful
+  // additional information in elements of the array - such as write
+  // histories so we merge all the known array elements with TOP and return
+  // that.
 
-    return result;
-  }
+  // Create a new TOP value of the appropriate element type
+  auto result = get_top_entry(env, ns);
+
+  // Merge each known element into the TOP value
+  for(const auto &element : map.get_view())
+    result =
+      abstract_objectt::merge(result, element.second, widen_modet::no).object;
+
+  return result;
 }
 
 abstract_object_pointert full_array_abstract_objectt::write_element(
@@ -267,29 +271,17 @@ abstract_object_pointert full_array_abstract_objectt::write_sub_element(
   const auto &result =
     std::dynamic_pointer_cast<full_array_abstract_objectt>(mutable_clone());
 
-  mp_integer index_value;
-  bool good_index = eval_index(expr, environment, ns, index_value);
+  auto index = eval_index(expr, environment, ns);
 
-  if(good_index)
+  if(index.is_good)
   {
     // We were able to evaluate the index to a value, which we
     // assume is in bounds...
-    auto const old_value = map.find(index_value);
-
-    if(old_value.has_value())
-    {
-      result->map.replace(
-        index_value,
-        environment.write(old_value.value(), value, stack, ns, merging_write));
-    }
-    else
-    {
-      result->map.insert(
-        index_value,
-        environment.write(
-          get_top_entry(environment, ns), value, stack, ns, merging_write));
-    }
-
+    auto const existing_value = map_find_or_top(index.value, environment, ns);
+    result->map_put(
+      index.value,
+      environment.write(existing_value, value, stack, ns, merging_write),
+      index.overrun);
     result->set_not_top();
     DATA_INVARIANT(result->verify(), "Structural invariants maintained");
     return result;
@@ -322,10 +314,9 @@ abstract_object_pointert full_array_abstract_objectt::write_leaf_element(
   const auto &result =
     std::dynamic_pointer_cast<full_array_abstract_objectt>(mutable_clone());
 
-  mp_integer index_value;
-  bool good_index = eval_index(expr, environment, ns, index_value);
+  auto index = eval_index(expr, environment, ns);
 
-  if(good_index)
+  if(index.is_good)
   {
     // We were able to evaluate the index expression to a constant
     if(merging_write)
@@ -338,11 +329,13 @@ abstract_object_pointert full_array_abstract_objectt::write_leaf_element(
 
       INVARIANT(!result->map.empty(), "If not top, map cannot be empty");
 
-      auto old_value = result->map.find(index_value);
+      auto old_value = result->map.find(index.value);
       if(old_value.has_value()) // if not found it's top, so nothing to merge
       {
         result->map.replace(
-          index_value, abstract_objectt::merge(old_value.value(), value));
+          index.value,
+          abstract_objectt::merge(old_value.value(), value, widen_modet::no)
+            .object);
       }
 
       DATA_INVARIANT(result->verify(), "Structural invariants maintained");
@@ -350,14 +343,9 @@ abstract_object_pointert full_array_abstract_objectt::write_leaf_element(
     }
     else
     {
-      auto old_value = result->map.find(index_value);
-
-      if(old_value.has_value())
-        result->map.replace(index_value, value);
-      else
-        result->map.insert(index_value, value);
-
+      result->map_put(index.value, value, index.overrun);
       result->set_not_top();
+
       DATA_INVARIANT(result->verify(), "Structural invariants maintained");
       return result;
     }
@@ -369,11 +357,56 @@ abstract_object_pointert full_array_abstract_objectt::write_leaf_element(
     environment, ns, std::stack<exprt>(), expr, value, merging_write);
 }
 
+void full_array_abstract_objectt::map_put(
+  mp_integer index_value,
+  const abstract_object_pointert &value,
+  bool overrun)
+{
+  auto old_value = map.find(index_value);
+
+  if(!old_value.has_value())
+    map.insert(index_value, value);
+  else
+  {
+    // if we're over the max_index, merge with existing value
+    auto replacement_value =
+      overrun
+        ? abstract_objectt::merge(old_value.value(), value, widen_modet::no)
+            .object
+        : value;
+
+    map.replace(index_value, replacement_value);
+  }
+}
+
+abstract_object_pointert full_array_abstract_objectt::map_find_or_top(
+  mp_integer index_value,
+  const abstract_environmentt &env,
+  const namespacet &ns) const
+{
+  auto value = map.find(index_value);
+  if(value.has_value())
+    return value.value();
+  return get_top_entry(env, ns);
+}
+
 abstract_object_pointert full_array_abstract_objectt::get_top_entry(
   const abstract_environmentt &env,
   const namespacet &ns) const
 {
   return env.abstract_object_factory(type().subtype(), ns, true, false);
+}
+
+abstract_object_pointert full_array_abstract_objectt::write_location_context(
+  const locationt &location) const
+{
+  return visit_sub_elements(location_update_visitort(location));
+}
+
+abstract_object_pointert full_array_abstract_objectt::merge_location_context(
+  const locationt &location) const
+{
+  return visit_sub_elements(merge_location_update_visitort(location));
 }
 
 abstract_object_pointert full_array_abstract_objectt::visit_sub_elements(
@@ -382,25 +415,31 @@ abstract_object_pointert full_array_abstract_objectt::visit_sub_elements(
   const auto &result =
     std::dynamic_pointer_cast<full_array_abstract_objectt>(mutable_clone());
 
-  bool modified = false;
-  for(auto &item : result->map.get_view())
+  bool is_modified = visit_map(result->map, visitor);
+
+  return is_modified ? result : shared_from_this();
+}
+
+exprt full_array_abstract_objectt::to_predicate_internal(
+  const exprt &name) const
+{
+  auto all_predicates = exprt::operandst{};
+
+  for(auto field : map.get_sorted_view())
   {
-    auto newval = visitor.visit(item.second);
-    if(newval != item.second)
-    {
-      result->map.replace(item.first, std::move(newval));
-      modified = true;
-    }
+    auto ii = from_integer(field.first.to_long(), integer_typet());
+    auto index = index_exprt(name, ii);
+    auto field_expr = field.second->to_predicate(index);
+
+    if(!field_expr.is_true())
+      all_predicates.push_back(field_expr);
   }
 
-  if(modified)
-  {
-    return result;
-  }
-  else
-  {
-    return shared_from_this();
-  }
+  if(all_predicates.empty())
+    return true_exprt();
+  if(all_predicates.size() == 1)
+    return all_predicates.front();
+  return and_exprt(all_predicates);
 }
 
 void full_array_abstract_objectt::statistics(
@@ -419,20 +458,33 @@ void full_array_abstract_objectt::statistics(
   statistics.objects_memory_usage += memory_sizet::from_bytes(sizeof(*this));
 }
 
-bool eval_index(
+static eval_index_resultt eval_index(
   const exprt &expr,
   const abstract_environmentt &env,
-  const namespacet &ns,
-  mp_integer &out_index)
+  const namespacet &ns)
 {
-  const index_exprt &index = to_index_expr(expr);
-  abstract_object_pointert index_abstract_object = env.eval(index.index(), ns);
-  exprt value = index_abstract_object->to_constant();
+  const auto &index_expr = to_index_expr(expr);
+  auto index_abstract_object = env.eval(index_expr.index(), ns);
+  auto value = index_abstract_object->to_constant();
 
   if(!value.is_constant())
-    return false;
+    return {false};
 
-  constant_exprt constant_index = to_constant_expr(value);
-  bool result = to_integer(constant_index, out_index);
-  return !result;
+  mp_integer out_index;
+  bool result = to_integer(to_constant_expr(value), out_index);
+  if(result)
+    return {false};
+
+  return eval_index(out_index, env, ns);
+}
+
+static eval_index_resultt eval_index(
+  const mp_integer &index,
+  const abstract_environmentt &env,
+  const namespacet &ns)
+{
+  auto max_array_index = env.configuration().maximum_array_index;
+  bool overrun = (index >= max_array_index);
+
+  return {true, overrun ? max_array_index : index, overrun};
 }

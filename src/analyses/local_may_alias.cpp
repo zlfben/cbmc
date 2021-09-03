@@ -393,11 +393,9 @@ void local_may_aliast::build(const goto_functiont &goto_function)
 
     case FUNCTION_CALL:
     {
-      const code_function_callt &code_function_call =
-        instruction.get_function_call();
-      if(code_function_call.lhs().is_not_nil())
-        assign_lhs(
-          code_function_call.lhs(), nil_exprt(), loc_info_src, loc_info_dest);
+      const auto &lhs = instruction.call_lhs();
+      if(lhs.is_not_nil())
+        assign_lhs(lhs, nil_exprt(), loc_info_src, loc_info_dest);
 
       // this might invalidate all pointers that are
       // a) local and dirty
@@ -423,9 +421,9 @@ void local_may_aliast::build(const goto_functiont &goto_function)
     case THROW:
       DATA_INVARIANT(false, "Exceptions must be removed before analysis");
       break;
-    case RETURN:
+    case SET_RETURN_VALUE:
 #if 0
-      DATA_INVARIANT(false, "Returns must be removed before analysis");
+      DATA_INVARIANT(false, "SET_RETURN_VALUE must be removed before analysis");
 #endif
       break;
     case GOTO:         // Ignoring the guard is a valid over-approximation

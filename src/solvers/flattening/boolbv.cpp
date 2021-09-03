@@ -42,24 +42,29 @@ boolbvt::convert_bv(const exprt &expr, optionalt<std::size_t> expected_width)
   // check cache first
   std::pair<bv_cachet::iterator, bool> cache_result=
     bv_cache.insert(std::make_pair(expr, bvt()));
+
+  // get a reference to the cache entry
+  auto &cache_entry = cache_result.first->second;
+
   if(!cache_result.second)
   {
-    return cache_result.first->second;
+    // Found in cache
+    return cache_entry;
   }
 
-  // Iterators into hash_maps supposedly stay stable
-  // even though we are inserting more elements recursively.
-
-  cache_result.first->second = convert_bitvector(expr);
+  // Iterators into hash_maps do not remain valid when inserting
+  // more elements recursively. C++11 §23.2.5/13
+  // However, the _reference_ to the entry does!
+  cache_entry = convert_bitvector(expr);
 
   INVARIANT_WITH_DIAGNOSTICS(
-    !expected_width || cache_result.first->second.size() == *expected_width,
+    !expected_width || cache_entry.size() == *expected_width,
     "bitvector width shall match the indicated expected width",
     expr.find_source_location(),
     irep_pretty_diagnosticst(expr));
 
   // check
-  for(const auto &literal : cache_result.first->second)
+  for(const auto &literal : cache_entry)
   {
     if(freeze_all && !literal.is_constant())
       prop.set_frozen(literal);
@@ -71,7 +76,7 @@ boolbvt::convert_bv(const exprt &expr, optionalt<std::size_t> expected_width)
       irep_pretty_diagnosticst(expr));
   }
 
-  return cache_result.first->second;
+  return cache_entry;
 }
 
 /// Print that the expression of x has failed conversion,
@@ -132,12 +137,16 @@ bvt boolbvt::convert_bitvector(const exprt &expr)
   else if(expr.id()==ID_shl || expr.id()==ID_ashr || expr.id()==ID_lshr ||
           expr.id()==ID_rol || expr.id()==ID_ror)
     return convert_shift(to_shift_expr(expr));
-  else if(expr.id()==ID_floatbv_plus || expr.id()==ID_floatbv_minus ||
-          expr.id()==ID_floatbv_mult || expr.id()==ID_floatbv_div ||
-          expr.id()==ID_floatbv_rem)
+  else if(
+    expr.id() == ID_floatbv_plus || expr.id() == ID_floatbv_minus ||
+    expr.id() == ID_floatbv_mult || expr.id() == ID_floatbv_div)
   {
     return convert_floatbv_op(to_ieee_float_op_expr(expr));
   }
+  else if(expr.id() == ID_floatbv_mod)
+    return convert_floatbv_mod_rem(to_binary_expr(expr));
+  else if(expr.id() == ID_floatbv_rem)
+    return convert_floatbv_mod_rem(to_binary_expr(expr));
   else if(expr.id()==ID_floatbv_typecast)
     return convert_floatbv_typecast(to_floatbv_typecast_expr(expr));
   else if(expr.id()==ID_concatenation)
@@ -539,17 +548,38 @@ bool boolbvt::is_unbounded_array(const typet &type) const
   if(unbounded_array==unbounded_arrayt::U_ALL)
     return true;
 
-  const exprt &size=to_array_type(type).size();
-
-  const auto s = numeric_cast<mp_integer>(size);
-  if(!s.has_value())
+  const std::size_t size = boolbv_width(type);
+  if(size == 0)
     return true;
 
   if(unbounded_array==unbounded_arrayt::U_AUTO)
-    if(*s > MAX_FLATTENED_ARRAY_SIZE)
+    if(size > MAX_FLATTENED_ARRAY_SIZE)
       return true;
 
   return false;
+}
+
+binding_exprt::variablest boolbvt::fresh_binding(const binding_exprt &binding)
+{
+  // to ensure freshness of the new identifiers
+  scope_counter++;
+
+  binding_exprt::variablest result;
+  result.reserve(binding.variables().size());
+
+  for(const auto &binding : binding.variables())
+  {
+    const auto &old_identifier = binding.get_identifier();
+
+    // produce a new identifier
+    const irep_idt new_identifier =
+      "boolbvt::scope::" + std::to_string(scope_counter) +
+      "::" + id2string(old_identifier);
+
+    result.emplace_back(new_identifier, binding.type());
+  }
+
+  return result;
 }
 
 void boolbvt::print_assignment(std::ostream &out) const
