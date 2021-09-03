@@ -461,8 +461,24 @@ void rra_spect::spect::insert_entity(
     insert_entity(_name, entityt::LENGTH);
   else if(_type == "const_c_str")
     insert_entity(_name, entityt::CONST_C_STR);
+  else if(_type == "iterator_scalar_indep")
+  {
+    insert_entity(_name, entityt::ITERATOR_SCALAR);
+    // this type will mark the loop as "independent"
+    // and disable soundness checking for this loop
+    // currently we only support plain variables as iterator
+    // TODO: support member of struct here
+    set_indep_iterator(_name);
+  }
   else
     throw "unknown entity type: " + _type;
+}
+
+void rra_spect::spect::set_indep_iterator(const irep_idt &_name)
+{
+  INVARIANT(has_index_entity(_name), 
+    "The iterator marked indep should exist.");
+  indep_iterators.insert(_name);
 }
 
 std::vector<exprt>

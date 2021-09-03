@@ -228,6 +228,9 @@ public:
     // We'll only add assumptions that those are at concrete locations.
     std::unordered_map<irep_idt, std::unique_ptr<entityt>> length_entities;
 
+    // Mark some iterators' loops as "independent"
+    std::unordered_set<irep_idt> indep_iterators;
+
     // Shape of the abstraction
     abst_shapet shape;
 
@@ -270,7 +273,8 @@ public:
     {
     }
     spect(const spect &_spec)
-      : shape(_spec.shape),
+      : indep_iterators(_spec.indep_iterators), 
+        shape(_spec.shape),
         is_precise_func(_spec.is_precise_func),
         compare_indices_func(_spec.compare_indices_func),
         addition_func(_spec.addition_func),
@@ -291,6 +295,7 @@ public:
 
     spect &operator=(const spect &other)
     {
+      indep_iterators = other.indep_iterators; 
       shape = other.shape;
       is_precise_func = other.is_precise_func;
       compare_indices_func = other.compare_indices_func;
@@ -329,6 +334,9 @@ public:
     // We will have functions for accessing and modifying the above data.
     // _type: "array", "scalar", "length", etc.
     void insert_entity(const irep_idt &_name, const std::string &_type);
+
+    // Mark an iterator's loop as "independent"
+    void set_indep_iterator(const irep_idt &_name);
 
     // Return the top level entities, which are "roots" in the entity forest
     std::unordered_map<irep_idt, entityt> get_top_level_abst_entities() const;
@@ -387,6 +395,11 @@ public:
     {
       const auto abst_indices = get_abst_iterator_scalars();
       return (abst_indices.find(entity_name) != abst_indices.end());
+    }
+
+    bool has_indep_iterator(const irep_idt &name) const
+    {
+      return indep_iterators.find(name) != indep_iterators.end();
     }
 
     const irep_idt get_length_index_name() const
@@ -608,6 +621,16 @@ public:
     return false;
   }
 
+  // check if a variable is an "indep" iterator
+  bool has_indep_iterator(const irep_idt &name) const
+  {
+    for(const spect &spec : specs)
+    {
+      if(spec.has_indep_iterator(name))
+        return true;
+    }
+    return false;
+  }
   // return the spect that has the entity,
   // should always run has_index_entity before running this function
   const spect &get_spec_for_index_entity(const irep_idt &entity_name) const

@@ -1747,9 +1747,11 @@ void rrat::analyze_soundness_loop(
       if(writes_all.find(expr_read) != writes_all.end() && 
          writes_within_iteration.find(expr_read) == writes_within_iteration.end())
       {
-        std::cout << "!!!!!Dependence found for variable ";
-        format_rec(std::cout, expr_read);
-        std::cout << std::endl;
+        std::cout << "Dependence: ";
+        format_rec(std::cout, expr_read) << std::endl;
+        throw "Dependence found for loop. Please consider "
+              "manually check the loop. If no dependence, "
+              "please mark the iterator as ITERATOR_SCALAR_INDEP";
       }
     }
 
@@ -1784,6 +1786,8 @@ void rrat::analyze_soundness(
     local_may_aliast local_may_alias(goto_func->second);
     
     for (const auto &loop: natural_loops.loop_map) {
+      if(skip_loop(loop.second, abst_spec))
+        continue;
       analyze_soundness_loop(
         local_may_alias, 
         loop.second, 
@@ -1791,6 +1795,75 @@ void rrat::analyze_soundness(
       
     }
   }
+}
+
+bool rrat::skip_loop(
+  const loopt &loop,
+  const rra_spect &abst_spec)
+{
+  class get_access_sett : public const_expr_visitort
+  {
+  public:
+    std::unordered_set<irep_idt> &accesses;
+    get_access_sett(std::unordered_set<irep_idt> &_accesses) 
+      : accesses(_accesses)
+    {
+    }
+    void operator()(const exprt &expr)
+    {
+      if(expr.id() == ID_symbol)
+      {
+        const irep_idt &symb_name = to_symbol_expr(expr).get_identifier();
+        accesses.insert(symb_name);
+      }
+    }
+  };
+
+  // all accessed symbols in the loop
+  std::unordered_set<irep_idt> accesses;
+  get_access_sett gas(accesses);
+
+  for(loopt::const_iterator
+    i_it=loop.begin(); i_it!=loop.end(); i_it++)
+  {
+    const goto_programt::instructiont &instruction=**i_it;
+    if(instruction.is_goto() || instruction.is_assert() || instruction.is_assume())
+    {
+      const exprt &expr = instruction.get_condition();
+      expr.visit(gas);
+    }
+    else if(instruction.is_return())
+    {
+      if(instruction.get_return().has_return_value())
+      {
+        const exprt &ret = instruction.get_return().return_value();
+        ret.visit(gas);
+      }
+    }
+    else if(instruction.is_assign())
+    {
+      const exprt &lhs = instruction.get_assign().lhs();
+      const exprt &rhs = instruction.get_assign().rhs();
+      lhs.visit(gas);
+      rhs.visit(gas);
+    }
+    else if(instruction.is_function_call())
+    {
+      const exprt &lhs = instruction.get_function_call().lhs();
+      lhs.visit(gas);
+      for (const auto &arg: instruction.get_function_call().arguments())
+        arg.visit(gas);
+    }
+  }
+
+  // then check if any of them is in the "skip list"
+  for(const auto &id: accesses)
+  {
+    if(abst_spec.has_indep_iterator(id))
+      return true;
+  }
+
+  return false;
 }
 
 bool rrat::check_if_inst_is_iterator_update(
@@ -1886,7 +1959,7 @@ void rrat::abstract_goto_program(goto_modelt &goto_model, rra_spect &abst_spec)
   // Analyze soundness of abstraction
   // The loop analyse has some issue with AWS-C-Common loops (e.g. buf_append_lookup)
   // Currently let's disable that.
-  // analyze_soundness(goto_model, all_funcs, abst_spec);
+  analyze_soundness(goto_model, all_funcs, abst_spec);
   
   // Define the global concrete indices to be used
   define_concrete_indices(goto_model, abst_spec);

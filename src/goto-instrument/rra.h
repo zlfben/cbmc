@@ -390,6 +390,12 @@ protected:
     std::unordered_set<irep_idt> &all_funcs,
     const rra_spect &abst_spec);
   
+  // check if we can skip the loop
+  static bool skip_loop(
+    const loopt &loop,
+    const rra_spect &abst_spec
+  );
+
   // check if an instruction is an iterator update (i.e. i=i+1)
   static bool check_if_inst_is_iterator_update(
     goto_programt::instructiont::targett it, 
