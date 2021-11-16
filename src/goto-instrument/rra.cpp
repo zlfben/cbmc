@@ -1357,7 +1357,7 @@ exprt rrat::abstract_expr_read(
         );
       }
 
-      return std::move(result_expr);
+      return result_expr;
     }
     else
     {
